@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\MenuItemController;
 use App\Models\User;
 // use App\Http\Controllers\Auth\LoginController;
 use Illuminate\Http\Request;
@@ -13,8 +14,13 @@ Route::get('/user', function (Request $request) {
 Route::post('/login', [AuthController::class, 'login']);
 // Route::post('/logout', [LoginController::class, 'logout']);
 
-Route::post('logout', [AuthController::class, 'logout'])->name('logout');
+
+Route::middleware('auth:sanctum')->post('logout', [AuthController::class, 'logout'])->name('logout');
 
 Route::middleware('auth:sanctum')->get("/auth/me", function (Request $request) {
     return response()->json(['user' => $request->user()]);
+});
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::apiResource('menu-item', MenuItemController::class);
 });
