@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\BranchController;
 use App\Models\User;
 // use App\Http\Controllers\Auth\LoginController;
 use Illuminate\Http\Request;
@@ -18,3 +19,5 @@ Route::post('logout', [AuthController::class, 'logout'])->name('logout');
 Route::middleware('auth:sanctum')->get("/auth/me", function (Request $request) {
     return response()->json(['user' => $request->user()]);
 });
+
+Route::post('/branches', [BranchController::class, 'store']);
