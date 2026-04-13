@@ -22,4 +22,3 @@ class ApiController extends Controller
         return in_array(strtolower($relationship), $includeValues);
     }
 }
-

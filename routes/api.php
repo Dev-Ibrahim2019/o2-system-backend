@@ -1,20 +1,38 @@
 <?php
 
 use App\Http\Controllers\Auth\AuthController;
-use App\Models\User;
-// use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\Administration\DepartmentController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/user', function (Request $request) {
-    return User::whereId(2)->get(['name', 'email']);
-});
+/*
+|--------------------------------------------------------------------------
+| Public Routes
+|--------------------------------------------------------------------------
+*/
 
+// تسجيل الدخول
 Route::post('/login', [AuthController::class, 'login']);
-// Route::post('/logout', [LoginController::class, 'logout']);
 
-Route::post('logout', [AuthController::class, 'logout'])->name('logout');
 
-Route::middleware('auth:sanctum')->get("/auth/me", function (Request $request) {
-    return response()->json(['user' => $request->user()]);
+/*
+|--------------------------------------------------------------------------
+| Protected Routes (Sanctum)
+|--------------------------------------------------------------------------
+*/
+Route::middleware('auth:sanctum')->group(function () {
+
+    // تسجيل الخروج
+    Route::post('/logout', [AuthController::class, 'logout']);
+
+    // المستخدم الحالي
+    Route::get('/auth/me', function (Request $request) {
+        return response()->json([
+            'user' => $request->user()
+        ]);
+    });
+
+    // Departments CRUD
+
 });
+Route::apiResource('departments', DepartmentController::class);
