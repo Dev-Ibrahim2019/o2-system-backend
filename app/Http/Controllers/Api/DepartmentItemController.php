@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\DepartmentItemResource;
 use App\Models\DepartmentItem;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class DepartmentItemController extends Controller
 {
@@ -29,9 +30,9 @@ class DepartmentItemController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'branch_id'     => 'required|uuid|exists:branches,id',
-            'department_id' => 'required|uuid|exists:departments,id',
-            'item_id'       => 'required|uuid|exists:items,id',
+            'branch_id'     => 'required|integer|exists:branches,id',
+            'department_id' => 'required|integer|exists:departments,id',
+            'item_id'       => 'required|integer|exists:items,id',
             'role'          => 'required|in:sale,ingredient,raw_material',
             'price'         => 'nullable|numeric|min:0',
             'is_active'     => 'boolean',
@@ -39,6 +40,7 @@ class DepartmentItemController extends Controller
 
         // التحقق من عدم التكرار
         $exists = DepartmentItem::where([
+            'branch_id'     => $data['branch_id'],
             'department_id' => $data['department_id'],
             'item_id'       => $data['item_id'],
             'role'          => $data['role'],
@@ -47,6 +49,19 @@ class DepartmentItemController extends Controller
         if ($exists) {
             return response()->json([
                 'message' => 'هذا الصنف موجود بنفس الدور في هذا القسم',
+            ], 422);
+        }
+        
+        // تحقق إن هذا الفرع فعلاً عنده هذا القسم
+        $branchHasDept = DB::table('branch_department')
+            ->where('branch_id', $data['branch_id'])
+            ->where('department_id', $data['department_id'])
+            ->where('is_active', true)
+            ->exists();
+
+        if (!$branchHasDept) {
+            return response()->json([
+                'message' => 'هذا الفرع لا يملك هذا القسم — اربطهما أولاً',
             ], 422);
         }
 
@@ -63,7 +78,7 @@ class DepartmentItemController extends Controller
     public function show(DepartmentItem $departmentItem)
     {
         return new DepartmentItemResource(
-            $departmentItem->load(['item.group', 'department.branch', 'branch'])
+            $departmentItem->load(['item.group', 'department', 'branch'])
         );
     }
 

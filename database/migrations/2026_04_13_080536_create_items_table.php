@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('group_id')
                 ->nullable()
-                ->constrained('group_id')
+                ->constrained('item_groups')
                 ->nullOnDelete();
             $table->string('image')->nullable();
             $table->string('name');

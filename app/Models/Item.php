@@ -11,7 +11,7 @@ class Item extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = ['group_id', 'name', 'unit', 'base_type', 'is_active'];
+    protected $fillable = ['group_id', 'name', 'unit', 'base_type', 'is_active', 'image'];
 
     protected $casts = [
         'is_active' => 'boolean',

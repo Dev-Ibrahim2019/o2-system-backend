@@ -14,8 +14,11 @@ class BranchController extends Controller
      */
     public function index()
     {
-        $branches = Branch::withCount('departments')
-            ->when(request('with_departments'), fn($q) => $q->with('departments'))
+       $branches = Branch::withCount('departments')
+            ->when(
+                request('with_departments'),
+                fn($q) => $q->with(['departments' => fn($q) => $q->withPivot('is_active')])
+            )
             ->get();
 
         return BranchResource::collection($branches);
@@ -42,7 +45,10 @@ class BranchController extends Controller
      */
     public function show(Branch $branch)
     {
-        $branch->load('departments.departmentItems.item.group');
+       $branch->load([
+            'departments' => fn($q) => $q->withPivot('is_active'),
+            'departments.departmentItems.item.group',
+        ]);
 
         return new BranchResource($branch);
     }

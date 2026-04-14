@@ -21,7 +21,7 @@ class BranchResource extends JsonResource
             'is_active'    => $this->is_active,
             'created_at'   => $this->created_at->toDateTimeString(),
             // العلاقات — تُضاف فقط إذا محمّلة
-            'departments'  => DepartmentResource::collection($this->whenLoaded('departments')),
+            'departments' => DepartmentResource::collection($this->whenLoaded('departments')),
         ];
     }
 }

@@ -5,7 +5,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -15,12 +15,11 @@ class Department extends Model
 
     protected $fillable = [
         'name',
-        'branch_id',
+        'type',
+        'is_active',
         'shortName',
         'icon',
         'color',
-        'type',
-        'status',
         'stationNumber',
         'defaultPrepTime',
         'maxConcurrentOrders',
@@ -36,11 +35,12 @@ class Department extends Model
         'defaultPrepTime'     => 'integer',
     ];
 
-    public function branch(): BelongsTo
+    public function branches(): BelongsToMany
     {
-        return $this->belongsTo(Branch::class);
+        return $this->belongsToMany(Branch::class, 'branch_department')
+                    ->withPivot('is_active')
+                    ->withTimestamps();
     }
-
     public function departmentItems(): HasMany
     {
         return $this->hasMany(DepartmentItem::class);

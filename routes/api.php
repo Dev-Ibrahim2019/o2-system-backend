@@ -1,6 +1,11 @@
 <?php
 
-use App\Http\Controllers\Administration\DepartmentController;
+use App\Http\Controllers\Api\DepartmentController;
+use App\Http\Controllers\Api\BranchController;
+use App\Http\Controllers\Api\DepartmentItemController;
+use App\Http\Controllers\Api\ItemController;
+use App\Http\Controllers\Api\ItemGroupController;
+use App\Http\Controllers\Api\RecipeController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -18,5 +23,21 @@ Route::middleware('auth:sanctum')->get("/auth/me", function (Request $request) {
 });
 
 Route::middleware('auth:sanctum')->group(function () {
+    Route::apiResource('branches', BranchController::class);
+    Route::get('branches/{branch}/menu', [BranchController::class, 'menu']);
+
     Route::apiResource('departments', DepartmentController::class);
+    Route::post('departments/{department}/branches/{branch}', [DepartmentController::class, 'attachBranch']);
+    Route::delete('departments/{department}/branches/{branch}', [DepartmentController::class, 'detachBranch']);
+
+    Route::get('item-groups/tree', [ItemGroupController::class, 'tree']);
+    Route::apiResource('item-groups', ItemGroupController::class);
+
+    Route::get('items/{item}/usages', [ItemController::class, 'usages']);
+    Route::apiResource('items', ItemController::class);
+
+    Route::apiResource('department-items', DepartmentItemController::class);
+
+    Route::get('recipes/{recipe}/cost', [RecipeController::class, 'cost']);
+    Route::apiResource('recipes', RecipeController::class);
 });
