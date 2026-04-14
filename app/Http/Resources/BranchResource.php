@@ -15,8 +15,13 @@ class BranchResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id' => $request->id,
-            
+            'id'           => $this->id,
+            'name'         => $this->name,
+            'location'     => $this->location,
+            'is_active'    => $this->is_active,
+            'created_at'   => $this->created_at->toDateTimeString(),
+            // العلاقات — تُضاف فقط إذا محمّلة
+            'departments'  => DepartmentResource::collection($this->whenLoaded('departments')),
         ];
     }
 }
