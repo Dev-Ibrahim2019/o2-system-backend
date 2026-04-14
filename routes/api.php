@@ -1,9 +1,8 @@
 <?php
 
+use App\Http\Controllers\Administration\DepartmentController;
 use App\Http\Controllers\Auth\AuthController;
-use App\Http\Controllers\MenuItemController;
 use App\Models\User;
-// use App\Http\Controllers\Auth\LoginController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -12,9 +11,6 @@ Route::get('/user', function (Request $request) {
 });
 
 Route::post('/login', [AuthController::class, 'login']);
-// Route::post('/logout', [LoginController::class, 'logout']);
-
-
 Route::middleware('auth:sanctum')->post('logout', [AuthController::class, 'logout'])->name('logout');
 
 Route::middleware('auth:sanctum')->get("/auth/me", function (Request $request) {
@@ -22,5 +18,5 @@ Route::middleware('auth:sanctum')->get("/auth/me", function (Request $request) {
 });
 
 Route::middleware('auth:sanctum')->group(function () {
-    Route::apiResource('menu-item', MenuItemController::class);
+    Route::apiResource('departments', DepartmentController::class);
 });
