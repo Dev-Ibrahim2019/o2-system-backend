@@ -14,7 +14,7 @@ class BranchController extends Controller
      */
     public function index()
     {
-       $branches = Branch::withCount('departments')
+        $branches = Branch::withCount('departments')
             ->when(
                 request('with_departments'),
                 fn($q) => $q->with(['departments' => fn($q) => $q->withPivot('is_active')])
@@ -41,7 +41,7 @@ class BranchController extends Controller
      */
     public function show(Branch $branch)
     {
-       $branch->load([
+        $branch->load([
             'departments' => fn($q) => $q->withPivot('is_active'),
             'departments.departmentItems.item.group',
         ]);
