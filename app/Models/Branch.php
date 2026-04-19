@@ -11,7 +11,7 @@ class Branch extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = ['name', 'location', 'is_active'];
+    protected $fillable = ['name', 'address', 'is_active', 'phone', 'code', 'isMainBranch', 'closingTime', 'openingTime'];
 
     protected $casts = [
         'is_active' => 'boolean',

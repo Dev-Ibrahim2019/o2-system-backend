@@ -29,11 +29,7 @@ class BranchController extends Controller
      */
     public function store(Request $request)
     {
-        $data = $request->validate([
-            'name'      => 'required|string|max:255',
-            'location'  => 'nullable|string|max:255',
-            'is_active' => 'boolean',
-        ]);
+        $data = $request->all();
 
         $branch = Branch::create($data);
 
@@ -58,13 +54,13 @@ class BranchController extends Controller
      */
     public function update(Request $request, Branch $branch)
     {
-        $data = $request->validate([
-            'name'      => 'sometimes|string|max:255',
-            'location'  => 'nullable|string|max:255',
-            'is_active' => 'boolean',
-        ]);
+        // $data = $request->validate([
+        //     'name'      => 'sometimes|string|max:255',
+        //     'location'  => 'nullable|string|max:255',
+        //     'is_active' => 'boolean',
+        // ]);
 
-        $branch->update($data);
+        $branch->update($request->all());
 
         return new BranchResource($branch);
     }
