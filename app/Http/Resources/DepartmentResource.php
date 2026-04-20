@@ -13,18 +13,22 @@ class DepartmentResource extends JsonResource
         return [
             'id'                  => $this->id,
             'name'                => $this->name,
-            'nameAr'              => $this->nameAr,
             'shortName'           => $this->shortName,
             'icon'                => $this->icon,
             'color'               => $this->color,
             'type'                => $this->type,
-            'status'              => $this->status,
-            'location'            => $this->location,
+            'is_active'           => $this->is_active,
             'stationNumber'       => $this->stationNumber,
             'defaultPrepTime'     => $this->defaultPrepTime,
             'maxConcurrentOrders' => $this->maxConcurrentOrders,
             'hasKds'              => $this->hasKds,
             'autoPrintTicket'     => $this->autoPrintTicket,
+
+            'branches' => BranchResource::collection($this->whenLoaded('branches')),
+            'is_active_in_branch' => $this->when(
+                isset($this->pivot),
+                fn() => (bool) $this->pivot?->is_active
+            ),
         ];
     }
 }

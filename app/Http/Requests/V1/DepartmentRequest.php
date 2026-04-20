@@ -14,20 +14,22 @@ class DepartmentRequest extends FormRequest
 
     public function rules(): array
     {
+        $required = $this->isMethod('post') ? ['required'] : ['sometimes'];
+
         return [
-            'name'                => ['required', 'string', 'max:255'],
-            'nameAr'              => ['nullable', 'string', 'max:255'],
+            'name'                => [...$required, 'string', 'max:255'],
             'shortName'           => ['nullable', 'string', 'max:10'],
             'icon'                => ['nullable', 'string'],
             'color'               => ['nullable', 'string', 'max:20'],
-            'type'                => ['nullable', 'in:KITCHEN,BAR,GRILL,PASTRY,OTHER'],
-            'status'              => ['nullable', 'in:ACTIVE,BUSY,INACTIVE'],
-            'location'            => ['nullable', 'string'],
+            'type'                => [...$required, 'in:sale,production,storage'],
+            'is_active'           => ['nullable', 'boolean'],
             'stationNumber'       => ['nullable', 'string'],
             'defaultPrepTime'     => ['nullable', 'integer', 'min:0'],
             'maxConcurrentOrders' => ['nullable', 'integer', 'min:1'],
             'hasKds'              => ['nullable', 'boolean'],
             'autoPrintTicket'     => ['nullable', 'boolean'],
+            'branch_ids'          => ['sometimes', 'array'],
+            'branch_ids.*'        => ['integer', 'exists:branches,id'],
         ];
     }
 }
