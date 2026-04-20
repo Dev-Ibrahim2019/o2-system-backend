@@ -18,11 +18,19 @@ class DepartmentRequest extends FormRequest
 
         return [
             'name'                => [...$required, 'string', 'max:255'],
+            'nameAr'              => ['nullable', 'string'],   // ← الفرونت يرسله
             'shortName'           => ['nullable', 'string', 'max:10'],
             'icon'                => ['nullable', 'string'],
             'color'               => ['nullable', 'string', 'max:20'],
-            'type'                => [...$required, 'in:sale,production,storage'],
+
+            // ← يقبل كلا التنسيقين
+            'type'                => [...$required, 'in:sale,production,storage,KITCHEN,BAR,GRILL,PASTRY,OTHER'],
+
+            // ← الفرونت يرسل status كـ string
+            'status'              => ['nullable', 'string'],
             'is_active'           => ['nullable', 'boolean'],
+
+            'location'            => ['nullable', 'string'],
             'stationNumber'       => ['nullable', 'string'],
             'defaultPrepTime'     => ['nullable', 'integer', 'min:0'],
             'maxConcurrentOrders' => ['nullable', 'integer', 'min:1'],
