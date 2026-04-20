@@ -1,30 +1,43 @@
 <?php
+// app/Http/Requests/V1/DepartmentRequest.php
 
-namespace App\Http\Resources;
+namespace App\Http\Requests\V1;
 
-use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Foundation\Http\FormRequest;
 
-class DepartmentItemResource extends JsonResource
+class DepartmentRequest extends FormRequest
 {
-    /**
-     * Transform the resource into an array.
-     *
-     * @return array<string, mixed>
-     */
-    public function toArray(Request $request): array
+    public function authorize(): bool
     {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        $required = $this->isMethod('post') ? ['required'] : ['sometimes'];
+
         return [
-            'id'            => $this->id,
-            'branch_id'     => $this->branch_id,
-            'department_id' => $this->department_id,
-            'item_id'       => $this->item_id,
-            'role'          => $this->role,
-            'price'         => $this->price,
-            'is_active'     => $this->is_active,
-            'item'          => new ItemResource($this->whenLoaded('item')),
-            'department'    => new DepartmentResource($this->whenLoaded('department')),
-            'branch'        => new BranchResource($this->whenLoaded('branch')),
+            'name'                => [...$required, 'string', 'max:255'],
+            'nameAr'              => ['nullable', 'string'],   // ← الفرونت يرسله
+            'shortName'           => ['nullable', 'string', 'max:10'],
+            'icon'                => ['nullable', 'string'],
+            'color'               => ['nullable', 'string', 'max:20'],
+
+            // ← يقبل كلا التنسيقين
+            'type'                => [...$required, 'in:sale,production,storage,KITCHEN,BAR,GRILL,PASTRY,OTHER'],
+
+            // ← الفرونت يرسل status كـ string
+            'status'              => ['nullable', 'string'],
+            'is_active'           => ['nullable', 'boolean'],
+
+            'location'            => ['nullable', 'string'],
+            'stationNumber'       => ['nullable', 'string'],
+            'defaultPrepTime'     => ['nullable', 'integer', 'min:0'],
+            'maxConcurrentOrders' => ['nullable', 'integer', 'min:1'],
+            'hasKds'              => ['nullable', 'boolean'],
+            'autoPrintTicket'     => ['nullable', 'boolean'],
+            'branch_ids'          => ['sometimes', 'array'],
+            'branch_ids.*'        => ['integer', 'exists:branches,id'],
         ];
     }
 }
