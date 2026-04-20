@@ -13,22 +13,31 @@ class DepartmentResource extends JsonResource
         return [
             'id'                  => $this->id,
             'name'                => $this->name,
+            'nameAr'              => $this->name,           // ← الفرونت يستخدم nameAr
             'shortName'           => $this->shortName,
             'icon'                => $this->icon,
             'color'               => $this->color,
             'type'                => $this->type,
-            'is_active'           => $this->is_active,
+
+            // ← تحويل is_active boolean → status string
+            'status'              => $this->is_active ? 'ACTIVE' : 'INACTIVE',
+
+            'location'            => $this->stationNumber ? "Station {$this->stationNumber}" : null,
             'stationNumber'       => $this->stationNumber,
             'defaultPrepTime'     => $this->defaultPrepTime,
             'maxConcurrentOrders' => $this->maxConcurrentOrders,
-            'hasKds'              => $this->hasKds,
-            'autoPrintTicket'     => $this->autoPrintTicket,
+            'hasKds'              => (bool) $this->hasKds,
+            'autoPrintTicket'     => (bool) $this->autoPrintTicket,
+
+            // حقول يحتاجها types.ts في الفرونت
+            'displayOrder'        => 0,
+            'priority'            => 1,
+            'requiresAssembly'    => false,
+            'notifications'       => ['sound' => true, 'flash' => false, 'push' => true],
+            'orderTypeVisibility' => ['DINE_IN', 'TAKEAWAY', 'DELIVERY'],
+            'branchId'            => null,
 
             'branches' => BranchResource::collection($this->whenLoaded('branches')),
-            'is_active_in_branch' => $this->when(
-                isset($this->pivot),
-                fn() => (bool) $this->pivot?->is_active
-            ),
         ];
     }
 }
