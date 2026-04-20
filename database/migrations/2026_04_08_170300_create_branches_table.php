@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('branches', function (Blueprint $table) {
             $table->id('id');
             $table->string('name');
+<<<<<<< Updated upstream
             $table->string('address')->nullable();
             $table->string('phone')->nullable();
             $table->boolean('is_active')->default(true);
@@ -21,6 +22,10 @@ return new class extends Migration
             $table->boolean('isMainBranch');
             $table->time('closingTime');
             $table->time('openingTime');
+=======
+            $table->string('location')->nullable();
+            $table->boolean('is_active')->default(true);
+>>>>>>> Stashed changes
             $table->timestamps();
             $table->softDeletes();
         });
@@ -30,7 +35,11 @@ return new class extends Migration
      * Reverse the migrations.
      */
     public function down(): void
+<<<<<<< Updated upstream
     {       
+=======
+    {
+>>>>>>> Stashed changes
         Schema::dropIfExists('branches');
     }
 };

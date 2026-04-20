@@ -14,7 +14,11 @@ class BranchController extends Controller
      */
     public function index()
     {
+<<<<<<< Updated upstream
         $branches = Branch::withCount('departments')
+=======
+       $branches = Branch::withCount('departments')
+>>>>>>> Stashed changes
             ->when(
                 request('with_departments'),
                 fn($q) => $q->with(['departments' => fn($q) => $q->withPivot('is_active')])
@@ -29,7 +33,15 @@ class BranchController extends Controller
      */
     public function store(Request $request)
     {
+<<<<<<< Updated upstream
         $data = $request->all();
+=======
+        $data = $request->validate([
+            'name'      => 'required|string|max:255',
+            'location'  => 'nullable|string|max:255',
+            'is_active' => 'boolean',
+        ]);
+>>>>>>> Stashed changes
 
         $branch = Branch::create($data);
 
@@ -41,7 +53,11 @@ class BranchController extends Controller
      */
     public function show(Branch $branch)
     {
+<<<<<<< Updated upstream
         $branch->load([
+=======
+       $branch->load([
+>>>>>>> Stashed changes
             'departments' => fn($q) => $q->withPivot('is_active'),
             'departments.departmentItems.item.group',
         ]);
@@ -54,6 +70,7 @@ class BranchController extends Controller
      */
     public function update(Request $request, Branch $branch)
     {
+<<<<<<< Updated upstream
         // $data = $request->validate([
         //     'name'      => 'sometimes|string|max:255',
         //     'location'  => 'nullable|string|max:255',
@@ -61,6 +78,15 @@ class BranchController extends Controller
         // ]);
 
         $branch->update($request->all());
+=======
+        $data = $request->validate([
+            'name'      => 'sometimes|string|max:255',
+            'location'  => 'nullable|string|max:255',
+            'is_active' => 'boolean',
+        ]);
+
+        $branch->update($data);
+>>>>>>> Stashed changes
 
         return new BranchResource($branch);
     }
