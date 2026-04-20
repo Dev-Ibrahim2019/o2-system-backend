@@ -37,7 +37,7 @@ class ItemGroupController extends Controller
     {
         $data = $request->validate([
             'name'      => 'required|string|max:255',
-            'parent_id' => 'nullable|uuid|exists:item_groups,id',
+            'parent_id' => 'nullable|integer|exists:item_groups,id',
         ]);
 
         $group = ItemGroup::create($data);
@@ -62,7 +62,7 @@ class ItemGroupController extends Controller
     {
         $data = $request->validate([
             'name'      => 'sometimes|string|max:255',
-            'parent_id' => 'nullable|uuid|exists:item_groups,id',
+            'parent_id' => 'nullable|integer|exists:item_groups,id',
         ]);
 
         $itemGroup->update($data);

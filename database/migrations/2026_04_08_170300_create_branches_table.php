@@ -11,17 +11,16 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('items', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('group_id')
-                ->nullable()
-                ->constrained('item_groups')
-                ->nullOnDelete();
-            $table->string('image')->nullable();
+        Schema::create('branches', function (Blueprint $table) {
+            $table->id('id');
             $table->string('name');
-            $table->string('unit');              // كغ، حبة، لتر، غ ...
-            $table->enum('base_type', ['sellable', 'ingredient', 'raw_material']);
+            $table->string('address')->nullable();
+            $table->string('phone')->nullable();
             $table->boolean('is_active')->default(true);
+            $table->string('code');
+            $table->boolean('isMainBranch');
+            $table->time('closingTime');
+            $table->time('openingTime');
             $table->timestamps();
             $table->softDeletes();
         });
@@ -31,7 +30,7 @@ return new class extends Migration
      * Reverse the migrations.
      */
     public function down(): void
-    {
-        Schema::dropIfExists('items');
+    {       
+        Schema::dropIfExists('branches');
     }
 };

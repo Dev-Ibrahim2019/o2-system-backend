@@ -30,7 +30,7 @@ class ItemController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'group_id'  => 'nullable|uuid|exists:item_groups,id',
+            'group_id'  => 'nullable|integer|exists:item_groups,id',
             'name'      => 'required|string|max:255',
             'unit'      => 'required|string|max:50',
             'base_type' => 'required|in:sellable,ingredient,raw_material',
@@ -47,7 +47,7 @@ class ItemController extends Controller
      */
     public function show(Item $item)
     {
-        $item->load(['group.parent', 'recipes.ingredients.item', 'departmentItems.department.branch']);
+        $item->load(['group.parent', 'recipes.ingredients.item', 'departmentItems.department', 'departmentItems.branch']);
 
         return new ItemResource($item);
     }
@@ -58,7 +58,7 @@ class ItemController extends Controller
     public function update(Request $request, Item $item)
     {
          $data = $request->validate([
-            'group_id'  => 'nullable|uuid|exists:item_groups,id',
+            'group_id'  => 'nullable|integer|exists:item_groups,id',
             'name'      => 'sometimes|string|max:255',
             'unit'      => 'sometimes|string|max:50',
             'base_type' => 'sometimes|in:sellable,ingredient,raw_material',
@@ -84,14 +84,15 @@ class ItemController extends Controller
     public function usages(Item $item): JsonResponse
     {
         $item->load([
-            'departmentItems.department.branch',
+            'departmentItems.department',
+            'departmentItems.branch',
             'recipeIngredients.recipe',
         ]);
 
         return response()->json([
             'item'         => $item->only('id', 'name', 'unit'),
             'departments'  => $item->departmentItems->map(fn($di) => [
-                'branch'     => $di->department->branch->name,
+                'branch'     => $di->branch?->name,
                 'department' => $di->department->name,
                 'role'       => $di->role,
                 'price'      => $di->price,

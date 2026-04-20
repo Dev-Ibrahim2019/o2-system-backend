@@ -8,6 +8,7 @@ use App\Models\Recipe;
 use App\Models\RecipeIngredient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
 class RecipeController extends Controller
@@ -30,15 +31,15 @@ class RecipeController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'output_item_id'        => 'required|uuid|exists:items,id',
-            'name'                  => 'required|string|max:255',
-            'yield_qty'             => 'required|numeric|min:0.001',
-            'yield_unit'            => 'required|string|max:50',
-            'notes'                 => 'nullable|string',
-            'ingredients'           => 'required|array|min:1',
-            'ingredients.*.item_id' => 'required|uuid|exists:items,id',
-            'ingredients.*.quantity'=> 'required|numeric|min:0.001',
-            'ingredients.*.unit'    => 'required|string|max:50',
+            'output_item_id'         => 'required|integer|exists:items,id',
+            'name'                   => 'required|string|max:255',
+            'yield_qty'              => 'required|numeric|min:0.001',
+            'yield_unit'             => 'required|string|max:50',
+            'notes'                  => 'nullable|string',
+            'ingredients'            => 'required|array|min:1',
+            'ingredients.*.item_id'  => 'required|integer|exists:items,id',
+            'ingredients.*.quantity' => 'required|numeric|min:0.001',
+            'ingredients.*.unit'     => 'required|string|max:50',
         ]);
 
         $recipe = DB::transaction(function () use ($data) {
@@ -50,12 +51,12 @@ class RecipeController extends Controller
                 'notes'          => $data['notes'] ?? null,
             ]);
 
-            foreach ($data['ingredients'] as $ing) {
+            foreach ($data['ingredients'] as $ingredient) {
                 RecipeIngredient::create([
                     'recipe_id' => $recipe->id,
-                    'item_id'   => $ing['item_id'],
-                    'quantity'  => $ing['quantity'],
-                    'unit'      => $ing['unit'],
+                    'item_id'   => $ingredient['item_id'],
+                    'quantity'  => $ingredient['quantity'],
+                    'unit'      => $ingredient['unit'],
                 ]);
             }
 
@@ -81,28 +82,28 @@ class RecipeController extends Controller
     public function update(Request $request, Recipe $recipe)
     {
         $data = $request->validate([
-            'name'       => 'sometimes|string|max:255',
-            'yield_qty'  => 'sometimes|numeric|min:0.001',
-            'yield_unit' => 'sometimes|string|max:50',
-            'notes'      => 'nullable|string',
-            // لتحديث المكونات أرسل ingredients كاملة — سيُعاد بناؤها
-            'ingredients'           => 'sometimes|array|min:1',
-            'ingredients.*.item_id' => 'required_with:ingredients|uuid|exists:items,id',
-            'ingredients.*.quantity'=> 'required_with:ingredients|numeric|min:0.001',
-            'ingredients.*.unit'    => 'required_with:ingredients|string|max:50',
+            'name'                   => 'sometimes|string|max:255',
+            'yield_qty'              => 'sometimes|numeric|min:0.001',
+            'yield_unit'             => 'sometimes|string|max:50',
+            'notes'                  => 'nullable|string',
+            'ingredients'            => 'sometimes|array|min:1',
+            'ingredients.*.item_id'  => 'required_with:ingredients|integer|exists:items,id',
+            'ingredients.*.quantity' => 'required_with:ingredients|numeric|min:0.001',
+            'ingredients.*.unit'     => 'required_with:ingredients|string|max:50',
         ]);
 
         DB::transaction(function () use ($data, $recipe) {
-            $recipe->update(array_except($data, ['ingredients']));
+            $recipe->update(Arr::except($data, ['ingredients']));
 
             if (isset($data['ingredients'])) {
                 $recipe->ingredients()->delete();
-                foreach ($data['ingredients'] as $ing) {
+
+                foreach ($data['ingredients'] as $ingredient) {
                     RecipeIngredient::create([
                         'recipe_id' => $recipe->id,
-                        'item_id'   => $ing['item_id'],
-                        'quantity'  => $ing['quantity'],
-                        'unit'      => $ing['unit'],
+                        'item_id'   => $ingredient['item_id'],
+                        'quantity'  => $ingredient['quantity'],
+                        'unit'      => $ingredient['unit'],
                     ]);
                 }
             }
@@ -124,7 +125,7 @@ class RecipeController extends Controller
     public function cost(Recipe $recipe): JsonResponse
     {
         $branchId = request()->validate([
-            'branch_id' => 'required|uuid|exists:branches,id',
+            'branch_id' => 'required|integer|exists:branches,id',
         ])['branch_id'];
 
         $recipe->load(['ingredients.item']);
@@ -134,11 +135,11 @@ class RecipeController extends Controller
             'recipe'     => $recipe->name,
             'branch_id'  => $branchId,
             'total_cost' => round($cost, 3),
-            'breakdown'  => $recipe->ingredients->map(fn($ing) => [
-                'item'       => $ing->item->name,
-                'quantity'   => $ing->quantity,
-                'unit'       => $ing->unit,
-                'unit_price' => \App\Models\DepartmentItem::where('item_id', $ing->item_id)
+            'breakdown'  => $recipe->ingredients->map(fn($ingredient) => [
+                'item'       => $ingredient->item->name,
+                'quantity'   => $ingredient->quantity,
+                'unit'       => $ingredient->unit,
+                'unit_price' => \App\Models\DepartmentItem::where('item_id', $ingredient->item_id)
                     ->where('branch_id', $branchId)
                     ->where('role', 'raw_material')
                     ->value('price'),

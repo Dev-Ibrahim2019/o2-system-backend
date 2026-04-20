@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('parent_id')
                 ->nullable()
-                ->constrained()
+                ->constrained('item_groups')
                 ->nullOnDelete();
             $table->string('name');
             $table->timestamps();

@@ -1,4 +1,5 @@
 <?php
+// app/Traits/ApiResponses.php
 
 namespace App\Traits;
 
@@ -9,20 +10,21 @@ trait ApiResponses
         return $this->success($message, $data, 200);
     }
 
-    protected function success($message, $data, $statusCode = 200)
+    // ← غيرنا الترتيب: message أولاً، data ثانياً
+    protected function success($message, $data = [], $statusCode = 200)
     {
         return response()->json([
-            'data' => $data,
+            'data'    => $data,
             'message' => $message,
-            'status' => $statusCode
+            'status'  => $statusCode,
         ], $statusCode);
     }
 
-    protected function error($message, $statusCode = 200)
+    protected function error($message, $statusCode = 400)
     {
         return response()->json([
             'message' => $message,
-            'status' => $statusCode
+            'status'  => $statusCode,
         ], $statusCode);
     }
 }

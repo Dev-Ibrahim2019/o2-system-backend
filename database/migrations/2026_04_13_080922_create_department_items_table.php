@@ -21,7 +21,10 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 
-            $table->unique(['department_id', 'item_id', 'role'], 'dept_item_role_unique');
+            $table->unique(
+                ['branch_id', 'department_id', 'item_id', 'role'],
+                'branch_dept_item_role_unique'
+            );
         });
     }
 

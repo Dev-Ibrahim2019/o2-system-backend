@@ -18,11 +18,12 @@ class DepartmentItemResource extends JsonResource
             'id'            => $this->id,
             'branch_id'     => $this->branch_id,
             'department_id' => $this->department_id,
+            'item_id'       => $this->item_id,
             'role'          => $this->role,
             'price'         => $this->price,
             'is_active'     => $this->is_active,
             'item'          => new ItemResource($this->whenLoaded('item')),
-            'department'    => new DepartmentItemResource($this->whenLoaded('department')),
+            'department'    => new DepartmentResource($this->whenLoaded('department')),
             'branch'        => new BranchResource($this->whenLoaded('branch')),
         ];
     }
