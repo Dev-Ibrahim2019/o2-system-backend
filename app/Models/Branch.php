@@ -11,7 +11,11 @@ class Branch extends Model
 {
     use SoftDeletes;
 
+<<<<<<< Updated upstream
     protected $fillable = ['name', 'address', 'is_active', 'phone', 'code', 'isMainBranch', 'closingTime', 'openingTime'];
+=======
+    protected $fillable = ['name', 'location', 'is_active'];
+>>>>>>> Stashed changes
 
     protected $casts = [
         'is_active' => 'boolean',

@@ -31,4 +31,8 @@ return new class extends Migration
     {
         Schema::dropIfExists('departments');
     }
+<<<<<<< Updated upstream
 };
+=======
+};
+>>>>>>> Stashed changes

@@ -1,8 +1,13 @@
 <?php
 
+<<<<<<< Updated upstream
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\DepartmentController;
+=======
+use App\Http\Controllers\Api\DepartmentController;
+use App\Http\Controllers\Api\BranchController;
+>>>>>>> Stashed changes
 use App\Http\Controllers\Api\DepartmentItemController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\ItemGroupController;
@@ -24,6 +29,12 @@ Route::middleware('auth:sanctum')->get("/auth/me", function (Request $request) {
     return response()->json(['user' => $request->user()]);
 });
 
+<<<<<<< Updated upstream
+=======
+// Route::middleware('auth:sanctum')->group(function () {
+//     Route::apiResource('menu-item', MenuItemController::class);
+// });
+>>>>>>> Stashed changes
 Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('branches', BranchController::class);
     Route::get('branches/{branch}/menu', [BranchController::class, 'menu']);
@@ -42,5 +53,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('recipes/{recipe}/cost', [RecipeController::class, 'cost']);
     Route::apiResource('recipes', RecipeController::class);
+<<<<<<< Updated upstream
     Route::apiResource('employees',   EmployeeController::class);  // ← أضف
 });
+=======
+});
+
+Route::apiResource('job-titles', \App\Http\Controllers\Api\JobTitleController::class);
+
+>>>>>>> Stashed changes
