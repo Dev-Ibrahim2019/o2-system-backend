@@ -24,15 +24,17 @@ class AuthController extends ApiController
             'Authenticated',
             [
                 'token' => $user->createToken('Api token for ' . $user->email)->plainTextToken,
-            ]   
+            ]
         );
     }
 
     public function logout(Request $request)
     {
-        $request->user()->currentAccessToken()->delete();
-
-        return $this->ok('User loged out ');
+        if ($request->user() && $request->user()->currentAccessToken()) {
+            $request->user()->currentAccessToken()->delete();
+            return $this->ok('User logged out');
+        }
+        return $this->error('Not authenticated', 401);
     }
 
     public function register()
