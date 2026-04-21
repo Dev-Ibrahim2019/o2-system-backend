@@ -12,8 +12,6 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('branch_item', function (Blueprint $table) {
-            $table->id();
-
             $table->foreignId('branch_id')
                 ->constrained()
                 ->cascadeOnDelete();

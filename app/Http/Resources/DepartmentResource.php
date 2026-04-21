@@ -38,6 +38,9 @@ class DepartmentResource extends JsonResource
             'branchId'            => null,
 
             'branches' => BranchResource::collection($this->whenLoaded('branches')),
+            'parent'   => new DepartmentResource($this->whenLoaded('parent')),
+            'children' => DepartmentResource::collection($this->whenLoaded('children')),
+            'items'    => ItemResource::collection($this->whenLoaded('items')),
         ];
     }
 }

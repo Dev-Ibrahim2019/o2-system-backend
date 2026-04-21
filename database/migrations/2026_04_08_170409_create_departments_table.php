@@ -21,7 +21,6 @@ return new class extends Migration
             $table->string('shortName')->nullable();
             $table->string('icon')->nullable();
             $table->string('color')->default('#ef4444');
-            $table->enum('type', ['sale', 'production', 'storage']);
             $table->boolean('is_active')->default(true);
             $table->string('stationNumber')->nullable();
             $table->integer('defaultPrepTime')->default(0);
