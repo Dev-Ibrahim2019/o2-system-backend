@@ -42,7 +42,7 @@ class BranchController extends ApiController
      */
     public function show(Branch $branch)
     {
-        $branch->load([
+       $branch->load([
             'departments' => fn($q) => $q->withPivot('is_active'),
             'items' => fn($q) => $q->withPivot(['price', 'is_active'])->with('department'),
         ]);
