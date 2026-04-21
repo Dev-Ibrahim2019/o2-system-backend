@@ -15,12 +15,15 @@ class ItemResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id'        => $this->id,
-            'name'      => $this->name,
-            'unit'      => $this->unit,
-            'base_type' => $this->base_type,
-            'is_active' => $this->is_active,
-            'group'     => new ItemGroupResource($this->whenLoaded('group')),
+            'id'         => $this->id,
+            'name'       => $this->name,
+            'name_ar'    => $this->name_ar,
+            'code'       => $this->code,
+            'image'      => $this->image,
+            'unit'       => $this->unit,
+            'is_active'  => $this->is_active,
+            'department' => new DepartmentResource($this->whenLoaded('department')),
+            'branches'   => BranchResource::collection($this->whenLoaded('branches')),
         ];
     }
 }
