@@ -2,23 +2,24 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\ApiController;
 use App\Http\Resources\ItemResource;
+use App\Http\Requests\Api\StoreItemRequest;
+use App\Http\Requests\Api\UpdateItemRequest;
 use App\Models\Item;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 
-class ItemController extends Controller
+class ItemController extends ApiController
 {
     /**
      * Display a listing of the resource.
      */
     public function index()
     {
-        $items = Item::with('group')
-            ->when(request('group_id'),   fn($q, $v) => $q->where('group_id', $v))
-            ->when(request('base_type'),  fn($q, $v) => $q->where('base_type', $v))
-            ->when(request('search'),     fn($q, $v) => $q->where('name', 'like', "%{$v}%"))
+        $items = Item::with(['department', 'branches'])
+            ->when(request('department_id'), fn($q, $v) => $q->where('department_id', $v))
+            ->when(request('branch_id'),     fn($q, $v) => $q->whereHas('branches', fn($qb) => $qb->where('branch_id', $v)))
+            ->when(request('search'),        fn($q, $v) => $q->where('name', 'like', "%{$v}%"))
             ->get();
 
         return ItemResource::collection($items);
@@ -27,19 +28,13 @@ class ItemController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request)
+    public function store(StoreItemRequest $request)
     {
-        $data = $request->validate([
-            'group_id'  => 'nullable|integer|exists:item_groups,id',
-            'name'      => 'required|string|max:255',
-            'unit'      => 'required|string|max:50',
-            'base_type' => 'required|in:sellable,ingredient,raw_material',
-            'is_active' => 'boolean',
-        ]);
+        $data = $request->validated();
 
         $item = Item::create($data);
 
-        return new ItemResource($item->load('group'));
+        return new ItemResource($item->load(['department', 'branches']));
     }
 
     /**
@@ -47,27 +42,21 @@ class ItemController extends Controller
      */
     public function show(Item $item)
     {
-        $item->load(['group.parent', 'recipes.ingredients.item', 'departmentItems.department', 'departmentItems.branch']);
+        $item->load(['department', 'branches']);
 
-        return new ItemResource($item);
+        return $this->success('Item fetched', new ItemResource($item));
     }
 
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, Item $item)
+    public function update(UpdateItemRequest $request, Item $item)
     {
-         $data = $request->validate([
-            'group_id'  => 'nullable|integer|exists:item_groups,id',
-            'name'      => 'sometimes|string|max:255',
-            'unit'      => 'sometimes|string|max:50',
-            'base_type' => 'sometimes|in:sellable,ingredient,raw_material',
-            'is_active' => 'boolean',
-        ]);
+         $data = $request->validated();
 
         $item->update($data);
 
-        return new ItemResource($item->load('group'));
+        return new ItemResource($item->load(['department', 'branches']));
     }
 
     /**
@@ -80,27 +69,17 @@ class ItemController extends Controller
         return response()->json(['message' => 'Item deleted successfully']);
     }
 
-    // أين يُستخدم هذا الصنف؟ (عبر الأقسام والوصفات)
-    public function usages(Item $item): JsonResponse
+    // أين يُستخدم هذا الصنف؟ (عبر الفروع)
+    public function usages(Item $item)
     {
-        $item->load([
-            'departmentItems.department',
-            'departmentItems.branch',
-            'recipeIngredients.recipe',
-        ]);
+        $item->load(['branches']);
 
-        return response()->json([
-            'item'         => $item->only('id', 'name', 'unit'),
-            'departments'  => $item->departmentItems->map(fn($di) => [
-                'branch'     => $di->branch?->name,
-                'department' => $di->department->name,
-                'role'       => $di->role,
-                'price'      => $di->price,
-            ]),
-            'recipes'      => $item->recipeIngredients->map(fn($ri) => [
-                'recipe'   => $ri->recipe->name,
-                'quantity' => $ri->quantity,
-                'unit'     => $ri->unit,
+        return $this->success('Item usages fetched', [
+            'item'    => $item->only('id', 'name', 'unit'),
+            'branches' => $item->branches->map(fn($branch) => [
+                'branch' => $branch->name,
+                'price'  => $branch->pivot->price,
+                'active' => $branch->pivot->is_active,
             ]),
         ]);
     }

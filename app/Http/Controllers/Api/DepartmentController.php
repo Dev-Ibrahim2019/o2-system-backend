@@ -1,14 +1,13 @@
 <?php
-// app/Http/Controllers/DepartmentController.php
+// app/Http/Controllers/Api/DepartmentController.php
 
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\ApiController;
-use App\Http\Requests\V1\DepartmentRequest;
+use App\Http\Requests\Api\StoreDepartmentRequest;
+use App\Http\Requests\Api\UpdateDepartmentRequest;
 use App\Http\Resources\DepartmentResource;
-use App\Models\Branch;
 use App\Models\Department;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Arr;
 
 class DepartmentController extends ApiController
@@ -16,11 +15,10 @@ class DepartmentController extends ApiController
     public function index()
     {
         $departments = Department::all();
-
         return $this->success('Departments fetched', DepartmentResource::collection($departments));
     }
 
-    public function store(DepartmentRequest $request)
+    public function store(StoreDepartmentRequest $request)
     {
         $data = $request->validated();
 
@@ -30,58 +28,30 @@ class DepartmentController extends ApiController
             $department->branches()->attach($data['branch_ids']);
         }
 
-        return new DepartmentResource($department->load('branches'));
+        return $this->success('Department created', new DepartmentResource($department->load(['parent', 'children', 'branches', 'items'])), 201);
     }
 
     public function show(Department $department)
     {
-        $department->load([
-            'branches',
-            'departmentItems.item.group',
-        ]);
-
         return $this->success('Department fetched', new DepartmentResource($department));
     }
 
-    public function update(DepartmentRequest $request, Department $department)
+    public function update(UpdateDepartmentRequest $request, Department $department)
     {
         $data = $request->validated();
 
-        $department->update(Arr::except($data, ['branch_ids']));
+        $department->update(Arr::except($data, ['branch_ids', 'nameAr', 'location', 'status']));
 
         if (isset($data['branch_ids'])) {
             $department->branches()->sync($data['branch_ids']);
         }
 
-        return new DepartmentResource($department->load('branches'));
+        return $this->success('Department updated', new DepartmentResource($department->load(['parent', 'children', 'branches', 'items'])));
     }
 
     public function destroy(Department $department)
     {
         $department->delete();
-
         return $this->success('Department deleted', []);
-    }
-
-    public function attachBranch(Department $department, Branch $branch): JsonResponse
-    {
-        if ($department->branches()->where('branch_id', $branch->id)->exists()) {
-            return response()->json(['message' => 'Department is already attached to this branch.'], 422);
-        }
-
-        $department->branches()->attach($branch->id, ['is_active' => true]);
-
-        return response()->json([
-            'message'    => 'Department attached to branch successfully.',
-            'department' => $department->name,
-            'branch'     => $branch->name,
-        ]);
-    }
-
-    public function detachBranch(Department $department, Branch $branch): JsonResponse
-    {
-        $department->branches()->detach($branch->id);
-
-        return response()->json(['message' => 'Department detached from branch successfully.']);
     }
 }

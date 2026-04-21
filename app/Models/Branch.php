@@ -4,18 +4,16 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Branch extends Model
 {
     use SoftDeletes;
 
-<<<<<<< Updated upstream
-    protected $fillable = ['name', 'address', 'is_active', 'phone', 'code', 'isMainBranch', 'closingTime', 'openingTime'];
-=======
-    protected $fillable = ['name', 'location', 'is_active'];
->>>>>>> Stashed changes
+    protected $fillable = [
+        'name', 'address', 'is_active', 'phone', 'code',
+        'isMainBranch', 'closingTime', 'openingTime'
+    ];
 
     protected $casts = [
         'is_active' => 'boolean',
@@ -28,22 +26,20 @@ class Branch extends Model
                     ->withTimestamps();
     }
 
-    public function departmentItems(): HasMany
-    {
-        return $this->hasMany(DepartmentItem::class);
-    }
-
-    // جلب أصناف البيع لهذا الفرع مباشرة
-    public function saleItems()
-    {
-        return $this->departmentItems()
-                    ->where('role', 'sale')
-                    ->where('is_active', true)
-                    ->with('item.group');
-    }
-
     public function activeDepartments(): BelongsToMany
     {
         return $this->departments()->wherePivot('is_active', true);
+    }
+
+    public function items(): BelongsToMany
+    {
+        return $this->belongsToMany(Item::class, 'branch_item')
+            ->withPivot(['price', 'is_active'])
+            ->withTimestamps();
+    }
+
+    public function activeItems(): BelongsToMany
+    {
+        return $this->items()->wherePivot('is_active', true);
     }
 }

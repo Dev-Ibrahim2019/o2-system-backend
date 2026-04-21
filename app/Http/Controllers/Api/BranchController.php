@@ -2,23 +2,20 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\ApiController;
 use App\Http\Resources\BranchResource;
+use App\Http\Requests\Api\StoreBranchRequest;
+use App\Http\Requests\Api\UpdateBranchRequest;
 use App\Models\Branch;
-use Illuminate\Http\Request;
 
-class BranchController extends Controller
+class BranchController extends ApiController
 {
     /**
      * Display a listing of the resource.
      */
     public function index()
     {
-<<<<<<< Updated upstream
-        $branches = Branch::withCount('departments')
-=======
        $branches = Branch::withCount('departments')
->>>>>>> Stashed changes
             ->when(
                 request('with_departments'),
                 fn($q) => $q->with(['departments' => fn($q) => $q->withPivot('is_active')])
@@ -31,21 +28,13 @@ class BranchController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request)
+    public function store(StoreBranchRequest $request)
     {
-<<<<<<< Updated upstream
-        $data = $request->all();
-=======
-        $data = $request->validate([
-            'name'      => 'required|string|max:255',
-            'location'  => 'nullable|string|max:255',
-            'is_active' => 'boolean',
-        ]);
->>>>>>> Stashed changes
+        $data = $request->validated();
 
         $branch = Branch::create($data);
 
-        return new BranchResource($branch);
+        return $this->success('Branch fetched', new BranchResource($branch));
     }
 
     /**
@@ -53,42 +42,24 @@ class BranchController extends Controller
      */
     public function show(Branch $branch)
     {
-<<<<<<< Updated upstream
-        $branch->load([
-=======
        $branch->load([
->>>>>>> Stashed changes
             'departments' => fn($q) => $q->withPivot('is_active'),
-            'departments.departmentItems.item.group',
+            'items' => fn($q) => $q->withPivot(['price', 'is_active'])->with('department'),
         ]);
 
-        return new BranchResource($branch);
+        return $this->success('Branch fetched', new BranchResource($branch));
     }
 
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, Branch $branch)
+    public function update(UpdateBranchRequest $request, Branch $branch)
     {
-<<<<<<< Updated upstream
-        // $data = $request->validate([
-        //     'name'      => 'sometimes|string|max:255',
-        //     'location'  => 'nullable|string|max:255',
-        //     'is_active' => 'boolean',
-        // ]);
-
-        $branch->update($request->all());
-=======
-        $data = $request->validate([
-            'name'      => 'sometimes|string|max:255',
-            'location'  => 'nullable|string|max:255',
-            'is_active' => 'boolean',
-        ]);
-
+        $data = $request->validated();
+      
         $branch->update($data);
->>>>>>> Stashed changes
 
-        return new BranchResource($branch);
+        return $this->success('Branch fetched', new BranchResource($branch));
     }
 
     /**
@@ -103,21 +74,20 @@ class BranchController extends Controller
 
     public function menu(Branch $branch)
     {
-        $items = $branch->departmentItems()
-            ->where('role', 'sale')
-            ->where('is_active', true)
-            ->with(['item.group', 'department'])
+        $items = $branch->items()
+            ->wherePivot('is_active', true)
+            ->with('department')
             ->get()
-            ->groupBy(fn($di) => $di->item->group?->name ?? 'غير مصنّف');
+            ->groupBy(fn($item) => $item->department?->name ?? 'غير مصنّف');
 
         return response()->json([
-            'branch' => $branch->only('id', 'name', 'location'),
-            'menu'   => $items->map(fn($group) => $group->map(fn($di) => [
-                'department_item_id' => $di->id,
-                'name'               => $di->item->name,
-                'price'              => $di->price,
-                'unit'               => $di->item->unit,
-                'department'         => $di->department->name,
+            'branch' => $branch->only('id', 'name', 'address'),
+            'menu'   => $items->map(fn($group) => $group->map(fn($item) => [
+                'item_id'    => $item->id,
+                'name'       => $item->name,
+                'price'      => $item->pivot->price,
+                'unit'       => $item->unit,
+                'department' => $item->department->name,
             ])),
         ]);
     }
