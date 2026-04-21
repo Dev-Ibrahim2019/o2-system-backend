@@ -22,8 +22,8 @@ class Branch extends Model
     public function departments(): BelongsToMany
     {
         return $this->belongsToMany(Department::class, 'branch_department')
-                    ->withPivot('is_active')
-                    ->withTimestamps();
+            ->withPivot('is_active')
+            ->withTimestamps();
     }
 
     public function activeDepartments(): BelongsToMany

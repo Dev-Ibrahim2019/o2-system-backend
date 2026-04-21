@@ -22,7 +22,7 @@ class DepartmentController extends ApiController
     {
         $data = $request->validated();
 
-        $department = Department::create(Arr::except($data, ['branch_ids']));
+        $department = Department::create(Arr::except($data, ['branch_ids', 'nameAr', 'location', 'status']));
 
         if (!empty($data['branch_ids'])) {
             $department->branches()->attach($data['branch_ids']);
