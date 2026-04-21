@@ -15,7 +15,7 @@ class BranchController extends ApiController
      */
     public function index()
     {
-        $branches = Branch::withCount('departments')
+       $branches = Branch::withCount('departments')
             ->when(
                 request('with_departments'),
                 fn($q) => $q->with(['departments' => fn($q) => $q->withPivot('is_active')])
@@ -42,7 +42,7 @@ class BranchController extends ApiController
      */
     public function show(Branch $branch)
     {
-        $branch->load([
+       $branch->load([
             'departments' => fn($q) => $q->withPivot('is_active'),
             'items' => fn($q) => $q->withPivot(['price', 'is_active'])->with('department'),
         ]);
@@ -56,7 +56,7 @@ class BranchController extends ApiController
     public function update(UpdateBranchRequest $request, Branch $branch)
     {
         $data = $request->validated();
-
+      
         $branch->update($data);
 
         return $this->success('Branch fetched', new BranchResource($branch));

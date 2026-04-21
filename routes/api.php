@@ -1,8 +1,8 @@
 <?php
 
-use App\Http\Controllers\Api\EmployeeController;
-use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\DepartmentController;
+use App\Http\Controllers\Api\BranchController;
+use App\Http\Controllers\Api\DepartmentItemController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Models\User;
@@ -33,3 +33,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::apiResource('employees',   EmployeeController::class);  // ← أضف
 });
+
+Route::apiResource('job-titles', \App\Http\Controllers\Api\JobTitleController::class);
+
