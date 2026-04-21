@@ -43,4 +43,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('recipes/{recipe}/cost', [RecipeController::class, 'cost']);
     Route::apiResource('recipes', RecipeController::class);
     Route::apiResource('employees',   EmployeeController::class);  // ← أضف
+    Route::apiResource('job-titles', \App\Http\Controllers\Api\JobTitleController::class);
 });

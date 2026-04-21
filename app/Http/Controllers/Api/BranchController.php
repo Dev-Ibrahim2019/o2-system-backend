@@ -1,98 +1,53 @@
 <?php
+// app/Http/Controllers/Api/BranchController.php
 
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\ApiController;
 use App\Http\Resources\BranchResource;
 use App\Models\Branch;
 use Illuminate\Http\Request;
 
-class BranchController extends Controller
+class BranchController extends ApiController
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index()
     {
-        $branches = Branch::withCount('departments')
-            ->when(
-                request('with_departments'),
-                fn($q) => $q->with(['departments' => fn($q) => $q->withPivot('is_active')])
-            )
-            ->get();
-
-        return BranchResource::collection($branches);
+        $branches = Branch::all();
+        // ← يرجع بـ success() wrapper حتى يتوافق مع data.data في الفرونت
+        return $this->success('Branches fetched', BranchResource::collection($branches));
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
-        $data = $request->all();
-
-        $branch = Branch::create($data);
-
-        return new BranchResource($branch);
-    }
-
-    /**
-     * Display the specified resource.
-     */
-    public function show(Branch $branch)
-    {
-        $branch->load([
-            'departments' => fn($q) => $q->withPivot('is_active'),
-            'departments.departmentItems.item.group',
+        $data = $request->validate([
+            'name'         => ['required', 'string', 'max:255'],
+            'address'      => ['nullable', 'string'],
+            'phone'        => ['nullable', 'string'],
+            'code'         => ['required', 'string'],
+            'isMainBranch' => ['boolean'],
+            'openingTime'  => ['nullable', 'string'],
+            'closingTime'  => ['nullable', 'string'],
+            'is_active'    => ['boolean'],
         ]);
 
-        return new BranchResource($branch);
+        $branch = Branch::create($data);
+        return $this->success('Branch created', new BranchResource($branch), 201);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
+    public function show(Branch $branch)
+    {
+        return $this->success('Branch fetched', new BranchResource($branch));
+    }
+
     public function update(Request $request, Branch $branch)
     {
-        // $data = $request->validate([
-        //     'name'      => 'sometimes|string|max:255',
-        //     'location'  => 'nullable|string|max:255',
-        //     'is_active' => 'boolean',
-        // ]);
-
         $branch->update($request->all());
-
-        return new BranchResource($branch);
+        return $this->success('Branch updated', new BranchResource($branch));
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(Branch $branch)
     {
         $branch->delete();
-
-        return response()->json(['message' => 'Branch deleted successfully']);
-    }
-
-    public function menu(Branch $branch)
-    {
-        $items = $branch->departmentItems()
-            ->where('role', 'sale')
-            ->where('is_active', true)
-            ->with(['item.group', 'department'])
-            ->get()
-            ->groupBy(fn($di) => $di->item->group?->name ?? 'غير مصنّف');
-
-        return response()->json([
-            'branch' => $branch->only('id', 'name', 'location'),
-            'menu'   => $items->map(fn($group) => $group->map(fn($di) => [
-                'department_item_id' => $di->id,
-                'name'               => $di->item->name,
-                'price'              => $di->price,
-                'unit'               => $di->item->unit,
-                'department'         => $di->department->name,
-            ])),
-        ]);
+        return $this->success('Branch deleted', []);
     }
 }
