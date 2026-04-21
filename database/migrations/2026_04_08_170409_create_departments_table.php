@@ -22,6 +22,10 @@ return new class extends Migration
             $table->integer('maxConcurrentOrders')->default(10);
             $table->boolean('hasKds')->default(false);
             $table->boolean('autoPrintTicket')->default(false);
+            $table->foreignId('parent_id')
+                ->nullable()
+                ->constrained('departments')
+                ->cascadeOnDelete();
             $table->timestamps();
             $table->softDeletes();
         });

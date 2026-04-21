@@ -9,11 +9,15 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Item extends Model
 {
-    use SoftDeletes;
 
     protected $fillable = [
-        'department_id', 'name', 'name_ar', 'code',
-        'image', 'unit', 'is_active'
+        'department_id',
+        'name',
+        'name_ar',
+        'code',
+        'image',
+        'unit',
+        'is_active'
     ];
 
     protected $casts = [

@@ -13,13 +13,13 @@ class DepartmentResource extends JsonResource
         return [
             'id'                  => $this->id,
             'name'                => $this->name,
-            'nameAr'              => $this->name,           // ← الفرونت يستخدم nameAr
+            'nameAr'              => $this->name,           // الفرونت يستخدم nameAr
             'shortName'           => $this->shortName,
             'icon'                => $this->icon,
             'color'               => $this->color,
             'type'                => $this->type,
 
-            // ← تحويل is_active boolean → status string
+            // تحويل is_active boolean → status string
             'status'              => $this->is_active ? 'ACTIVE' : 'INACTIVE',
 
             'location'            => $this->stationNumber ? "Station {$this->stationNumber}" : null,
@@ -37,13 +37,11 @@ class DepartmentResource extends JsonResource
             'orderTypeVisibility' => ['DINE_IN', 'TAKEAWAY', 'DELIVERY'],
             'branchId'            => null,
 
+            // ✅ إزالة conflict markers - الإصدار الصحيح يشمل العلاقات الكاملة
             'branches' => BranchResource::collection($this->whenLoaded('branches')),
-<<<<<<< HEAD
-=======
             'parent'   => new DepartmentResource($this->whenLoaded('parent')),
             'children' => DepartmentResource::collection($this->whenLoaded('children')),
             'items'    => ItemResource::collection($this->whenLoaded('items')),
->>>>>>> test
         ];
     }
 }
