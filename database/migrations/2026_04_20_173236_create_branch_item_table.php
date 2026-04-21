@@ -11,17 +11,18 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('items', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('department_id')
+        Schema::create('branch_item', function (Blueprint $table) {
+            $table->foreignId('branch_id')
                 ->constrained()
                 ->cascadeOnDelete();
-            $table->string('name');
-            $table->string('name_ar');
-            $table->string('code')->unique();
-            $table->string('image')->nullable();
-            $table->string('unit')->nullable();
-            $table->timestamps();
+            $table->foreignId('item_id')
+                ->constrained()
+                ->cascadeOnDelete();
+
+            $table->decimal('price', 10, 3)->nullable();
+            $table->boolean('is_active')->default(true);
+
+            $table->primary('branch_id', 'item_id');
         });
     }
 
@@ -30,6 +31,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('items');
+        Schema::dropIfExists('branch_item');
     }
 };

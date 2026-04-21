@@ -5,6 +5,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -14,17 +15,9 @@ class Department extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'name',
-        'type',
-        'is_active',
-        'shortName',
-        'icon',
-        'color',
-        'stationNumber',
-        'defaultPrepTime',
-        'maxConcurrentOrders',
-        'hasKds',
-        'autoPrintTicket',
+        'name', 'parent_id', 'type', 'is_central', 'is_active', 'shortName', 'icon', 'color',
+        'stationNumber', 'defaultPrepTime', 'maxConcurrentOrders',
+        'hasKds', 'autoPrintTicket'
     ];
 
     protected $casts = [
@@ -41,24 +34,9 @@ class Department extends Model
                     ->withPivot('is_active')
                     ->withTimestamps();
     }
-    public function departmentItems(): HasMany
-    {
-        return $this->hasMany(DepartmentItem::class);
-    }
 
-    // فلترة حسب الدور
-    public function saleItems(): HasMany
+    public function items(): HasMany
     {
-        return $this->departmentItems()->where('role', 'sale');
-    }
-
-    public function ingredients(): HasMany
-    {
-        return $this->departmentItems()->where('role', 'ingredient');
-    }
-
-    public function rawMaterials(): HasMany
-    {
-        return $this->departmentItems()->where('role', 'raw_material');
+        return $this->hasMany(Item::class);
     }
 }
