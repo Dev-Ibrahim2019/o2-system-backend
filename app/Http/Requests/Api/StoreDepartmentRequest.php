@@ -16,7 +16,7 @@ class StoreDepartmentRequest extends FormRequest
         return [
             'name'                => 'required|string|max:255',
             'parent_id'           => 'nullable|integer|exists:departments,id',
-            'type'                => 'required|in:sale,production,storage',
+            'type'                => 'required|in:department,section,unit',
             'is_central'          => 'boolean',
             'is_active'           => 'boolean',
             'shortName'           => 'nullable|string|max:10',

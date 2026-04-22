@@ -21,6 +21,7 @@ class DepartmentResource extends JsonResource
 
             // تحويل is_active boolean → status string
             'status'              => $this->is_active ? 'ACTIVE' : 'INACTIVE',
+            'isCentral'          => $this->is_central,
 
             'location'            => $this->stationNumber ? "Station {$this->stationNumber}" : null,
             'stationNumber'       => $this->stationNumber,
