@@ -1,4 +1,5 @@
 <?php
+// app/Http/Controllers/Api/BranchController.php
 
 namespace App\Http\Controllers\Api;
 
@@ -10,19 +11,11 @@ use App\Models\Branch;
 
 class BranchController extends ApiController
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index()
     {
-        $branches = Branch::withCount('departments')
-            ->when(
-                request('with_departments'),
-                fn($q) => $q->with(['departments' => fn($q) => $q->withPivot('is_active')])
-            )
-            ->get();
-
-        return BranchResource::collection($branches);
+        $branches = Branch::all();
+        // ← يرجع بـ success() wrapper حتى يتوافق مع data.data في الفرونت
+        return $this->success('Branches fetched', BranchResource::collection($branches));
     }
 
     /**
@@ -42,7 +35,7 @@ class BranchController extends ApiController
      */
     public function show(Branch $branch)
     {
-       $branch->load([
+        $branch->load([
             'departments' => fn($q) => $q->withPivot('is_active'),
             'items' => fn($q) => $q->withPivot(['price', 'is_active'])->with('department'),
         ]);
@@ -62,14 +55,10 @@ class BranchController extends ApiController
         return $this->success('Branch fetched', new BranchResource($branch));
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(Branch $branch)
     {
         $branch->delete();
-
-        return response()->json(['message' => 'Branch deleted successfully']);
+        return $this->success('Branch deleted', []);
     }
 
     public function menu(Branch $branch)

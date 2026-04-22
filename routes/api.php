@@ -32,7 +32,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('items', ItemController::class);
 
     Route::apiResource('employees', EmployeeController::class);  // ← أضف
+    Route::apiResource('job-titles', \App\Http\Controllers\Api\JobTitleController::class);
 });
-
-Route::apiResource('job-titles', \App\Http\Controllers\Api\JobTitleController::class);
-

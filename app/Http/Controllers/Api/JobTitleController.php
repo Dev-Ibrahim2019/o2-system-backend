@@ -1,54 +1,45 @@
 <?php
+// app/Http/Controllers/Api/JobTitleController.php
 
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\ApiController;
-use App\Http\Requests\JobTitleRequest;
 use App\Http\Resources\JobTitleResource;
 use App\Models\JobTitle;
 use Illuminate\Http\Request;
 
 class JobTitleController extends ApiController
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index()
     {
-        $jobTitles = JobTitle::all();
-
-        return $this->success('Job titles fetched', JobTitleResource::collection($jobTitles));
+        return $this->success('Job titles fetched', JobTitleResource::collection(JobTitle::all()));
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(JobTitleRequest $request)
-    {   
-        return JobTitle::create($request->validated());
-    }
-
-    /**
-     * Display the specified resource.
-     */
-    public function show(string $id)
+    public function store(Request $request)
     {
-        //
+        $data = $request->validate([
+            'name'        => ['required', 'string', 'max:255'],
+            'description' => ['nullable', 'string'],
+        ]);
+
+        $jobTitle = JobTitle::create($data);
+        return $this->success('Job title created', new JobTitleResource($jobTitle), 201);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
+    public function update(Request $request, JobTitle $jobTitle)
     {
-        //
+        $data = $request->validate([
+            'name'        => ['sometimes', 'string', 'max:255'],
+            'description' => ['nullable', 'string'],
+        ]);
+
+        $jobTitle->update($data);
+        return $this->success('Job title updated', new JobTitleResource($jobTitle));
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
+    public function destroy(JobTitle $jobTitle)
     {
-        //
+        $jobTitle->delete();
+        return $this->success('Job title deleted', []);
     }
 }

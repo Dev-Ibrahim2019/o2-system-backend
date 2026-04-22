@@ -15,9 +15,19 @@ class Department extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'name', 'parent_id', 'type', 'is_central', 'is_active', 'shortName', 'icon', 'color',
-        'stationNumber', 'defaultPrepTime', 'maxConcurrentOrders',
-        'hasKds', 'autoPrintTicket'
+        'name',
+        'parent_id',
+        'type',
+        'is_central',
+        'is_active',
+        'shortName',
+        'icon',
+        'color',
+        'stationNumber',
+        'defaultPrepTime',
+        'maxConcurrentOrders',
+        'hasKds',
+        'autoPrintTicket'
     ];
 
     protected $casts = [
@@ -31,12 +41,24 @@ class Department extends Model
     public function branches(): BelongsToMany
     {
         return $this->belongsToMany(Branch::class, 'branch_department')
-                    ->withPivot('is_active')
-                    ->withTimestamps();
+            ->withPivot('is_active')
+            ->withTimestamps();
     }
 
     public function items(): HasMany
     {
         return $this->hasMany(Item::class);
+    }
+
+    // الأب
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(Department::class, 'parent_id');
+    }
+
+    // الأبناء
+    public function children(): HasMany
+    {
+        return $this->hasMany(Department::class, 'parent_id');
     }
 }
