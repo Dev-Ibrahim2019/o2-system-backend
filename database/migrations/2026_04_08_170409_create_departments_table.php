@@ -15,7 +15,7 @@ return new class extends Migration
             $table->string('shortName')->nullable();
             $table->string('icon')->nullable();
             $table->string('color')->default('#ef4444');
-            $table->enum('type', ['departement', 'section', 'unit']);
+            $table->enum('type', ['department', 'section', 'unit']);
             $table->boolean('is_central')->default(false);
             $table->boolean('is_active')->default(true);
             $table->string('stationNumber')->nullable();
