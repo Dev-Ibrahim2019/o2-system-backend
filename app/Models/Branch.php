@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Department;
+use App\Models\Item;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -11,8 +13,14 @@ class Branch extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'name', 'address', 'is_active', 'phone', 'code',
-        'isMainBranch', 'closingTime', 'openingTime'
+        'name',
+        'address',
+        'is_active',
+        'phone',
+        'code',
+        'isMainBranch',
+        'closingTime',
+        'openingTime'
     ];
 
     protected $casts = [

@@ -15,6 +15,7 @@ return new class extends Migration
             $table->foreignId('branch_id')
                 ->constrained()
                 ->cascadeOnDelete();
+
             $table->foreignId('item_id')
                 ->constrained()
                 ->cascadeOnDelete();
@@ -22,7 +23,9 @@ return new class extends Migration
             $table->decimal('price', 10, 3)->nullable();
             $table->boolean('is_active')->default(true);
 
-            $table->primary('branch_id', 'item_id');
+            $table->timestamps(); // 🔥 هذا السطر المهم
+
+            $table->primary(['branch_id', 'item_id']);
         });
     }
 

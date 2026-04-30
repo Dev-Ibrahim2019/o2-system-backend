@@ -3,6 +3,8 @@
 
 namespace App\Http\Resources;
 
+use App\Http\Resources\BranchResource;
+use App\Http\Resources\ItemResource;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -21,6 +23,7 @@ class DepartmentResource extends JsonResource
 
             // تحويل is_active boolean → status string
             'status'              => $this->is_active ? 'ACTIVE' : 'INACTIVE',
+            'isCentral'          => $this->is_central,
 
             'location'            => $this->stationNumber ? "Station {$this->stationNumber}" : null,
             'stationNumber'       => $this->stationNumber,

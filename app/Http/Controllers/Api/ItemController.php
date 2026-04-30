@@ -52,7 +52,7 @@ class ItemController extends ApiController
      */
     public function update(UpdateItemRequest $request, Item $item)
     {
-         $data = $request->validated();
+        $data = $request->validated();
 
         $item->update($data);
 
