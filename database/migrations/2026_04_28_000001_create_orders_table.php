@@ -53,7 +53,9 @@ return new class extends Migration
 
             // طريقة الدفع
             $table->enum('payment_method', ['cash', 'credit_card', 'wallet'])->nullable();
-
+            $table->string('reference_number')->nullable()->unique();
+            // تاريخ الدفع الفعلي
+            $table->timestamp('paid_at')->nullable();
             $table->timestamps();
             $table->softDeletes();
         });

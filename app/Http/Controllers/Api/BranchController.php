@@ -1,5 +1,8 @@
 <?php
 // app/Http/Controllers/Api/BranchController.php
+// ✅ إصلاح الأداء:
+// 1. select الحقول الضرورية فقط
+// 2. withCount بدل جلب الموظفين كاملاً
 
 namespace App\Http\Controllers\Api;
 
@@ -13,46 +16,45 @@ class BranchController extends ApiController
 {
     public function index()
     {
-        $branches = Branch::all();
-        // ← يرجع بـ success() wrapper حتى يتوافق مع data.data في الفرونت
+        $branches = Branch::select([
+            'id',
+            'name',
+            'address',
+            'phone',
+            'is_active',
+            'code',
+            'isMainBranch',
+            'closingTime',
+            'openingTime',
+            'created_at',
+        ])
+            // ✅ withCount بدل جلب كل الموظفين
+            ->withCount('employees')
+            ->get();
+
         return $this->success('Branches fetched', BranchResource::collection($branches));
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(StoreBranchRequest $request)
     {
-        $data = $request->validated();
-
-        $branch = Branch::create($data);
-
-        return $this->success('Branch fetched', new BranchResource($branch));
+        $branch = Branch::create($request->validated());
+        return $this->success('Branch created', new BranchResource($branch), 201);
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(Branch $branch)
     {
         $branch->load([
-            'departments' => fn($q) => $q->withPivot('is_active'),
-            'items' => fn($q) => $q->withPivot(['price', 'is_active'])->with('department'),
+            'departments:id,name,color' => fn($q) => $q->withPivot('is_active'),
+            'items:id,name,name_ar,code' => fn($q) => $q->withPivot(['price', 'is_active'])->with('department:id,name'),
         ]);
 
         return $this->success('Branch fetched', new BranchResource($branch));
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(UpdateBranchRequest $request, Branch $branch)
     {
-        $data = $request->validated();
-
-        $branch->update($data);
-
-        return $this->success('Branch fetched', new BranchResource($branch));
+        $branch->update($request->validated());
+        return $this->success('Branch updated', new BranchResource($branch));
     }
 
     public function destroy(Branch $branch)
@@ -65,18 +67,20 @@ class BranchController extends ApiController
     {
         $items = $branch->items()
             ->wherePivot('is_active', true)
-            ->with('department')
+            ->select('items.id', 'items.name', 'items.name_ar', 'items.unit', 'items.department_id')
+            ->with('department:id,name')
             ->get()
             ->groupBy(fn($item) => $item->department?->name ?? 'غير مصنّف');
 
-        return response()->json([
+        return $this->success('Branch menu fetched', [
             'branch' => $branch->only('id', 'name', 'address'),
             'menu'   => $items->map(fn($group) => $group->map(fn($item) => [
                 'item_id'    => $item->id,
                 'name'       => $item->name,
-                'price'      => $item->pivot->price,
+                'name_ar'    => $item->name_ar,
+                'price'      => (float) $item->pivot->price,
                 'unit'       => $item->unit,
-                'department' => $item->department->name,
+                'department' => $item->department?->name,
             ])),
         ]);
     }
