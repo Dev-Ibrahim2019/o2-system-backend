@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use App\Models\Department;
+use App\Models\Employee;
 use App\Models\Item;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Branch extends Model
@@ -49,5 +51,9 @@ class Branch extends Model
     public function activeItems(): BelongsToMany
     {
         return $this->items()->wherePivot('is_active', true);
+    }
+    public function employees(): HasMany
+    {
+        return $this->hasMany(Employee::class);
     }
 }
