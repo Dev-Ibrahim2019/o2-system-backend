@@ -1,81 +1,52 @@
 <?php
-// routes/api.php — النسخة المحدّثة
+// routes/api.php — النسخة الكاملة
 
 use App\Http\Controllers\Api\BranchController;
+use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\EmployeeController;
+use App\Http\Controllers\Api\FinancialTransactionController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\JobTitleController;
 use App\Http\Controllers\Api\MenuController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductionTicketController;
+use App\Http\Controllers\Api\ShiftController;
+use App\Http\Controllers\Api\TableController;
 use App\Http\Controllers\Auth\AuthController;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-// ── المنيو العام (لا يحتاج مصادقة للعرض) ─────────────────────────────────────
-Route::get('menu', [MenuController::class, 'index']);
+// routes/api.php
 
-// ── المصادقة (بدون Sanctum) ──────────────────────────────────────────────────
+// ── Public routes (لا تحتاج auth) ──────────────────────
+Route::get('menu', [MenuController::class, 'index']);
+Route::get('branches', [BranchController::class, 'index']); // ✅ أضف هاد
+
 Route::post('/login', [AuthController::class, 'login']);
 
-// ── المسارات المحمية بـ Sanctum ──────────────────────────────────────────────
+// ── Protected routes ────────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
 
-    // الخروج وبيانات الجلسة
-    Route::post('/logout',   [AuthController::class, 'logout'])->name('logout');
-    Route::get('/auth/me',   [AuthController::class, 'me']);
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/auth/me', fn(Request $r) => response()->json(['user' => $r->user()]));
 
-    // مسار /user للتوافق مع الكود القديم
-    Route::get('/user', fn(Request $r) => response()->json([
-        'data' => [
-            'id'   => $r->user()->id,
-            'name' => $r->user()->employee?->name ?? $r->user()->name,
-            'role' => $r->user()->employee?->role ?? 'EMPLOYEE',
-        ],
-    ]));
-
-    // ── الفروع ────────────────────────────────────────────────────────────
-    Route::apiResource('branches', BranchController::class);
+    // branches CRUD (post/put/delete محمية، GET فوق public)
+    Route::post('branches', [BranchController::class, 'store']);
+    Route::put('branches/{branch}', [BranchController::class, 'update']);
+    Route::delete('branches/{branch}', [BranchController::class, 'destroy']);
+    Route::get('branches/{branch}', [BranchController::class, 'show']);
     Route::get('branches/{branch}/menu', [BranchController::class, 'menu']);
 
-    // ── الأقسام ───────────────────────────────────────────────────────────
+    // باقي الـ routes...
     Route::apiResource('departments', DepartmentController::class);
-    Route::post(
-        'departments/{department}/branches/{branch}',
-        [DepartmentController::class, 'attachBranch']
-    );
-    Route::delete(
-        'departments/{department}/branches/{branch}',
-        [DepartmentController::class, 'detachBranch']
-    );
-
-    // ── الأصناف ───────────────────────────────────────────────────────────
-    Route::get('items/{item}/usages', [ItemController::class, 'usages']);
     Route::apiResource('items', ItemController::class);
-
-    // ── الموظفون والمسميات ────────────────────────────────────────────────
-    Route::apiResource('employees',  EmployeeController::class);
+    Route::apiResource('employees', EmployeeController::class);
     Route::apiResource('job-titles', JobTitleController::class);
 
-    // ── الطلبات ───────────────────────────────────────────────────────────
-    Route::apiResource('orders', OrderController::class);
+    Route::post('orders/{order}/void', [OrderController::class, 'void']);
+    Route::apiResource('orders', OrderController::class)->except(['destroy']);
     Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
-    Route::post('orders/{order}/cancel',  [OrderController::class, 'cancel']);
-    Route::post('orders/{order}/void',    [OrderController::class, 'void']);
-    Route::post('orders/{order}/pay',     [OrderController::class, 'pay']);
-
-    // التحقق من الرقم المرجعي
-    Route::post('payments/verify-reference', [OrderController::class, 'verifyReference']);
-
-    // ── تذاكر الأقسام الإنتاجية ──────────────────────────────────────────
-    Route::get('production-tickets', [ProductionTicketController::class, 'index']);
-    Route::patch(
-        'production-tickets/{ticket}/status',
-        [ProductionTicketController::class, 'updateStatus']
-    );
-    Route::patch(
-        'production-tickets/{ticket}/items/{item}/status',
-        [ProductionTicketController::class, 'updateItemStatus']
-    );
+    Route::post('orders/{order}/cancel', [OrderController::class, 'cancel']);
 });
