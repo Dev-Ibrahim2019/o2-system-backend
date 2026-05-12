@@ -1,6 +1,9 @@
 <?php
 // routes/api.php — النسخة الكاملة
 
+use App\Http\Controllers\Api\Accounting\AccountController;
+use App\Http\Controllers\Api\Accounting\CostCenterController;
+use App\Http\Controllers\Api\Accounting\TransactionController;
 use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\DepartmentController;
@@ -49,4 +52,28 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('orders', OrderController::class)->except(['destroy']);
     Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
     Route::post('orders/{order}/cancel', [OrderController::class, 'cancel']);
+
+    Route::prefix('accounting')->group(function () {
+
+        // ── دليل الحسابات ─────────────────────────────────────────────────────────
+        Route::apiResource('accounts', AccountController::class);
+        Route::get('accounts/{account}/ledger', [AccountController::class, 'ledger']);
+        // GET /accounting/accounts?tree=true         → شجرة الحسابات
+        // GET /accounting/accounts?type=asset        → حسابات الأصول
+        // GET /accounting/accounts?with_balance=true → مع الأرصدة
+        // GET /accounting/accounts/{id}/ledger?from=2026-01-01&to=2026-12-31
+
+        // ── القيود المحاسبية ──────────────────────────────────────────────────────
+        Route::get('transactions/by-source', [TransactionController::class, 'bySource']);
+        Route::apiResource('transactions', TransactionController::class);
+        Route::post('transactions/{transaction}/post',   [TransactionController::class, 'post']);
+        Route::post('transactions/{transaction}/cancel', [TransactionController::class, 'cancel']);
+        // POST /accounting/transactions                → إنشاء قيد (draft)
+        // POST /accounting/transactions/{id}/post     → ترحيل القيد
+        // POST /accounting/transactions/{id}/cancel   → إلغاء القيد
+
+        // ── مراكز التكلفة ─────────────────────────────────────────────────────────
+        Route::apiResource('cost-centers', CostCenterController::class);
+        // GET /accounting/cost-centers?tree=true → شجرة مراكز التكلفة
+    });
 });
