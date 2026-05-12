@@ -25,12 +25,21 @@ return new class extends Migration
                 'pending',      // وصل للقسم، لم يبدأ بعد
                 'preparing',    // بدأ التحضير
                 'ready',        // جاهز، ينتظر الكاشير
+                'served',       // تم التسليم
                 'cancelled',    // ملغي
             ])->default('pending');
 
+            $table->integer('priority')->default(0);
+
             // الوقت الفعلي للبدء والانتهاء (للإحصاء)
+            $table->timestamp('sent_at')->nullable();
             $table->timestamp('started_at')->nullable();
-            $table->timestamp('completed_at')->nullable();
+            $table->timestamp('ready_at')->nullable();
+            $table->timestamp('served_at')->nullable();
+
+            $table->foreignId('created_by')->nullable()
+                ->constrained('users')
+                ->nullOnDelete();
 
             // ملاحظة للقسم
             $table->text('notes')->nullable();

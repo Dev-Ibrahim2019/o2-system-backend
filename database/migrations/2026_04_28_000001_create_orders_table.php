@@ -21,7 +21,7 @@ return new class extends Migration
                 ->references('id')->on('employees')->nullOnDelete();
 
             // نوع الطلب: dine_in | takeaway
-            $table->enum('order_type', ['dine_in', 'takeaway'])->default('dine_in');
+            $table->enum('order_type', ['dine_in', 'takeaway', 'delivery'])->default('dine_in');
 
             // حالة الطلب الكلية
             $table->enum('status', [
@@ -51,11 +51,6 @@ return new class extends Migration
             $table->decimal('discount_amount', 10, 3)->default(0); // المبلغ الفعلي للخصم
             $table->decimal('total', 10, 3)->default(0);
 
-            // طريقة الدفع
-            $table->enum('payment_method', ['cash', 'credit_card', 'wallet'])->nullable();
-            $table->string('reference_number')->nullable()->unique();
-            // تاريخ الدفع الفعلي
-            $table->timestamp('paid_at')->nullable();
             $table->timestamps();
             $table->softDeletes();
         });

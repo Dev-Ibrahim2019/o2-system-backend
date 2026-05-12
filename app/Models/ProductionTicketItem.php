@@ -12,7 +12,6 @@ class ProductionTicketItem extends Model
         'ticket_id',
         'order_item_id',
         'item_name',
-        'item_name_ar',
         'quantity',
         'notes',
         'status',

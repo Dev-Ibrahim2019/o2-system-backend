@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 
 class Item extends Model
 {
@@ -20,9 +21,30 @@ class Item extends Model
         'is_active'
     ];
 
+    protected $appends = [
+        'image_url',
+    ];
+
     protected $casts = [
         'is_active' => 'boolean',
     ];
+
+    public function getImageUrlAttribute(): ?string
+    {
+        if (! $this->image) {
+            return null;
+        }
+
+        if (Storage::disk('public')->exists($this->image)) {
+            return Storage::disk('public')->url($this->image);
+        }
+
+        if (Storage::disk('uploads')->exists($this->image)) {
+            return Storage::disk('uploads')->url($this->image);
+        }
+
+        return Storage::disk('public')->url($this->image);
+    }
 
     public function branches(): BelongsToMany
     {

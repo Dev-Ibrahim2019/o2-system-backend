@@ -1,5 +1,7 @@
 <?php
 
+$assetBaseUrl = rtrim(env('ASSET_URL', env('APP_URL', 'http://localhost')), '/');
+
 return [
 
     /*
@@ -41,7 +43,16 @@ return [
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),
-            'url' => rtrim(env('APP_URL', 'http://localhost'), '/').'/storage',
+            'url' => $assetBaseUrl.'/storage',
+            'visibility' => 'public',
+            'throw' => false,
+            'report' => false,
+        ],
+
+        'uploads' => [
+            'driver' => 'local',
+            'root' => public_path('uploads'),
+            'url' => $assetBaseUrl.'/uploads',
             'visibility' => 'public',
             'throw' => false,
             'report' => false,

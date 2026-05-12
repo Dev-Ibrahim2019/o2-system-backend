@@ -80,7 +80,8 @@ class BranchController extends ApiController
                 'name_ar'    => $item->name_ar,
                 'price'      => (float) $item->pivot->price,
                 'unit'       => $item->unit,
-                'department' => $item->department?->name,
+                'image_url'  => $item->image_url,
+                'department' => $item->department->name,
             ])),
         ]);
     }

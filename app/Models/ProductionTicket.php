@@ -17,14 +17,20 @@ class ProductionTicket extends Model
         'department_id',
         'ticket_number',
         'status',
+        'priority',
+        'sent_at',
         'started_at',
-        'completed_at',
+        'ready_at',
+        'served_at',
+        'created_by',
         'notes',
     ];
 
     protected $casts = [
+        'sent_at' => 'datetime',
         'started_at'   => 'datetime',
-        'completed_at' => 'datetime',
+        'ready_at' => 'datetime',
+        'served_at' => 'datetime',
     ];
 
     public function order(): BelongsTo
