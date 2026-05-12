@@ -31,7 +31,6 @@ class Order extends Model
         'discount_type',
         'discount_amount',
         'total',
-        'payment_method',
     ];
 
     protected $casts = [

@@ -14,21 +14,20 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class OrderItem extends Model
 {
     protected $fillable = [
-        'order_id',
+        'order_number',
         'item_id',
-        'department_id',
         'item_name',
-        'item_name_ar',
-        'unit_price',
+        'price',
         'quantity',
-        'total_price',
+        'total',
+        'status',
         'notes',
     ];
 
     protected $casts = [
-        'unit_price'  => 'decimal:3',
+        'price'  => 'decimal:3',
         'quantity'    => 'decimal:3',
-        'total_price' => 'decimal:3',
+        'total' => 'decimal:3',
     ];
 
     public function order(): BelongsTo

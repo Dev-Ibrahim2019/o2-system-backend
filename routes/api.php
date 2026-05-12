@@ -29,7 +29,6 @@ Route::get('branches', [BranchController::class, 'index']); // ✅ أضف هاد
 
 Route::post('/login', [AuthController::class, 'login']);
 
-// ── Protected routes ────────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -42,8 +41,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('branches/{branch}', [BranchController::class, 'show']);
     Route::get('branches/{branch}/menu', [BranchController::class, 'menu']);
 
-    // باقي الـ routes...
-    Route::apiResource('departments', DepartmentController::class);
+    Route::post('items/upload-image', [ItemController::class, 'uploadImage']);
     Route::apiResource('items', ItemController::class);
     Route::apiResource('employees', EmployeeController::class);
     Route::apiResource('job-titles', JobTitleController::class);
@@ -76,4 +74,21 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('cost-centers', CostCenterController::class);
         // GET /accounting/cost-centers?tree=true → شجرة مراكز التكلفة
     });
+});
+// Route::apiResource('departments', DepartmentController::class);
+// Route::post('departments/{department}/branches/{branch}', [DepartmentController::class, 'attachBranch']);
+// Route::delete('departments/{department}/branches/{branch}', [DepartmentController::class, 'detachBranch']);
+
+// Route::get('items/{item}/usages', [ItemController::class, 'usages']);
+// Route::apiResource('items', ItemController::class);
+
+Route::apiResource('employees', EmployeeController::class);  // ← أضف
+Route::apiResource('job-titles', \App\Http\Controllers\Api\JobTitleController::class);
+
+Route::prefix('departments')->group(function () {
+    Route::get('/',        [DepartmentController::class, 'index']);
+    Route::get('/tree',    [DepartmentController::class, 'tree']);   // ← nested tree
+    Route::post('/',       [DepartmentController::class, 'store']);
+    Route::put('/{department}',    [DepartmentController::class, 'update']);
+    Route::delete('/{department}', [DepartmentController::class, 'destroy']);
 });
