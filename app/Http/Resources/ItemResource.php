@@ -20,8 +20,13 @@ class ItemResource extends JsonResource
             'name_ar'    => $this->name_ar,
             'code'       => $this->code,
             'image'      => $this->image,
+            'image_url'  => $this->image_url,
             'unit'       => $this->unit,
             'is_active'  => $this->is_active,
+            'pivot'      => $this->whenPivotLoaded('branch_item', fn() => [
+                'price'     => $this->pivot->price,
+                'is_active' => (bool) $this->pivot->is_active,
+            ]),
             'department' => new DepartmentResource($this->whenLoaded('department')),
             'branches'   => BranchResource::collection($this->whenLoaded('branches')),
         ];

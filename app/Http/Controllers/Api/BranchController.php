@@ -76,6 +76,7 @@ class BranchController extends ApiController
                 'name'       => $item->name,
                 'price'      => $item->pivot->price,
                 'unit'       => $item->unit,
+                'image_url'  => $item->image_url,
                 'department' => $item->department->name,
             ])),
         ]);
