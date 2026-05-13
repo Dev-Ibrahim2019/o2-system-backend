@@ -14,11 +14,11 @@ return new class extends Migration
         Schema::create('branch_department', function (Blueprint $table) {
             $table->id();
             $table->foreignId('branch_id')
-                  ->constrained()
-                  ->cascadeOnDelete();
+                ->constrained()
+                ->cascadeOnDelete();
             $table->foreignId('department_id')
-                  ->constrained()
-                  ->cascadeOnDelete();
+                ->constrained()
+                ->cascadeOnDelete();
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 

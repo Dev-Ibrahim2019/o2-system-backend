@@ -2,6 +2,8 @@
 
 namespace App\Http\Resources;
 
+use App\Http\Resources\DepartmentResource;
+use App\Http\Resources\ItemResource;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -24,11 +26,14 @@ class BranchResource extends JsonResource
             'isMainBranch'  => $this->isMainBranch,
             'closingTime'   => $this->closingTime,
             'openingTime'   => $this->openingTime,
+            'pivot'         => $this->whenPivotLoaded('branch_item', fn() => [
+                'price'     => $this->pivot->price,
+                'is_active' => (bool) $this->pivot->is_active,
+            ]),
 
             'created_at'    => $this->created_at->toDateTimeString(),
             // العلاقات — تُضاف فقط إذا محمّلة
             'departments' => DepartmentResource::collection($this->whenLoaded('departments')),
-            'items'       => ItemResource::collection($this->whenLoaded('items')),
             'items'       => ItemResource::collection($this->whenLoaded('items')),
         ];
     }

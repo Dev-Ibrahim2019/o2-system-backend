@@ -18,6 +18,7 @@ return new class extends Migration
                 ->cascadeOnDelete();
             $table->string('name');
             $table->string('name_ar');
+            $table->boolean('is_active')->default(true);
             $table->string('code')->unique();
             $table->string('image')->nullable();
             $table->string('unit')->nullable();

@@ -18,7 +18,7 @@ class StoreItemRequest extends FormRequest
             'name'          => 'required|string|max:255',
             'name_ar'       => 'nullable|string|max:255',
             'code'          => 'required|string|max:255|unique:items,code',
-            'image'         => 'nullable|string|max:255',
+            'image'         => 'nullable|string',
             'unit'          => 'nullable|string|max:50',
             'is_active'     => 'boolean',
         ];
