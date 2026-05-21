@@ -54,6 +54,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('accounting')->group(function () {
 
         // ── دليل الحسابات ─────────────────────────────────────────────────────────
+        Route::get('accounts/suggest-code', [AccountController::class, 'suggestCode']);
         Route::apiResource('accounts', AccountController::class);
         Route::get('accounts/{account}/ledger', [AccountController::class, 'ledger']);
         // GET /accounting/accounts?tree=true         → شجرة الحسابات

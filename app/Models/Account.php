@@ -82,12 +82,22 @@ class Account extends Model
      */
     public function getBalanceAttribute(): float
     {
-        $debit  = $this->entries()->sum('debit');
-        $credit = $this->entries()->sum('credit');
+        // إذا كان حساب حركي، نحسب رصيده من القيود
+        if ($this->allow_posting) {
+            $debit  = $this->entries()->whereHas('transaction', fn($q) => $q->whereIn('status', ['posted', 'draft']))->sum('debit');
+            $credit = $this->entries()->whereHas('transaction', fn($q) => $q->whereIn('status', ['posted', 'draft']))->sum('credit');
 
-        return in_array($this->type, ['asset', 'expense'])
-            ? (float)($debit - $credit)
-            : (float)($credit - $debit);
+            return in_array($this->type, ['asset', 'expense'])
+                ? (float)($debit - $credit)
+                : (float)($credit - $debit);
+        }
+
+        // إذا كان حساب أب، نجمع أرصدة أبنائه (Rollup)
+        $total = 0;
+        foreach ($this->children as $child) {
+            $total += $child->balance;
+        }
+        return (float) $total;
     }
 
     /**
