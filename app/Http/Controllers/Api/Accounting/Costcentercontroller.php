@@ -79,4 +79,61 @@ class CostCenterController extends ApiController
 
         return $this->success('تم حذف مركز التكلفة بنجاح', []);
     }
+    public function suggestCode(Request $request): JsonResponse
+    {
+        $parentId = $request->query('parent_id');
+
+        if (!$parentId) {
+
+            $last = CostCenter::whereNull('parent_id')
+                ->whereNotNull('code')
+                ->orderBy('code', 'desc')
+                ->first();
+
+            if (!$last) {
+                $next = 'CC-01';
+            } else {
+                preg_match('/^CC-(\d+)$/', $last->code, $m);
+                $next = 'CC-' . str_pad(((int)($m[1] ?? 0)) + 1, 2, '0', STR_PAD_LEFT);
+            }
+
+            return response()->json([
+                'data' => [
+                    'code' => $next
+                ]
+            ]);
+        }
+
+        $parent = CostCenter::findOrFail($parentId);
+
+        $prefix = $parent->code . '-';
+
+        $lastChild = CostCenter::where('parent_id', $parentId)
+            ->where('code', 'like', $prefix . '%')
+            ->orderBy('code', 'desc')
+            ->first();
+
+        if (!$lastChild) {
+            return response()->json([
+                'data' => [
+                    'code' => $prefix . '01'
+                ]
+            ]);
+        }
+
+        $suffix = substr($lastChild->code, strlen($prefix));
+
+        $nextSuffix = str_pad(
+            ((int)$suffix) + 1,
+            2,
+            '0',
+            STR_PAD_LEFT
+        );
+
+        return response()->json([
+            'data' => [
+                'code' => $prefix . $nextSuffix
+            ]
+        ]);
+    }
 }
