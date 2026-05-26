@@ -22,16 +22,7 @@ class UpdateCostCenterRequest extends FormRequest
             'parent_id' => ['nullable', 'integer', 'exists:cost_centers,id'],
             'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
             'is_active' => ['boolean'],
-            'budget'    => ['nullable', 'numeric', 'min:0'],
             'notes'     => ['nullable', 'string', 'max:1000'],
-        ];
-    }
-
-    public function messages(): array
-    {
-        return [
-            'budget.numeric'     => 'الميزانية يجب أن تكون رقماً',
-            'budget.min'         => 'الميزانية لا يمكن أن تكون سالبة',
         ];
     }
 }

@@ -72,15 +72,10 @@ Route::middleware('auth:sanctum')->group(function () {
         // POST /accounting/transactions/{id}/cancel   → إلغاء القيد
 
         // ── مراكز التكلفة ─────────────────────────────────────────────────────────
-        Route::get(
-            'cost-centers/suggest-code',
-            [CostCenterController::class, 'suggestCode']
-        );
 
-        Route::apiResource(
-            'cost-centers',
-            CostCenterController::class
-        );
+
+        Route::get('cost-centers/suggest-code', [CostCenterController::class, 'suggestCode']); // ← أضف هذا
+        Route::apiResource('cost-centers', CostCenterController::class);
         // Route::apiResource('cost-centers', CostCenterController::class);
         // GET /accounting/cost-centers?tree=true → شجرة مراكز التكلفة
     });
