@@ -47,10 +47,8 @@ return new class extends Migration
                 ->constrained('branches')
                 ->nullOnDelete();
 
-            $table->foreignId('user_id')
-                ->nullable()
-                ->constrained('users')
-                ->nullOnDelete();
+            $table->unsignedBigInteger('user_id')
+                ->nullable();
 
             // polymorphic relation
 

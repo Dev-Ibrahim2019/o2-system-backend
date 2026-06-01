@@ -10,6 +10,7 @@ use App\Models\Transaction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\Accounting\TransactionPostingService;
 
 class TransactionController extends ApiController
 {
@@ -21,6 +22,10 @@ class TransactionController extends ApiController
      * @param Request $request
      * @return JsonResponse
      */
+
+    public function __construct(
+        private readonly TransactionPostingService $postingService,
+    ) {}
     public function dailyStats(Request $request): JsonResponse
     {
         $date = $request->date ?? now()->toDateString();
@@ -368,5 +373,25 @@ class TransactionController extends ApiController
         $transaction->cancel();
 
         return $this->success('تم إلغاء القيد', new TransactionResource($transaction->fresh()));
+    }
+
+    public function reverse(Request $request, Transaction $transaction): JsonResponse
+    {
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:500'],
+            'date'   => ['nullable', 'date'],
+        ]);
+
+        try {
+            $reversal = $this->postingService->reverse(
+                transaction: $transaction,
+                reason: $data['reason'],
+                date: $data['date'] ?? null,
+            );
+
+            return $this->success('تم عكس القيد بنجاح', $reversal);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
     }
 }

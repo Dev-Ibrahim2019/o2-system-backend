@@ -33,6 +33,17 @@ return new class extends Migration
             $table->date('hireDate');
             $table->decimal('salary', 10, 2)->nullable();
 
+            $table->foreignId('advance_account_id')
+                ->nullable()
+                ->constrained('accounts')
+                ->nullOnDelete();
+
+            // يشير لحساب الرواتب المستحقة (2120-xxx)
+            $table->foreignId('salary_account_id')
+                ->nullable()
+                ->constrained('accounts')
+                ->nullOnDelete();
+
             $table->string('role')->default('EMPLOYEE');
             $table->enum('status', ['ACTIVE', 'ON_LEAVE', 'TERMINATED', 'SUSPENDED', 'RESIGNED'])->default('ACTIVE');
             $table->string('username')->nullable()->unique();

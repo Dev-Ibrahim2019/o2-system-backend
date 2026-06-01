@@ -12,6 +12,8 @@ use App\Http\Requests\V1\EmployeeRequest;
 use App\Http\Resources\EmployeeResource;
 use App\Models\Employee;
 use Illuminate\Http\Request;
+use App\Models\Account;
+use Illuminate\Support\Facades\DB;
 
 class EmployeeController extends ApiController
 {
@@ -63,6 +65,8 @@ class EmployeeController extends ApiController
         ]);
     }
 
+
+
     public function store(EmployeeRequest $request)
     {
         $data = $request->validated();
@@ -71,13 +75,51 @@ class EmployeeController extends ApiController
             $data['password'] = bcrypt($data['password']);
         }
 
-        $employee = Employee::create($data);
+        DB::beginTransaction();
+        try {
+            // إنشاء الحساب المحاسبي تلقائياً
+            $account = Account::create([
+                'name'          => $data['name'] . ' - حساب موظف',
+                'code'          => $this->generateEmployeeAccountCode(),
+                'type'          => 'asset',
+                'normal_balance' => 'debit',
+                'parent_id'     => $this->getEmployeesParentAccountId(),
+                'allow_posting' => true,
+                'is_active'     => true,
+                'is_system'     => false,
+                'level'         => 3,
+                'notes'         => 'حساب تلقائي للموظف: ' . $data['name'],
+            ]);
 
-        return $this->success(
-            'Employee created',
-            new EmployeeResource($employee->load(['branch:id,name', 'department:id,name'])),
-            201
-        );
+            $data['account_id'] = $account->id;
+            $employee = Employee::create($data);
+
+            DB::commit();
+            return $this->success(
+                'Employee created',
+                new EmployeeResource($employee->load(['branch:id,name', 'department:id,name'])),
+                201
+            );
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return $this->error('فشل إنشاء الموظف: ' . $e->getMessage(), 500);
+        }
+    }
+
+    private function generateEmployeeAccountCode(): string
+    {
+        // افتراض أن حسابات الموظفين تبدأ بـ 1400
+        $prefix = '14';
+        $last = Account::where('code', 'like', $prefix . '%')
+            ->orderByDesc('code')->value('code');
+        $next = $last ? ((int) substr($last, strlen($prefix))) + 1 : 1;
+        return $prefix . str_pad($next, 4, '0', STR_PAD_LEFT);
+    }
+
+    private function getEmployeesParentAccountId(): ?int
+    {
+        // أنشئ هذا الحساب يدوياً في قاعدة البيانات أو عبر seeder
+        return Account::where('code', '14')->value('id');
     }
 
     public function show(Employee $employee)
