@@ -1,3 +1,4 @@
+```php
 <?php
 
 use Illuminate\Database\Migrations\Migration;
@@ -21,40 +22,67 @@ return new class extends Migration
 
             // نوع القيد
             $table->enum('type', [
-                'sale',           // مبيعات
-                'purchase',       // مشتريات
-                'salary',         // رواتب
-                'expense',        // مصروف
-                'receipt',        // قبض
-                'payment',        // دفع
-                'journal',        // قيد يومية عام
-                'opening',        // رصيد افتتاحي
-                'adjustment',     // تسوية
+                'sale',       // مبيعات
+                'purchase',   // مشتريات
+                'salary',     // رواتب
+                'expense',    // مصروف
+                'receipt',    // قبض
+                'payment',    // دفع
+                'journal',    // قيد يومية عام
+                'opening',    // رصيد افتتاحي
+                'adjustment', // تسوية
             ])->default('journal');
 
-            // ✅ حالة القيد
+            // حالة القيد
             $table->enum('status', [
-                'draft',    // مسودة — يمكن تعديله
-                'posted',   // مرحَّل — لا يمكن تعديله
-                'cancelled', // ملغي
+                'draft',      // مسودة — يمكن تعديله
+                'posted',     // مرحَّل — لا يمكن تعديله
+                'cancelled',  // ملغي
             ])->default('draft');
 
             $table->text('description')->nullable();
 
-            // ✅ constrained() صحيح (كانت ناقصة)
+            // الفرع
             $table->foreignId('branch_id')
                 ->nullable()
                 ->constrained('branches')
                 ->nullOnDelete();
 
-            $table->unsignedBigInteger('user_id')
-                ->nullable();
+            // المستخدم المنشئ
+            $table->unsignedBigInteger('user_id')->nullable();
 
-            // polymorphic relation
-
+            // Polymorphic Relation
             $table->nullableMorphs('source');
 
-            // ✅ تاريخ الترحيل
+            // ── قيد العكس (Reversal) ───────────────────────────────
+            $table->foreignId('reversal_of_id')
+                ->nullable()
+                ->constrained('transactions')
+                ->nullOnDelete();
+
+            $table->boolean('is_reversal')->default(false);
+
+            // ── الفترة المحاسبية ──────────────────────────────────
+            $table->foreignId('period_id')
+                ->nullable()
+                ->constrained('accounting_periods')
+                ->nullOnDelete();
+
+            // ── العملة وسعر الصرف ────────────────────────────────
+            $table->string('currency', 3)->default('ILS');
+
+            $table->decimal('exchange_rate', 12, 6)
+                ->default(1.000000);
+
+            // ── الموافقة (Approval Workflow) ─────────────────────
+            $table->foreignId('approved_by')
+                ->nullable()
+                ->constrained('users')
+                ->nullOnDelete();
+
+            $table->timestamp('approved_at')->nullable();
+
+            // تاريخ الترحيل
             $table->timestamp('posted_at')->nullable();
 
             $table->text('notes')->nullable();
