@@ -16,4 +16,5 @@ use App\Providers\AccountingServiceProvider;
 return [
     AppServiceProvider::class,
     AccountingServiceProvider::class,
+
 ];

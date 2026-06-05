@@ -94,9 +94,13 @@ Route::prefix('departments')->group(function () {
 });
 
 Route::prefix("employees")->group(function () {
-    Route::post("/{employee}/advance", [\App\Http\Controllers\Api\EmployeeFinanceController::class, "grantAdvance"]);
-    Route::post("/{employee}/repay-advance/{loan}", [\App\Http\Controllers\Api\EmployeeFinanceController::class, "repayAdvance"]);
-    Route::post("/{employee}/salary-payment", [\App\Http\Controllers\Api\EmployeeFinanceController::class, "paySalary"]);
-    Route::get("/{employee}/statement", [\App\Http\Controllers\Api\EmployeeFinanceController::class, "getStatement"]);
+    // ── EmployeeFinancialController (الجديد) ─────────────────────────
+    Route::post("/{employee}/advance",          [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordAdvance"]);
+    Route::post("/{employee}/advance-repayment", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordAdvanceRepayment"]);
+    Route::post("/{employee}/salary-accrual",   [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accrualSalary"]);
+    Route::post("/{employee}/salary-payment",   [\App\Http\Controllers\Api\EmployeeFinancialController::class, "paySalary"]);
+    Route::get("/{employee}/account-statement", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accountStatement"]);
+
+    // ── القديم (اتركه أو احذفه) ───────────────────────────────────────
     Route::get("/{employee}/loans", [\App\Http\Controllers\Api\EmployeeFinanceController::class, "getLoans"]);
 });
