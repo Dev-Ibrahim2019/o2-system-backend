@@ -102,18 +102,27 @@ class Transaction extends Model
 
     public function getTotalDebitAttribute(): float
     {
-        return (float) $this->entries->sum('debit');
+        return (float) $this->entries()
+            ->sum('debit');
     }
 
     public function getTotalCreditAttribute(): float
     {
-        return (float) $this->entries->sum('credit');
+        return (float) $this->entries()->sum('credit');
     }
 
     public function isBalanced(): bool
     {
-        $entries = $this->entries->count() ? $this->entries : $this->entries()->get();
-        return abs($entries->sum('debit') - $entries->sum('credit')) < 0.001;
+        $totals = $this->entries()
+            ->selectRaw('
+            COALESCE(SUM(debit), 0) as debit,
+            COALESCE(SUM(credit), 0) as credit
+        ')
+            ->first();
+
+        return abs(
+            $totals->debit - $totals->credit
+        ) < 0.001;
     }
 
     public function isEditable(): bool
@@ -138,15 +147,5 @@ class Transaction extends Model
         $seq = $last ? ((int) substr($last, -4)) + 1 : 1;
 
         return $key . str_pad($seq, 4, '0', STR_PAD_LEFT);
-    }
-
-    public function post(): void
-    {
-        $this->update(['status' => 'posted', 'posted_at' => now()]);
-    }
-
-    public function cancel(): void
-    {
-        $this->update(['status' => 'cancelled']);
     }
 }

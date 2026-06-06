@@ -68,21 +68,66 @@ class TransactionPostingService
      */
     public function post(Transaction $transaction): Transaction
     {
-        if ($transaction->status !== 'draft') {
-            throw new RuntimeException('يمكن ترحيل المسودات فقط');
-        }
+        return DB::transaction(function () use ($transaction) {
 
-        $transaction->load('entries');
+            // 🔒 Lock transaction row
+            $transaction = Transaction::query()
+                ->lockForUpdate()
+                ->with([
+                    'entries.account',
+                ])
+                ->findOrFail($transaction->id);
 
-        if (! $transaction->isBalanced()) {
-            throw new RuntimeException(
-                "القيد غير متوازن — مدين: {$transaction->total_debit} / دائن: {$transaction->total_credit}"
-            );
-        }
+            // ✅ Prevent double posting
+            if ($transaction->status !== 'draft') {
+                throw new RuntimeException(
+                    'يمكن ترحيل المسودات فقط'
+                );
+            }
 
-        $transaction->post();
+            // ✅ Ensure entries exist
+            if ($transaction->entries->isEmpty()) {
+                throw new RuntimeException(
+                    'القيد لا يحتوي على أي سطور'
+                );
+            }
 
-        return $transaction->fresh();
+            // ✅ Recalculate totals safely
+            $totalDebit = $transaction->entries->sum('debit');
+            $totalCredit = $transaction->entries->sum('credit');
+
+            if (abs($totalDebit - $totalCredit) > 0.001) {
+                throw new RuntimeException(
+                    "القيد غير متوازن — مدين: {$totalDebit} / دائن: {$totalCredit}"
+                );
+            }
+
+            // ✅ Validate accounts
+            foreach ($transaction->entries as $entry) {
+
+                if (! $entry->account) {
+                    throw new RuntimeException(
+                        "الحساب غير موجود للسطر {$entry->id}"
+                    );
+                }
+
+                if (! $entry->account->canPost()) {
+                    throw new RuntimeException(
+                        "الحساب [{$entry->account->code}] لا يقبل قيوداً مباشرة"
+                    );
+                }
+            }
+
+            // ✅ Post transaction
+            $transaction->update([
+                'status'    => 'posted',
+                'posted_at' => now(),
+            ]);
+
+            return $transaction->fresh([
+                'entries.account',
+            ]);
+        });
     }
 
     /**

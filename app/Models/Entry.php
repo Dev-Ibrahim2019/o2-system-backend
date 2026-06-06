@@ -64,8 +64,34 @@ class Entry extends Model
     /**
      * المبلغ الصافي (양موجب = مدين، سالب = دائن)
      */
-    public function getAmountAttribute(): float
+    // public function getAmountAttribute(): float
+    // {
+    //     return (float) ($this->debit - $this->credit);
+    // }
+    protected static function booted(): void
     {
-        return (float) ($this->debit - $this->credit);
+        static::updating(function (Entry $entry) {
+
+            if (
+                $entry->transaction &&
+                $entry->transaction->status === 'posted'
+            ) {
+                throw new \RuntimeException(
+                    'لا يمكن تعديل قيود مرحّلة'
+                );
+            }
+        });
+
+        static::deleting(function (Entry $entry) {
+
+            if (
+                $entry->transaction &&
+                $entry->transaction->status === 'posted'
+            ) {
+                throw new \RuntimeException(
+                    'لا يمكن حذف قيود مرحّلة'
+                );
+            }
+        });
     }
 }

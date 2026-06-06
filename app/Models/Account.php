@@ -89,27 +89,14 @@ class Account extends Model
      * استخدام مباشر للقيم بدون جلب القيود المرحلة فقط
      * للتقارير الدقيقة استخدم AccountLedgerService
      */
-    public function getBalanceAttribute(): float
-    {
-        $debit  = $this->entries()->whereHas('transaction', fn($q) => $q->where('status', 'posted'))->sum('debit');
-        $credit = $this->entries()->whereHas('transaction', fn($q) => $q->where('status', 'posted'))->sum('credit');
-
-        return in_array($this->type, ['asset', 'expense'])
-            ? (float)($debit - $credit)
-            : (float)($credit - $debit);
-    }
-
-    public function getIsParentAttribute(): bool
-    {
-        return $this->children()->exists();
-    }
 
     /**
      * منع نشر قيود على حسابات أم
      */
     public function canPost(): bool
     {
-        return $this->allow_posting && $this->is_active && !$this->is_parent;
+        return $this->allow_posting
+            && $this->is_active;
     }
 
     protected static function booted(): void
