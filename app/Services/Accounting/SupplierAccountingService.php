@@ -9,17 +9,20 @@ use RuntimeException;
 
 class SupplierAccountingService
 {
+    private const AP_ACCOUNT_CODE = '2110'; // Accounts Payable
+
     public function __construct(
         private readonly TransactionPostingService $postingService,
+        private readonly SubledgerService $subledgerService,
     ) {}
- 
-    // ──────────────────────────────────────────────────────────────
-    // 1. فاتورة المورد / مشتريات (Supplier Bill)
-    // ──────────────────────────────────────────────────────────────
+
+    // ──────────────────────────────────────────────────────────
+    // 1. فاتورة المورد
+    // ──────────────────────────────────────────────────────────
     /**
      * القيد:
-     *   مدين:  5xxx     (حساب المشتريات/المصروف)
-     *   دائن:  2110-xxx (ذمة المورد — AP يزيد)
+     *   مدين:  expenseAccountId (حساب المشتريات)
+     *   دائن:  2110 (ذمم الموردين — Control) | subledger: supplier X
      */
     public function recordBill(
         Supplier $supplier,
@@ -29,7 +32,7 @@ class SupplierAccountingService
         ?string  $reference = null,
         ?int     $branchId  = null,
     ): Transaction {
-        $this->ensureAccount($supplier);
+        $apAccountId = $this->getAccountId(self::AP_ACCOUNT_CODE);
 
         return $this->postingService->createAndPost(
             data: [
@@ -50,22 +53,24 @@ class SupplierAccountingService
                     'description' => "مشتريات",
                 ],
                 [
-                    'account_id'  => $supplier->account_id,
-                    'debit'       => 0,
-                    'credit'      => $amount,
-                    'description' => "دين المورد",
+                    'account_id'     => $apAccountId,
+                    'debit'          => 0,
+                    'credit'         => $amount,
+                    'description'    => "دين المورد: {$supplier->name}",
+                    'subledger_type' => 'supplier',
+                    'subledger_id'   => $supplier->id,
                 ],
             ],
         );
     }
- 
-    // ──────────────────────────────────────────────────────────────
-    // 2. دفعة للمورد (Supplier Payment)
-    // ──────────────────────────────────────────────────────────────
+
+    // ──────────────────────────────────────────────────────────
+    // 2. دفعة للمورد
+    // ──────────────────────────────────────────────────────────
     /**
      * القيد:
-     *   مدين:  2110-xxx (ذمة المورد — AP ينقص)
-     *   دائن:  1110x    (الصندوق/البنك)
+     *   مدين:  2110 (ذمم الموردين — Control) | subledger: supplier X
+     *   دائن:  11101 (الصندوق)
      */
     public function recordPayment(
         Supplier $supplier,
@@ -75,7 +80,7 @@ class SupplierAccountingService
         ?string  $reference = null,
         ?int     $branchId  = null,
     ): Transaction {
-        $this->ensureAccount($supplier);
+        $apAccountId = $this->getAccountId(self::AP_ACCOUNT_CODE);
 
         return $this->postingService->createAndPost(
             data: [
@@ -90,10 +95,12 @@ class SupplierAccountingService
             ],
             entries: [
                 [
-                    'account_id'  => $supplier->account_id,
-                    'debit'       => $amount,
-                    'credit'      => 0,
-                    'description' => "تسوية دين المورد",
+                    'account_id'     => $apAccountId,
+                    'debit'          => $amount,
+                    'credit'         => 0,
+                    'description'    => "تسوية دين المورد: {$supplier->name}",
+                    'subledger_type' => 'supplier',
+                    'subledger_id'   => $supplier->id,
                 ],
                 [
                     'account_id'  => $cashAccountId,
@@ -105,10 +112,26 @@ class SupplierAccountingService
         );
     }
 
-    private function ensureAccount(Supplier $supplier): void
+    public function getBalance(Supplier $supplier, ?string $asOf = null): float
     {
-        if (! $supplier->account_id) {
-            throw new RuntimeException("المورد [{$supplier->name}] لا يمتلك حساباً محاسبياً");
-        }
+        return $this->subledgerService->getSupplierBalance($supplier->id, $asOf);
+    }
+
+    public function getStatement(Supplier $supplier, string $from, string $to): array
+    {
+        return $this->subledgerService->getStatement(
+            'supplier',
+            $supplier->id,
+            self::AP_ACCOUNT_CODE,
+            $from,
+            $to
+        );
+    }
+
+    private function getAccountId(string $code): int
+    {
+        $id = Account::where('code', $code)->value('id');
+        if (! $id) throw new RuntimeException("حساب ({$code}) غير موجود");
+        return $id;
     }
 }

@@ -102,5 +102,5 @@ Route::prefix("employees")->group(function () {
     Route::get("/{employee}/account-statement", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accountStatement"]);
 
     // ── القديم (اتركه أو احذفه) ───────────────────────────────────────
-    Route::get("/{employee}/loans", [\App\Http\Controllers\Api\EmployeeFinanceController::class, "getLoans"]);
+    // Route::get("/{employee}/loans", [\App\Http\Controllers\Api\EmployeeFinanceController::class, "getLoans"]);
 });

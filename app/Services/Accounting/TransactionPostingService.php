@@ -54,6 +54,8 @@ class TransactionPostingService
                     'credit'         => $entry['credit'] ?? 0,
                     'description'    => $entry['description'] ?? null,
                     'cost_center_id' => $entry['cost_center_id'] ?? null,
+                    'subledger_type' => $entry['subledger_type'] ?? null, // ← إضافة
+                    'subledger_id'   => $entry['subledger_id'] ?? null,   // ← إضافة
                     'sort_order'     => $index,
                 ]);
             }

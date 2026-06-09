@@ -9,17 +9,22 @@ use RuntimeException;
 
 class CustomerAccountingService
 {
+    private const AR_ACCOUNT_CODE      = '1120'; // Accounts Receivable
+    private const REVENUE_ACCOUNT_CODE = '4110';
+    private const TAX_ACCOUNT_CODE     = '2140';
+
     public function __construct(
         private readonly TransactionPostingService $postingService,
+        private readonly SubledgerService $subledgerService,
     ) {}
- 
-    // ──────────────────────────────────────────────────────────────
-    // 1. فاتورة العميل (Customer Invoice)
-    // ──────────────────────────────────────────────────────────────
+
+    // ──────────────────────────────────────────────────────────
+    // 1. فاتورة العميل
+    // ──────────────────────────────────────────────────────────
     /**
      * القيد:
-     *   مدين:  1120-xxx (ذمة العميل — AR يزيد)
-     *   دائن:  4110     (إيرادات المبيعات)
+     *   مدين:  1120 (ذمم العملاء — Control) | subledger: customer X
+     *   دائن:  4110 (إيرادات المبيعات)
      */
     public function recordInvoice(
         Customer $customer,
@@ -29,17 +34,20 @@ class CustomerAccountingService
         ?string  $reference  = null,
         ?int     $branchId   = null,
     ): Transaction {
-        $this->ensureAccount($customer);
+        $arAccountId      = $this->getAccountId(self::AR_ACCOUNT_CODE);
+        $revenueAccountId = $this->getAccountId(self::REVENUE_ACCOUNT_CODE);
+        $taxAccountId     = Account::where('code', self::TAX_ACCOUNT_CODE)->value('id');
 
-        $revenueAccountId = Account::where('code', '4110')->value('id');
-        $taxAccountId     = Account::where('code', '2140')->value('id');
+        $totalAmount = $amount + ($taxAmount ?? 0);
 
         $entries = [
             [
-                'account_id'  => $customer->account_id,
-                'debit'       => $amount + ($taxAmount ?? 0),
-                'credit'      => 0,
-                'description' => "فاتورة مبيعات",
+                'account_id'     => $arAccountId,
+                'debit'          => $totalAmount,
+                'credit'         => 0,
+                'description'    => "فاتورة مبيعات - {$customer->name}",
+                'subledger_type' => 'customer',
+                'subledger_id'   => $customer->id,
             ],
             [
                 'account_id'  => $revenueAccountId,
@@ -72,14 +80,14 @@ class CustomerAccountingService
             entries: $entries,
         );
     }
- 
-    // ──────────────────────────────────────────────────────────────
-    // 2. دفعة من العميل (Customer Payment)
-    // ──────────────────────────────────────────────────────────────
+
+    // ──────────────────────────────────────────────────────────
+    // 2. دفعة من العميل
+    // ──────────────────────────────────────────────────────────
     /**
      * القيد:
-     *   مدين:  1110x    (الصندوق/البنك)
-     *   دائن:  1120-xxx (ذمة العميل — AR ينقص)
+     *   مدين:  11101 (الصندوق)
+     *   دائن:  1120 (ذمم العملاء — Control) | subledger: customer X
      */
     public function recordPayment(
         Customer $customer,
@@ -89,7 +97,7 @@ class CustomerAccountingService
         ?string  $reference = null,
         ?int     $branchId  = null,
     ): Transaction {
-        $this->ensureAccount($customer);
+        $arAccountId = $this->getAccountId(self::AR_ACCOUNT_CODE);
 
         return $this->postingService->createAndPost(
             data: [
@@ -110,19 +118,43 @@ class CustomerAccountingService
                     'description' => "استلام دفعة",
                 ],
                 [
-                    'account_id'  => $customer->account_id,
-                    'debit'       => 0,
-                    'credit'      => $amount,
-                    'description' => "تسوية دين العميل",
+                    'account_id'     => $arAccountId,
+                    'debit'          => 0,
+                    'credit'         => $amount,
+                    'description'    => "تسوية ذمة العميل: {$customer->name}",
+                    'subledger_type' => 'customer',
+                    'subledger_id'   => $customer->id,
                 ],
             ],
         );
     }
 
-    private function ensureAccount(Customer $customer): void
+    /**
+     * رصيد العميل الحالي
+     */
+    public function getBalance(Customer $customer, ?string $asOf = null): float
     {
-        if (! $customer->account_id) {
-            throw new RuntimeException("العميل [{$customer->name}] لا يمتلك حساباً محاسبياً");
-        }
+        return $this->subledgerService->getCustomerBalance($customer->id, $asOf);
+    }
+
+    /**
+     * كشف حساب العميل
+     */
+    public function getStatement(Customer $customer, string $from, string $to): array
+    {
+        return $this->subledgerService->getStatement(
+            'customer',
+            $customer->id,
+            self::AR_ACCOUNT_CODE,
+            $from,
+            $to
+        );
+    }
+
+    private function getAccountId(string $code): int
+    {
+        $id = Account::where('code', $code)->value('id');
+        if (! $id) throw new RuntimeException("حساب ({$code}) غير موجود");
+        return $id;
     }
 }

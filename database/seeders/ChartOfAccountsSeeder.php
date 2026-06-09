@@ -7,45 +7,34 @@ use Illuminate\Database\Seeder;
 
 /**
  * ═══════════════════════════════════════════════════════════════
- * Chart of Accounts — ERP Standard Structure
+ * Chart of Accounts Seeder — Subledger Architecture
  * ═══════════════════════════════════════════════════════════════
  *
- * شجرة الحسابات وفق معايير المحاسبة الدولية (IFRS/GAAP):
+ * النظام الجديد:
  *
- * 1. ASSETS (أصول)
- *    ├─ 11  Current Assets
- *    │   ├─ 1110  Cash & Bank
- *    │   ├─ 1120  Accounts Receivable (ذمم مدينة)
- *    │   │   └─ 1120-{customer_id}  Customer Sub-accounts
- *    │   └─ 1130  Employee Advances (سلف موظفين)
- *    │       └─ 1130-{employee_id}  Employee Sub-accounts
- *    └─ 12  Non-Current Assets
+ * ❌ لا يوجد حساب مستقل لكل موظف/عميل/مورد
+ * ❌ لا يوجد:
+ *      1120-1
+ *      1120-2
+ *      1130-5
  *
- * 2. LIABILITIES (التزامات)
- *    ├─ 21  Current Liabilities
- *    │   ├─ 2110  Accounts Payable (ذمم دائنة)
- *    │   │   └─ 2110-{supplier_id}  Supplier Sub-accounts
- *    │   ├─ 2120  Salaries Payable (رواتب مستحقة)
- *    │   │   └─ 2120-{employee_id}  Employee Salary Sub-accounts
- *    │   └─ 2130  Employee Loans Payable (قروض الموظفين)
+ * ✅ يوجد Control Account فقط:
+ *      1120 → ذمم العملاء
+ *      1130 → سلف الموظفين
+ *      2110 → ذمم الموردين
+ *      2120 → رواتب مستحقة
  *
- * 3. EQUITY (حقوق الملكية)
+ * والتفصيل يتم عبر:
+ *      entries.subledger_type
+ *      entries.subledger_id
  *
- * 4. REVENUE (إيرادات)
+ * مثال:
  *
- * 5. EXPENSES (مصاريف)
- *    ├─ 51  Operating Expenses
- *    │   ├─ 5110  Salaries Expense (مصروف رواتب)
- *    │   └─ 5120  Other Staff Costs
+ * account_id      = 1120
+ * subledger_type  = customer
+ * subledger_id    = 55
  *
- * ─── لماذا هذا التصميم؟ ─────────────────────────────────────
- * ✅ كل موظف → حسابان منفصلان:
- *    - 1130-xxx  (Asset)    → يسجل السلف كأصل على الشركة
- *    - 2120-xxx  (Liability) → يسجل الرواتب المستحقة كالتزام
- *    هذا الفصل إلزامي محاسبياً — خلطهما خطأ فادح
- *
- * ✅ Accounts Receivable / Payable بحسابات فرعية لكل عميل/مورد
- *    يمنح تقارير دقيقة لكل كيان بدون استعلامات معقدة
+ * هذا التصميم هو المستخدم في أنظمة ERP الحقيقية.
  * ═══════════════════════════════════════════════════════════════
  */
 class ChartOfAccountsSeeder extends Seeder
@@ -75,7 +64,10 @@ class ChartOfAccountsSeeder extends Seeder
             'is_system'      => true,
         ]);
 
-        // ── 11 Current Assets ─────────────────────────────────
+        // ─────────────────────────────────────────────────────
+        // 11 Current Assets
+        // ─────────────────────────────────────────────────────
+
         $currentAssets = $this->create([
             'code'           => '11',
             'name'           => 'الأصول المتداولة',
@@ -88,7 +80,10 @@ class ChartOfAccountsSeeder extends Seeder
             'is_system'      => true,
         ]);
 
-        // 1110 — Cash & Bank
+        // ─────────────────────────────────────────────────────
+        // 1110 Cash & Bank
+        // ─────────────────────────────────────────────────────
+
         $cashParent = $this->create([
             'code'           => '1110',
             'name'           => 'النقد والبنوك',
@@ -125,7 +120,10 @@ class ChartOfAccountsSeeder extends Seeder
             'is_system'      => true,
         ]);
 
-        // 1120 — Accounts Receivable (حسابات فرعية تُنشأ لكل عميل تلقائياً)
+        // ─────────────────────────────────────────────────────
+        // 1120 Accounts Receivable
+        // ─────────────────────────────────────────────────────
+
         $this->create([
             'code'           => '1120',
             'name'           => 'ذمم العملاء المدينة',
@@ -134,12 +132,22 @@ class ChartOfAccountsSeeder extends Seeder
             'normal_balance' => 'debit',
             'level'          => 3,
             'parent_id'      => $currentAssets->id,
-            'allow_posting'  => false,
+
+            // مهم جداً
+            'allow_posting'  => true,
+
             'is_system'      => true,
-            'meta'           => ['entity_type' => 'customer'], // للربط التلقائي
+
+            'meta' => [
+                'subledger'  => true,
+                'entity_type' => 'customer',
+            ],
         ]);
 
-        // 1130 — Employee Advances (سلف الموظفين — أصل لأنها مبالغ مستحقة للشركة)
+        // ─────────────────────────────────────────────────────
+        // 1130 Employee Advances
+        // ─────────────────────────────────────────────────────
+
         $this->create([
             'code'           => '1130',
             'name'           => 'سلف الموظفين',
@@ -148,12 +156,21 @@ class ChartOfAccountsSeeder extends Seeder
             'normal_balance' => 'debit',
             'level'          => 3,
             'parent_id'      => $currentAssets->id,
-            'allow_posting'  => false,
+
+            'allow_posting'  => true,
+
             'is_system'      => true,
-            'meta'           => ['entity_type' => 'employee', 'sub_type' => 'advance'],
+
+            'meta' => [
+                'subledger'   => true,
+                'entity_type' => 'employee',
+            ],
         ]);
 
-        // 1140 — Prepaid Expenses
+        // ─────────────────────────────────────────────────────
+        // 1140 Prepaid Expenses
+        // ─────────────────────────────────────────────────────
+
         $this->create([
             'code'           => '1140',
             'name'           => 'مصاريف مدفوعة مقدماً',
@@ -166,7 +183,10 @@ class ChartOfAccountsSeeder extends Seeder
             'is_system'      => true,
         ]);
 
-        // ── 12 Non-Current Assets ──────────────────────────────
+        // ─────────────────────────────────────────────────────
+        // 12 Non-Current Assets
+        // ─────────────────────────────────────────────────────
+
         $nonCurrentAssets = $this->create([
             'code'           => '12',
             'name'           => 'الأصول غير المتداولة',
@@ -195,6 +215,7 @@ class ChartOfAccountsSeeder extends Seeder
     // ══════════════════════════════════════════════════════════
     // 2. LIABILITIES — الالتزامات
     // ══════════════════════════════════════════════════════════
+
     private function createLiabilities(): void
     {
         $liabilities = $this->create([
@@ -208,7 +229,6 @@ class ChartOfAccountsSeeder extends Seeder
             'is_system'      => true,
         ]);
 
-        // ── 21 Current Liabilities ────────────────────────────
         $currentLiab = $this->create([
             'code'           => '21',
             'name'           => 'الالتزامات المتداولة',
@@ -221,7 +241,10 @@ class ChartOfAccountsSeeder extends Seeder
             'is_system'      => true,
         ]);
 
-        // 2110 — Accounts Payable (حسابات فرعية لكل مورد)
+        // ─────────────────────────────────────────────────────
+        // 2110 Accounts Payable
+        // ─────────────────────────────────────────────────────
+
         $this->create([
             'code'           => '2110',
             'name'           => 'ذمم الموردين الدائنة',
@@ -230,12 +253,21 @@ class ChartOfAccountsSeeder extends Seeder
             'normal_balance' => 'credit',
             'level'          => 3,
             'parent_id'      => $currentLiab->id,
-            'allow_posting'  => false,
+
+            'allow_posting'  => true,
+
             'is_system'      => true,
-            'meta'           => ['entity_type' => 'supplier'],
+
+            'meta' => [
+                'subledger'   => true,
+                'entity_type' => 'supplier',
+            ],
         ]);
 
-        // 2120 — Salaries Payable (رواتب مستحقة — التزام على الشركة)
+        // ─────────────────────────────────────────────────────
+        // 2120 Salaries Payable
+        // ─────────────────────────────────────────────────────
+
         $this->create([
             'code'           => '2120',
             'name'           => 'الرواتب المستحقة',
@@ -244,12 +276,21 @@ class ChartOfAccountsSeeder extends Seeder
             'normal_balance' => 'credit',
             'level'          => 3,
             'parent_id'      => $currentLiab->id,
-            'allow_posting'  => false,
+
+            'allow_posting'  => true,
+
             'is_system'      => true,
-            'meta'           => ['entity_type' => 'employee', 'sub_type' => 'salary'],
+
+            'meta' => [
+                'subledger'   => true,
+                'entity_type' => 'employee',
+            ],
         ]);
 
-        // 2130 — Employee Loans Payable (قروض الشركة للموظفين — طويلة الأمد)
+        // ─────────────────────────────────────────────────────
+        // 2130 Employee Loans
+        // ─────────────────────────────────────────────────────
+
         $this->create([
             'code'           => '2130',
             'name'           => 'قروض الموظفين',
@@ -258,12 +299,14 @@ class ChartOfAccountsSeeder extends Seeder
             'normal_balance' => 'credit',
             'level'          => 3,
             'parent_id'      => $currentLiab->id,
-            'allow_posting'  => false,
+            'allow_posting'  => true,
             'is_system'      => true,
-            'meta'           => ['entity_type' => 'employee', 'sub_type' => 'loan'],
         ]);
 
-        // 2140 — Tax Payable
+        // ─────────────────────────────────────────────────────
+        // 2140 Tax Payable
+        // ─────────────────────────────────────────────────────
+
         $this->create([
             'code'           => '2140',
             'name'           => 'ضرائب مستحقة',
@@ -278,8 +321,9 @@ class ChartOfAccountsSeeder extends Seeder
     }
 
     // ══════════════════════════════════════════════════════════
-    // 3. EQUITY — حقوق الملكية
+    // 3. EQUITY
     // ══════════════════════════════════════════════════════════
+
     private function createEquity(): void
     {
         $equity = $this->create([
@@ -319,8 +363,9 @@ class ChartOfAccountsSeeder extends Seeder
     }
 
     // ══════════════════════════════════════════════════════════
-    // 4. REVENUE — الإيرادات
+    // 4. REVENUE
     // ══════════════════════════════════════════════════════════
+
     private function createRevenue(): void
     {
         $revenue = $this->create([
@@ -348,8 +393,9 @@ class ChartOfAccountsSeeder extends Seeder
     }
 
     // ══════════════════════════════════════════════════════════
-    // 5. EXPENSES — المصاريف
+    // 5. EXPENSES
     // ══════════════════════════════════════════════════════════
+
     private function createExpenses(): void
     {
         $expenses = $this->create([
@@ -375,11 +421,10 @@ class ChartOfAccountsSeeder extends Seeder
             'is_system'      => true,
         ]);
 
-        // 5110 — Salaries Expense (مصروف الرواتب في قائمة الدخل)
         $this->create([
             'code'           => '5110',
             'name'           => 'مصروف الرواتب والأجور',
-            'name_en'        => 'Salaries & Wages Expense',
+            'name_en'        => 'Salaries Expense',
             'type'           => 'expense',
             'normal_balance' => 'debit',
             'level'          => 3,
@@ -425,12 +470,16 @@ class ChartOfAccountsSeeder extends Seeder
         ]);
     }
 
+    // ══════════════════════════════════════════════════════════
+    // Helper
+    // ══════════════════════════════════════════════════════════
+
     private function create(array $data): Account
     {
         return Account::create(array_merge([
-            'is_active'  => true,
-            'is_system'  => false,
-            'currency'   => 'ILS',
+            'is_active' => true,
+            'currency'  => 'ILS',
+            'is_system' => false,
         ], $data));
     }
 }

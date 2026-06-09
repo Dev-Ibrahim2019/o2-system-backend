@@ -1,11 +1,11 @@
 <?php
-// app/Models/Employee.php
 
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Employee extends Model
@@ -37,6 +37,8 @@ class Employee extends Model
         'notes',
         'rating',
         'performance',
+        // ملاحظة: advance_account_id و salary_account_id حُذفا في النظام الجديد
+        // الحسابات تُعرَّف عبر Control Accounts + subledger في entries
     ];
 
     protected $hidden = ['password', 'pin'];
@@ -50,6 +52,8 @@ class Employee extends Model
         'rating'      => 'decimal:1',
     ];
 
+    // ── Relations ─────────────────────────────────────────────────────────────
+
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
@@ -60,8 +64,74 @@ class Employee extends Model
         return $this->belongsTo(Department::class);
     }
 
-    public function loans()
+    public function loans(): HasMany
     {
         return $this->hasMany(EmployeeLoan::class);
+    }
+
+    // ── Subledger Financial Accessors ─────────────────────────────────────────
+    // هذه الـ Accessors تحسب مباشرة من entries بدون حسابات مستقلة
+
+    /**
+     * مجموع السلف المستحقة على الموظف
+     * يحسب من: entries WHERE subledger_type='employee' AND account حساب سلف (1130)
+     */
+    public function getOutstandingAdvanceAttribute(): float
+    {
+        $advanceAccountId = $this->getControlAccountId('1130');
+        if (! $advanceAccountId) return 0.0;
+
+        $totals = Entry::query()
+            ->forSubledgerAccount('employee', $this->id, $advanceAccountId)
+            ->whereHas('transaction', fn($q) => $q->where('status', 'posted'))
+            ->selectRaw('COALESCE(SUM(debit),0) as d, COALESCE(SUM(credit),0) as c')
+            ->first();
+
+        // Asset → debit طبيعي → رصيد = debit - credit
+        return (float) ($totals->d - $totals->c);
+    }
+
+    /**
+     * مجموع الرواتب المستحقة غير المدفوعة
+     * يحسب من: entries WHERE subledger_type='employee' AND account حساب رواتب (2120)
+     */
+    public function getAccruedSalaryAttribute(): float
+    {
+        $salaryAccountId = $this->getControlAccountId('2120');
+        if (! $salaryAccountId) return 0.0;
+
+        $totals = Entry::query()
+            ->forSubledgerAccount('employee', $this->id, $salaryAccountId)
+            ->whereHas('transaction', fn($q) => $q->where('status', 'posted'))
+            ->selectRaw('COALESCE(SUM(debit),0) as d, COALESCE(SUM(credit),0) as c')
+            ->first();
+
+        // Liability → credit طبيعي → رصيد = credit - debit
+        return (float) ($totals->c - $totals->d);
+    }
+
+    /**
+     * صافي المبلغ المستحق للموظف (رواتب - سلف)
+     */
+    public function getNetPayableAttribute(): float
+    {
+        return max(0.0, $this->accrued_salary - $this->outstanding_advance);
+    }
+
+    // ── Private Helpers ───────────────────────────────────────────────────────
+
+    /**
+     * جلب ID حساب التحكم من الكود
+     * يُخزَّن في cache لتجنب repeated queries
+     */
+    private function getControlAccountId(string $code): ?int
+    {
+        static $cache = [];
+
+        if (! isset($cache[$code])) {
+            $cache[$code] = Account::where('code', $code)->value('id');
+        }
+
+        return $cache[$code];
     }
 }

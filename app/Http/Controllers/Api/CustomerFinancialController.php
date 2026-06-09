@@ -7,6 +7,7 @@ use App\Http\Requests\Api\Accounting\RecordInvoiceRequest;
 use App\Http\Requests\Api\Accounting\RecordPaymentRequest;
 use App\Models\Customer;
 use App\Services\Accounting\CustomerAccountingService;
+use App\Services\Accounting\SubledgerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -14,6 +15,7 @@ class CustomerFinancialController extends ApiController
 {
     public function __construct(
         private readonly CustomerAccountingService $customerService,
+        private readonly SubledgerService $subledgerService,
     ) {}
 
     /**
@@ -21,16 +23,22 @@ class CustomerFinancialController extends ApiController
      */
     public function recordInvoice(RecordInvoiceRequest $request, Customer $customer): JsonResponse
     {
-        $transaction = $this->customerService->recordInvoice(
-            customer: $customer,
-            amount: $request->validated('amount'),
-            revenueAccountId: $request->validated('offset_account_id'),
-            date: $request->validated('date'),
-            reference: $request->validated('reference'),
-            branchId: $request->validated('branch_id'),
-        );
+        try {
+            $transaction = $this->customerService->recordInvoice(
+                customer: $customer,
+                amount: $request->validated('amount'),
+                date: $request->validated('date'),
+                reference: $request->validated('reference'),
+                branchId: $request->validated('branch_id'),
+            );
 
-        return $this->success('تم تسجيل الفاتورة بنجاح', $transaction);
+            return $this->success('تم تسجيل الفاتورة بنجاح', [
+                'transaction' => $transaction,
+                'balance'     => $this->subledgerService->getCustomerBalance($customer->id),
+            ]);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
     }
 
     /**
@@ -38,16 +46,23 @@ class CustomerFinancialController extends ApiController
      */
     public function recordPayment(RecordPaymentRequest $request, Customer $customer): JsonResponse
     {
-        $transaction = $this->customerService->recordPayment(
-            customer: $customer,
-            amount: $request->validated('amount'),
-            cashAccountId: $request->validated('cash_account_id'),
-            date: $request->validated('date'),
-            reference: $request->validated('reference'),
-            branchId: $request->validated('branch_id'),
-        );
+        try {
+            $transaction = $this->customerService->recordPayment(
+                customer: $customer,
+                amount: $request->validated('amount'),
+                cashAccountId: $request->validated('cash_account_id'),
+                date: $request->validated('date'),
+                reference: $request->validated('reference'),
+                branchId: $request->validated('branch_id'),
+            );
 
-        return $this->success('تم تسجيل الدفعة بنجاح', $transaction);
+            return $this->success('تم تسجيل الدفعة بنجاح', [
+                'transaction' => $transaction,
+                'balance'     => $this->subledgerService->getCustomerBalance($customer->id),
+            ]);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
     }
 
     /**
@@ -55,14 +70,16 @@ class CustomerFinancialController extends ApiController
      */
     public function accountStatement(Request $request, Customer $customer): JsonResponse
     {
-        if (!$customer->account_id) {
-            return $this->error('العميل لا يمتلك حساباً محاسبياً', 422);
-        }
-
         $from = $request->query('from', now()->startOfMonth()->toDateString());
-        $to   = $request->query('to', now()->toDateString());
+        $to   = $request->query('to',   now()->toDateString());
 
-        $statement = $customer->account->getStatement($from, $to);
+        $statement = $this->subledgerService->getStatement(
+            'customer',
+            $customer->id,
+            '1120',
+            $from,
+            $to
+        );
 
         return $this->success('كشف الحساب مستخرج بنجاح', $statement);
     }

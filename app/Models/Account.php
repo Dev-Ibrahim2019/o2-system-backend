@@ -108,4 +108,15 @@ class Account extends Model
             }
         });
     }
+    public function getStatement(string $from, string $to): array
+    {
+        return app(\App\Services\Accounting\AccountLedgerService::class)
+            ->getStatement($this, $from, $to);
+    }
+
+    // إضافة is_parent accessor
+    public function getIsParentAttribute(): bool
+    {
+        return $this->children()->exists();
+    }
 }
