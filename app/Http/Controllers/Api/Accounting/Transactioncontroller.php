@@ -26,6 +26,22 @@ class TransactionController extends ApiController
     public function __construct(
         private readonly TransactionPostingService $postingService,
     ) {}
+
+    // ── GET /transactions/by-source ──────────────────────────────────────────
+    public function bySource(Request $request): JsonResponse
+    {
+        $request->validate([
+            'source_type' => 'required|string',
+            'source_id'   => 'required|integer',
+        ]);
+
+        $transactions = Transaction::forSource($request->source_type, $request->source_id)
+            ->with(['entries.account:id,name,code,type', 'branch:id,name'])
+            ->orderByDesc('date')
+            ->get();
+
+        return $this->success('Transactions fetched', TransactionResource::collection($transactions));
+    }
     public function dailyStats(Request $request): JsonResponse
     {
         $date = $request->date ?? now()->toDateString();
@@ -343,23 +359,19 @@ class TransactionController extends ApiController
     }
 
     // ── POST /transactions/{transaction}/post ─────────────────────────────────
-    // ترحيل القيد (draft → posted)
+    // ترحيل القيد (draft → posted) باستخدام TransactionPostingService
     public function post(Transaction $transaction): JsonResponse
     {
-        if ($transaction->status !== 'draft') {
-            return $this->error('يمكن ترحيل المسودات فقط', 422);
+        try {
+            $posted = $this->postingService->post($transaction);
+
+            return $this->success(
+                'تم ترحيل القيد بنجاح',
+                new TransactionResource($posted->load(['entries.account', 'entries.costCenter', 'branch', 'user']))
+            );
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 422);
         }
-
-        if (!$transaction->isBalanced()) {
-            return $this->error('لا يمكن ترحيل قيد غير متوازن', 422);
-        }
-
-        $transaction->post();
-
-        return $this->success(
-            'تم ترحيل القيد بنجاح',
-            new TransactionResource($transaction->fresh()->load(['entries.account', 'branch']))
-        );
     }
 
     // ── POST /transactions/{transaction}/cancel ───────────────────────────────
@@ -370,11 +382,13 @@ class TransactionController extends ApiController
             return $this->error('القيد ملغي مسبقاً', 422);
         }
 
-        $transaction->cancel();
+        $transaction->update(['status' => 'cancelled']);
 
         return $this->success('تم إلغاء القيد', new TransactionResource($transaction->fresh()));
     }
 
+    // ── POST /transactions/{transaction}/reverse ──────────────────────────────
+    // عكس قيد مرحّل (Reversal)
     public function reverse(Request $request, Transaction $transaction): JsonResponse
     {
         $data = $request->validate([
@@ -389,7 +403,10 @@ class TransactionController extends ApiController
                 date: $data['date'] ?? null,
             );
 
-            return $this->success('تم عكس القيد بنجاح', $reversal);
+            return $this->success(
+                'تم عكس القيد بنجاح',
+                new TransactionResource($reversal->load(['entries.account', 'entries.costCenter', 'branch', 'user']))
+            );
         } catch (\RuntimeException $e) {
             return $this->error($e->getMessage(), 422);
         }
