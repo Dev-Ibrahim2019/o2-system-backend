@@ -331,6 +331,20 @@ class SupplierFinancialController extends ApiController
     }
 
     /**
+     * GET /api/suppliers/{supplier}/monthly-payments
+     * إجمالي المدفوعات المدفوعة لهذا المورد في الشهر الحالي
+     */
+    public function monthlyPayments(Supplier $supplier): JsonResponse
+    {
+        $payments = $this->supplierService->getMonthlyPayments($supplier);
+
+        return $this->success('إجمالي المدفوعات الشهرية', [
+            'supplier' => ['id' => $supplier->id, 'name' => $supplier->name],
+            'payments' => $payments,
+        ]);
+    }
+
+    /**
      * GET /api/suppliers/aging-report
      * تقرير أعمار جميع الموردين
      */

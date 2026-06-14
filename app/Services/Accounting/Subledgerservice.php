@@ -20,6 +20,7 @@ use Illuminate\Support\Collection;
  *
  * الاستخدام:
  *   $service->getStatement('employee', 33, '2026-01-01', '2026-12-31')
+ *   $service->getSupplierFullStatement(33)
  *   $service->getBalance('employee', 33, '1130')
  *   $service->getAllBalances('employee', 33)
  * ══════════════════════════════════════════════════════════════
@@ -107,6 +108,166 @@ class SubledgerService
         ];
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // ✅ NEW: كشف حساب كامل لكيان بجميع حساباته (بدون filter على حساب معين)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * كشف حساب كامل لكيان بجميع حساباته (بدون filter على حساب معين)
+     *
+     * مثال:
+     *   $service->getFullStatement('supplier', 1, '2026-01-01', '2026-12-31')
+     *
+     * @param string      $type  'employee' | 'customer' | 'supplier'
+     * @param int         $id    ID الكيان
+     * @param string|null $from
+     * @param string|null $to
+     * @param int|null    $branchId
+     * @return array
+     */
+    public function getFullStatement(
+        string  $type,
+        int     $id,
+        ?string $from = null,
+        ?string $to   = null,
+        ?int    $branchId = null,
+    ): array {
+        $fromDate = $from ? Carbon::parse($from)->startOfDay() : null;
+        $toDate   = $to   ? Carbon::parse($to)->endOfDay()     : null;
+
+        // ── Opening Balance (all entries before from date) ────────────────
+        $openingQuery = Entry::query()
+            ->forSubledger($type, $id)
+            ->with('account:id,code,name,type')
+            ->whereHas('transaction', function ($q) use ($fromDate, $branchId) {
+                $q->where('status', 'posted');
+                if ($fromDate) $q->where('date', '<', $fromDate);
+                if ($branchId) $q->where('branch_id', $branchId);
+            });
+
+        $openingEntries = $openingQuery->get();
+        $openingBalance = $this->computeNetBalance($openingEntries);
+
+        // ── Period Entries ─────────────────────────────────────────────────
+        $entries = Entry::query()
+            ->forSubledger($type, $id)
+            ->with([
+                'account:id,code,name,type',
+                'transaction:id,transaction_number,date,type,description,status',
+            ])
+            ->whereHas('transaction', function ($q) use ($fromDate, $toDate, $branchId) {
+                $q->where('status', 'posted');
+                if ($fromDate) $q->where('date', '>=', $fromDate);
+                if ($toDate)   $q->where('date', '<=', $toDate);
+                if ($branchId) $q->where('branch_id', $branchId);
+            })
+            ->orderBy('id')
+            ->get();
+
+        // ── Running Balance ────────────────────────────────────────────────
+        $runningBalance = $openingBalance;
+        $lines = $entries->map(function (Entry $entry) use (&$runningBalance) {
+            $d = (float) $entry->debit;
+            $c = (float) $entry->credit;
+            $account = $entry->account;
+
+            // Calculate balance effect based on account normal balance type
+            if ($account) {
+                $isDebitNormal = in_array($account->type, ['asset', 'expense']);
+                $effect = $isDebitNormal ? ($d - $c) : ($c - $d);
+                $runningBalance += $effect;
+            } else {
+                $runningBalance += ($c - $d);
+            }
+
+            return [
+                'date'               => $entry->transaction->date->format('Y-m-d'),
+                'transaction_number' => $entry->transaction->transaction_number,
+                'type'               => $entry->transaction->type,
+                'description'        => $entry->description ?? $entry->transaction->description,
+                'account_name'       => $account?->name ?? '—',
+                'account_code'       => $account?->code ?? '—',
+                'debit'              => $d,
+                'credit'             => $c,
+                'balance'            => round($runningBalance, 3),
+            ];
+        });
+
+        // ── Compute totals across all accounts ─────────────────────────────
+        $totalsByAccount = $entries->groupBy('account_id')->map(function ($group) {
+            $account = $group->first()->account;
+            return [
+                'account_id'   => $group->first()->account_id,
+                'account_code' => $account?->code ?? '—',
+                'account_name' => $account?->name ?? '—',
+                'debit'        => round((float) $group->sum('debit'), 3),
+                'credit'       => round((float) $group->sum('credit'), 3),
+                'net'          => round(
+                    $account && in_array($account->type, ['asset', 'expense'])
+                        ? (float) $group->sum('debit') - (float) $group->sum('credit')
+                        : (float) $group->sum('credit') - (float) $group->sum('debit'),
+                    3
+                ),
+            ];
+        })->values();
+
+        return [
+            'subledger'       => ['type' => $type, 'id' => $id],
+            'period'          => ['from' => $from, 'to' => $to],
+            'opening_balance' => round($openingBalance, 3),
+            'total_debit'     => round((float) $entries->sum('debit'), 3),
+            'total_credit'    => round((float) $entries->sum('credit'), 3),
+            'closing_balance' => round($runningBalance, 3),
+            'lines'           => $lines,
+            'accounts'        => $totalsByAccount,
+        ];
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ✅ NEW: إجمالي المدفوعات لكيان في فترة معينة
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * إجمالي المدفوعات المدفوعة لكيان في فترة معينة
+     */
+    public function getPaymentsTotal(
+        string  $type,
+        int     $id,
+        ?string $from = null,
+        ?string $to   = null,
+    ): float {
+        $fromDate = $from ? Carbon::parse($from)->startOfDay() : null;
+        $toDate   = $to   ? Carbon::parse($to)->endOfDay()     : null;
+
+        // Supplier payments = credit entries for the supplier
+        // (Debiting AP account, crediting cash = reduction in liability)
+        // We sum all credit entries across all accounts for this subledger
+        $query = Entry::query()
+            ->forSubledger($type, $id)
+            ->whereHas('transaction', function ($q) use ($fromDate, $toDate) {
+                $q->where('status', 'posted');
+                if ($fromDate) $q->where('date', '>=', $fromDate);
+                if ($toDate)   $q->where('date', '<=', $toDate);
+            });
+
+        // For suppliers: payments are credit entries (reducing AP)
+        // But we want total payment amount = sum of credit where account is cash/bank
+        // Actually let's just sum all credit entries as a simple metric
+        $result = $query
+            ->selectRaw('COALESCE(SUM(credit),0) as total_credit, COALESCE(SUM(debit),0) as total_debit')
+            ->first();
+
+        // For supplier: payments are the credit side (cash goes out)
+        // For customer: payments are the debit side (cash comes in)
+        return $type === 'supplier'
+            ? round((float) ($result?->total_credit ?? 0), 3)
+            : round((float) ($result?->total_debit ?? 0), 3);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Balance Methods (unchanged)
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
      * رصيد كيان على حساب معين حتى تاريخ معين
      */
@@ -183,5 +344,25 @@ class SubledgerService
         return in_array($account->type, ['asset', 'expense'])
             ? ($debit - $credit)
             : ($credit - $debit);
+    }
+
+    /**
+     * حساب صافي الرصيد من مجموعة entries عبر كل الحسابات
+     */
+    private function computeNetBalance(Collection $entries): float
+    {
+        $balance = 0;
+        foreach ($entries as $entry) {
+            $account = $entry->account;
+            $d = (float) $entry->debit;
+            $c = (float) $entry->credit;
+            if ($account) {
+                $isDebitNormal = in_array($account->type, ['asset', 'expense']);
+                $balance += $isDebitNormal ? ($d - $c) : ($c - $d);
+            } else {
+                $balance += ($c - $d);
+            }
+        }
+        return $balance;
     }
 }

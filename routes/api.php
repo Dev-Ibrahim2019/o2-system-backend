@@ -120,8 +120,9 @@ Route::prefix("suppliers")->group(function () {
     Route::post("/{supplier}/credit-note",   [\App\Http\Controllers\Api\SupplierFinancialController::class, "recordCreditNote"]);
     Route::post("/{supplier}/debit-note",    [\App\Http\Controllers\Api\SupplierFinancialController::class, "recordDebitNote"]);
     Route::get("/{supplier}/statement",      [\App\Http\Controllers\Api\SupplierFinancialController::class, "statement"]);
-    Route::get("/{supplier}/aging",          [\App\Http\Controllers\Api\SupplierFinancialController::class, "aging"]);
-    Route::get("/{supplier}/transactions",   [\App\Http\Controllers\Api\SupplierFinancialController::class, "transactions"]);
+    Route::get("/{supplier}/aging",              [\App\Http\Controllers\Api\SupplierFinancialController::class, "aging"]);
+    Route::get("/{supplier}/monthly-payments",   [\App\Http\Controllers\Api\SupplierFinancialController::class, "monthlyPayments"]);
+    Route::get("/{supplier}/transactions",       [\App\Http\Controllers\Api\SupplierFinancialController::class, "transactions"]);
 
     // Reports
     Route::get("/aging-report",              [\App\Http\Controllers\Api\SupplierFinancialController::class, "agingReport"]);

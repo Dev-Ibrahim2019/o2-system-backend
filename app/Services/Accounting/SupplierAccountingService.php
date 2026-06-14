@@ -260,21 +260,25 @@ class SupplierAccountingService
     }
 
     // ──────────────────────────────────────────────────────────
-    // 6. كشف حساب المورد
+    // 6. كشف حساب المورد (Statement)
     // ──────────────────────────────────────────────────────────
+    /**
+     * كشف حساب المورد — يستخدم getFullStatement لجلب ALL entries
+     * عبر subledger_type = 'supplier' + subledger_id
+     * وليس فقط حسب حساب 2110
+     */
     public function getStatement(
         Supplier $supplier,
         string   $from,
         string   $to,
         ?int     $branchId = null,
     ): array {
-        return $this->subledgerService->getStatement(
-            'supplier',
-            $supplier->id,
-            self::AP_ACCOUNT_CODE,
-            $from,
-            $to,
-            $branchId,
+        return $this->subledgerService->getFullStatement(
+            type: 'supplier',
+            id: $supplier->id,
+            from: $from,
+            to: $to,
+            branchId: $branchId,
         );
     }
 
@@ -326,7 +330,27 @@ class SupplierAccountingService
     }
 
     // ──────────────────────────────────────────────────────────
-    // 8. الرصيد الحالي
+    // ✅ 8. إجمالي المدفوعات الشهرية للمورد
+    // ──────────────────────────────────────────────────────────
+    /**
+     * إجمالي المدفوعات المدفوعة لهذا المورد في الشهر الحالي
+     */
+    public function getMonthlyPayments(Supplier $supplier): float
+    {
+        $now = Carbon::today();
+        $from = $now->copy()->startOfMonth()->toDateString();
+        $to = $now->toDateString();
+
+        return $this->subledgerService->getPaymentsTotal(
+            type: 'supplier',
+            id: $supplier->id,
+            from: $from,
+            to: $to,
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // 9. الرصيد الحالي
     // ──────────────────────────────────────────────────────────
     public function getBalance(Supplier $supplier, ?string $asOf = null): float
     {

@@ -89,25 +89,19 @@ class AccountCreationService
     }
 
     /**
-     * إنشاء حساب المورد تحت Accounts Payable (2110)
+     * ⚠️ تم إلغاء إنشاء حساب المورد الفرعي — تم الانتقال إلى subledger بالكامل.
+     *
+     * جميع أرصدة الموردين تُحسب عبر:
+     *   entries.subledger_type = 'supplier'
+     *   entries.subledger_id   = {supplier_id}
+     *
+     * تم إيقاف هذه الدالة نهائياً. لا يُستخدم حساب GL منفصل لكل مورد.
+     *
+     * @deprecated استخدام subledger بدلاً من حسابات GL فردية
      */
-    public function createForSupplier(Supplier $supplier): Account
+    public function createForSupplier(Supplier $supplier): ?Account
     {
-        return DB::transaction(function () use ($supplier) {
-            $account = $this->createSubAccount(
-                parentCode: '2110',
-                entityType: 'supplier',
-                entityId: $supplier->id,
-                subType: 'default',
-                name: "ذمة المورد: {$supplier->name}",
-                nameEn: "AP: {$supplier->name}",
-                accountType: 'liability',
-            );
-
-            $supplier->update(['account_id' => $account->id]);
-
-            return $account;
-        });
+        return null; // تم الانتقال إلى subledger بالكامل
     }
 
     /**
