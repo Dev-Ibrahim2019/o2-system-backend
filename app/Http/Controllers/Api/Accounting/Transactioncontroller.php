@@ -278,6 +278,8 @@ class TransactionController extends ApiController
                     'credit'         => $entryData['credit'],
                     'description'    => $entryData['description'] ?? null,
                     'cost_center_id' => $entryData['cost_center_id'] ?? null,
+                    'subledger_type' => $entryData['subledger_type'] ?? null,
+                    'subledger_id'   => $entryData['subledger_id'] ?? null,
                     'sort_order'     => $entryData['sort_order'] ?? $index,
                 ]);
             }
@@ -329,6 +331,8 @@ class TransactionController extends ApiController
                     'credit'         => $entryData['credit'],
                     'description'    => $entryData['description'] ?? null,
                     'cost_center_id' => $entryData['cost_center_id'] ?? null,
+                    'subledger_type' => $entryData['subledger_type'] ?? null,
+                    'subledger_id'   => $entryData['subledger_id'] ?? null,
                     'sort_order'     => $entryData['sort_order'] ?? $index,
                 ]);
             }

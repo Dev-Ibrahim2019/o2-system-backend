@@ -151,12 +151,14 @@ class TransactionPostingService
         return DB::transaction(function () use ($transaction, $reason, $date) {
             $reversalDate = $date ?? now()->toDateString();
 
-            // قيد العكس يقلب المدين والدائن
+            // قيد العكس يقلب المدين والدائن ويحافظ على subledger
             $reversalEntries = $transaction->entries->map(fn($entry) => [
-                'account_id'  => $entry->account_id,
-                'debit'       => $entry->credit,  // مقلوب
-                'credit'      => $entry->debit,   // مقلوب
-                'description' => "عكس: " . ($entry->description ?? $transaction->description),
+                'account_id'     => $entry->account_id,
+                'debit'          => $entry->credit,  // مقلوب
+                'credit'         => $entry->debit,   // مقلوب
+                'description'    => "عكس: " . ($entry->description ?? $transaction->description),
+                'subledger_type' => $entry->subledger_type, // ← احتفظ بنوع الكيان
+                'subledger_id'   => $entry->subledger_id,   // ← احتفظ بمعرف الكيان
             ])->toArray();
 
             $reversal = $this->createAndPost([

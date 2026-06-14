@@ -94,13 +94,35 @@ Route::prefix('departments')->group(function () {
 });
 
 Route::prefix("employees")->group(function () {
-    // ── EmployeeFinancialController (الجديد) ─────────────────────────
-    Route::post("/{employee}/advance",          [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordAdvance"]);
+    // ── EmployeeFinancialController ─────────────────────────
+    Route::post("/{employee}/advance",           [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordAdvance"]);
     Route::post("/{employee}/advance-repayment", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordAdvanceRepayment"]);
-    Route::post("/{employee}/salary-accrual",   [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accrualSalary"]);
-    Route::post("/{employee}/salary-payment",   [\App\Http\Controllers\Api\EmployeeFinancialController::class, "paySalary"]);
-    Route::get("/{employee}/account-statement", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accountStatement"]);
+    Route::post("/{employee}/salary-accrual",    [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accrualSalary"]);
+    Route::post("/{employee}/salary-payment",    [\App\Http\Controllers\Api\EmployeeFinancialController::class, "paySalary"]);
+    Route::get("/{employee}/account-statement",  [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accountStatement"]);
+    Route::post("/{employee}/loan",              [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordLoan"]);
+    Route::post("/{employee}/loan-repayment",    [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordLoanRepayment"]);
+    Route::get("/{employee}/loans",              [\App\Http\Controllers\Api\EmployeeFinancialController::class, "getLoans"]);
+});
 
-    // ── القديم (اتركه أو احذفه) ───────────────────────────────────────
-    // Route::get("/{employee}/loans", [\App\Http\Controllers\Api\EmployeeFinanceController::class, "getLoans"]);
+// ── SUPPLIER ROUTES ──────────────────────────────────────────
+Route::prefix("suppliers")->group(function () {
+    // CRUD
+    Route::get("/",                    [\App\Http\Controllers\Api\SupplierFinancialController::class, "index"]);
+    Route::post("/",                   [\App\Http\Controllers\Api\SupplierFinancialController::class, "store"]);
+    Route::get("/{supplier}",          [\App\Http\Controllers\Api\SupplierFinancialController::class, "show"]);
+    Route::put("/{supplier}",          [\App\Http\Controllers\Api\SupplierFinancialController::class, "update"]);
+    Route::delete("/{supplier}",       [\App\Http\Controllers\Api\SupplierFinancialController::class, "destroy"]);
+
+    // Accounting Operations
+    Route::post("/{supplier}/bill",          [\App\Http\Controllers\Api\SupplierFinancialController::class, "recordBill"]);
+    Route::post("/{supplier}/payment",       [\App\Http\Controllers\Api\SupplierFinancialController::class, "recordPayment"]);
+    Route::post("/{supplier}/credit-note",   [\App\Http\Controllers\Api\SupplierFinancialController::class, "recordCreditNote"]);
+    Route::post("/{supplier}/debit-note",    [\App\Http\Controllers\Api\SupplierFinancialController::class, "recordDebitNote"]);
+    Route::get("/{supplier}/statement",      [\App\Http\Controllers\Api\SupplierFinancialController::class, "statement"]);
+    Route::get("/{supplier}/aging",          [\App\Http\Controllers\Api\SupplierFinancialController::class, "aging"]);
+    Route::get("/{supplier}/transactions",   [\App\Http\Controllers\Api\SupplierFinancialController::class, "transactions"]);
+
+    // Reports
+    Route::get("/aging-report",              [\App\Http\Controllers\Api\SupplierFinancialController::class, "agingReport"]);
 });

@@ -134,13 +134,14 @@ class SubledgerService
     }
 
     /**
-     * كل أرصدة موظف دفعة واحدة (advance + salary)
+     * كل أرصدة موظف دفعة واحدة (advance + loan + salary)
      * يُستخدم في account statement API
      */
     public function getEmployeeBalances(int $employeeId, ?string $asOf = null): array
     {
         return [
             'outstanding_advance' => $this->getBalance('employee', $employeeId, '1130', $asOf),
+            'outstanding_loan'    => $this->getBalance('employee', $employeeId, '2130', $asOf),
             'accrued_salary'      => $this->getBalance('employee', $employeeId, '2120', $asOf),
         ];
     }

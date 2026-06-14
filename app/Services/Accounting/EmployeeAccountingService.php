@@ -30,9 +30,10 @@ use RuntimeException;
 class EmployeeAccountingService
 {
     // الأكواد الثابتة لحسابات التحكم
-    private const ADVANCE_ACCOUNT_CODE       = '1130';  // Asset
-    private const SALARY_PAYABLE_ACCOUNT_CODE = '2120';  // Liability
-    private const SALARY_EXPENSE_ACCOUNT_CODE = '5110';  // Expense
+    private const ADVANCE_ACCOUNT_CODE       = '1130';  // Asset — سلف الموظفين
+    private const LOAN_ACCOUNT_CODE          = '2130';  // Asset — قروض الموظفين
+    private const SALARY_PAYABLE_ACCOUNT_CODE = '2120';  // Liability — رواتب مستحقة
+    private const SALARY_EXPENSE_ACCOUNT_CODE = '5110';  // Expense — مصروف رواتب
 
     public function __construct(
         private readonly TransactionPostingService $postingService,
@@ -299,6 +300,117 @@ class EmployeeAccountingService
                 'prefix'      => 'PAY',
             ],
             entries: $entries,
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // 5. قرض للموظف (Employee Loan)
+    // ──────────────────────────────────────────────────────────
+    /**
+     * القيد:
+     *   مدين:  2130 (قروض الموظفين — Control) | subledger: employee 33
+     *   دائن:  (البنك/الصندوق)
+     */
+    public function recordLoan(
+        Employee $employee,
+        float    $amount,
+        int      $cashAccountId,
+        string   $date,
+        ?string  $description = null,
+        ?int     $branchId    = null,
+    ): Transaction {
+        $this->ensurePositiveAmount($amount);
+
+        $loanAccountId = $this->getAccountId(self::LOAN_ACCOUNT_CODE);
+
+        return $this->postingService->createAndPost(
+            data: [
+                'date'        => $date,
+                'type'        => 'payment',
+                'description' => $description ?? "قرض للموظف: {$employee->name}",
+                'branch_id'   => $branchId,
+                'source_type' => Employee::class,
+                'source_id'   => $employee->id,
+                'prefix'      => 'LN',
+            ],
+            entries: [
+                [
+                    'account_id'     => $loanAccountId,
+                    'debit'          => $amount,
+                    'credit'         => 0,
+                    'description'    => "قرض للموظف: {$employee->name}",
+                    'subledger_type' => 'employee',
+                    'subledger_id'   => $employee->id,
+                ],
+                [
+                    'account_id'  => $cashAccountId,
+                    'debit'       => 0,
+                    'credit'      => $amount,
+                    'description' => "صرف قرض - {$employee->name}",
+                ],
+            ],
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // 6. سداد قرض (Loan Repayment)
+    // ──────────────────────────────────────────────────────────
+    /**
+     * القيد:
+     *   مدين:  (الصندوق/البنك)
+     *   دائن:  2130 (قروض الموظفين) | subledger: employee 33
+     */
+    public function recordLoanRepayment(
+        Employee $employee,
+        float    $amount,
+        int      $cashAccountId,
+        string   $date,
+        ?string  $description = null,
+        ?int     $branchId    = null,
+    ): Transaction {
+        $this->ensurePositiveAmount($amount);
+
+        // التحقق أن السداد لا يتجاوز القرض المستحق
+        $outstanding = $this->subledgerService->getBalance(
+            'employee',
+            $employee->id,
+            self::LOAN_ACCOUNT_CODE
+        );
+
+        if ($amount > $outstanding + 0.001) {
+            throw new RuntimeException(
+                "مبلغ السداد ({$amount}) أكبر من القرض المستحق ({$outstanding})"
+            );
+        }
+
+        $loanAccountId = $this->getAccountId(self::LOAN_ACCOUNT_CODE);
+
+        return $this->postingService->createAndPost(
+            data: [
+                'date'        => $date,
+                'type'        => 'receipt',
+                'description' => $description ?? "سداد قرض: {$employee->name}",
+                'branch_id'   => $branchId,
+                'source_type' => Employee::class,
+                'source_id'   => $employee->id,
+                'prefix'      => 'LNR',
+            ],
+            entries: [
+                [
+                    'account_id'  => $cashAccountId,
+                    'debit'       => $amount,
+                    'credit'      => 0,
+                    'description' => "استرداد قرض من {$employee->name}",
+                ],
+                [
+                    'account_id'     => $loanAccountId,
+                    'debit'          => 0,
+                    'credit'         => $amount,
+                    'description'    => "تسوية قرض - {$employee->name}",
+                    'subledger_type' => 'employee',
+                    'subledger_id'   => $employee->id,
+                ],
+            ],
         );
     }
 
