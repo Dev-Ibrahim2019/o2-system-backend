@@ -30,6 +30,8 @@ class StoreTransactionRequest extends FormRequest
             'entries.*.description'      => ['nullable', 'string', 'max:255'],
             'entries.*.cost_center_id'   => ['nullable', 'integer', 'exists:cost_centers,id'],
             'entries.*.sort_order'       => ['nullable', 'integer', 'min:0'],
+            'entries.*.subledger_type'   => ['nullable', 'string', 'max:50', 'in:employee,customer,supplier'],
+            'entries.*.subledger_id'     => ['nullable', 'integer'],
         ];
     }
 

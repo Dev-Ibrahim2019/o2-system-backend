@@ -1,9 +1,11 @@
 <?php
 // app/Http/Controllers/Api/EmployeeController.php
-// ✅ إصلاح الأداء:
-// 1. إضافة pagination بدل جلب كل الموظفين دفعة واحدة
-// 2. select الحقول الضرورية فقط بدل SELECT *
-// 3. eager loading صحيح بدون N+1
+//
+// ✅ الإصلاحات المطبّقة:
+// 1. حذف إنشاء الحسابات من store() — الـ EmployeeObserver يتولى المهمة تلقائياً
+// 2. حذف generateEmployeeAccountCode() و getEmployeesParentAccountId() — لم تعد ضرورية
+// 3. حذف use App\Models\Account و use Illuminate\Support\Facades\DB — لم تعد ضرورية
+// 4. store() أصبح بسيطاً وواضحاً بدون DB transaction يدوي
 
 namespace App\Http\Controllers\Api;
 
@@ -18,10 +20,10 @@ class EmployeeController extends ApiController
     public function index(Request $request)
     {
         $employees = Employee::with([
-            'branch:id,name',       // ✅ select الحقول الضرورية فقط
+            'branch:id,name',
             'department:id,name',
         ])
-            ->select([                   // ✅ بدل SELECT * نختار ما نحتاجه
+            ->select([
                 'id',
                 'name',
                 'phone',
@@ -45,11 +47,10 @@ class EmployeeController extends ApiController
             ->when($request->status,        fn($q) => $q->where('status',        $request->status))
             ->when($request->search,        fn($q) => $q->where(
                 fn($qb) =>
-                $qb->where('name',  'like', "%{$request->search}%")
-                    ->orWhere('phone', 'like', "%{$request->search}%")
+                $qb->where('name',       'like', "%{$request->search}%")
+                    ->orWhere('phone',      'like', "%{$request->search}%")
                     ->orWhere('employeeId', 'like', "%{$request->search}%")
             ))
-            // ✅ pagination: 50 موظف بالصفحة بدل جلب الكل
             ->paginate($request->per_page ?? 50);
 
         return $this->success('Employees fetched', [
@@ -71,6 +72,11 @@ class EmployeeController extends ApiController
             $data['password'] = bcrypt($data['password']);
         }
 
+        // ✅ إنشاء الموظف فقط — EmployeeObserver سيُنشئ حسابي السلف والراتب تلقائياً
+        // Observer: app/Observers/EmployeeObserver.php → created()
+        //   └─ AccountCreationService::createForEmployee()
+        //       ├─ advance_account_id  (1130-xxx) Asset
+        //       └─ salary_account_id   (2120-xxx) Liability
         $employee = Employee::create($data);
 
         return $this->success(

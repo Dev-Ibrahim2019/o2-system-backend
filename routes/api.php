@@ -43,8 +43,31 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('items/upload-image', [ItemController::class, 'uploadImage']);
     Route::apiResource('items', ItemController::class);
-    Route::apiResource('employees', EmployeeController::class);
     Route::apiResource('job-titles', JobTitleController::class);
+
+    // ── Employee Routes ──────────────────────────────────────
+    // IMPORTANT: Static routes (financial-batch, dashboard, analytics) MUST come
+    // BEFORE apiResource to prevent wildcard {employee} from catching them
+    Route::prefix("employees")->group(function () {
+        // Batch data & Dashboard & Analytics (static paths)
+        Route::get("/financial-batch",       [\App\Http\Controllers\Api\EmployeeFinancialController::class, "financialBatch"]);
+        Route::get("/dashboard",             [\App\Http\Controllers\Api\EmployeeFinancialController::class, "dashboard"]);
+        Route::get("/analytics",             [\App\Http\Controllers\Api\EmployeeFinancialController::class, "analytics"]);
+
+        // Employee-specific financial operations (with {employee} wildcard)
+        Route::post("/{employee}/advance",           [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordAdvance"]);
+        Route::post("/{employee}/advance-repayment", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordAdvanceRepayment"]);
+        Route::post("/{employee}/salary-accrual",    [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accrualSalary"]);
+        Route::post("/{employee}/salary-payment",    [\App\Http\Controllers\Api\EmployeeFinancialController::class, "paySalary"]);
+        Route::get("/{employee}/account-statement",  [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accountStatement"]);
+        Route::post("/{employee}/loan",              [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordLoan"]);
+        Route::post("/{employee}/loan-repayment",    [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordLoanRepayment"]);
+        Route::get("/{employee}/loans",              [\App\Http\Controllers\Api\EmployeeFinancialController::class, "getLoans"]);
+        Route::post("/{employee}/settlement",        [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordSettlement"]);
+    });
+
+    // Employee CRUD — MUST be after static financial routes to avoid {employee} conflicts
+    Route::apiResource('employees', EmployeeController::class);
 
     Route::post('orders/{order}/void', [OrderController::class, 'void']);
     Route::apiResource('orders', OrderController::class)->except(['destroy']);
@@ -54,7 +77,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('accounting')->group(function () {
 
         // ── دليل الحسابات ─────────────────────────────────────────────────────────
-        Route::get('accounts/suggest-code', [AccountController::class, 'suggestCode']);
         Route::apiResource('accounts', AccountController::class);
         Route::get('accounts/{account}/ledger', [AccountController::class, 'ledger']);
         // GET /accounting/accounts?tree=true         → شجرة الحسابات
@@ -72,28 +94,68 @@ Route::middleware('auth:sanctum')->group(function () {
         // POST /accounting/transactions/{id}/cancel   → إلغاء القيد
 
         // ── مراكز التكلفة ─────────────────────────────────────────────────────────
-
-
-        Route::get('cost-centers/suggest-code', [CostCenterController::class, 'suggestCode']); // ← أضف هذا
         Route::apiResource('cost-centers', CostCenterController::class);
-        // Route::apiResource('cost-centers', CostCenterController::class);
         // GET /accounting/cost-centers?tree=true → شجرة مراكز التكلفة
     });
 });
-// Route::apiResource('departments', DepartmentController::class);
-// Route::post('departments/{department}/branches/{branch}', [DepartmentController::class, 'attachBranch']);
-// Route::delete('departments/{department}/branches/{branch}', [DepartmentController::class, 'detachBranch']);
 
-// Route::get('items/{item}/usages', [ItemController::class, 'usages']);
-// Route::apiResource('items', ItemController::class);
+// ── Public employee routes (للمستخدمين غير المسجلين) ──
+// route::apiResource('employees', EmployeeController::class);  // ← أضف إذا أردت public access
 
-Route::apiResource('employees', EmployeeController::class);  // ← أضف
+// ── Job Titles (public) ─────────────────────────────────
 Route::apiResource('job-titles', \App\Http\Controllers\Api\JobTitleController::class);
 
+// ── Departments ─────────────────────────────────────────
 Route::prefix('departments')->group(function () {
     Route::get('/',        [DepartmentController::class, 'index']);
     Route::get('/tree',    [DepartmentController::class, 'tree']);   // ← nested tree
     Route::post('/',       [DepartmentController::class, 'store']);
     Route::put('/{department}',    [DepartmentController::class, 'update']);
     Route::delete('/{department}', [DepartmentController::class, 'destroy']);
+});
+
+// ── SUPPLIER ROUTES ──────────────────────────────────────────
+Route::prefix("suppliers")->group(function () {
+    // CRUD
+    Route::get("/",                    [\App\Http\Controllers\Api\SupplierFinancialController::class, "index"]);
+    Route::post("/",                   [\App\Http\Controllers\Api\SupplierFinancialController::class, "store"]);
+    Route::get("/{supplier}",          [\App\Http\Controllers\Api\SupplierFinancialController::class, "show"]);
+    Route::put("/{supplier}",          [\App\Http\Controllers\Api\SupplierFinancialController::class, "update"]);
+    Route::delete("/{supplier}",       [\App\Http\Controllers\Api\SupplierFinancialController::class, "destroy"]);
+
+    // Accounting Operations
+    Route::post("/{supplier}/bill",          [\App\Http\Controllers\Api\SupplierFinancialController::class, "recordBill"]);
+    Route::post("/{supplier}/payment",       [\App\Http\Controllers\Api\SupplierFinancialController::class, "recordPayment"]);
+    Route::post("/{supplier}/credit-note",   [\App\Http\Controllers\Api\SupplierFinancialController::class, "recordCreditNote"]);
+    Route::post("/{supplier}/debit-note",    [\App\Http\Controllers\Api\SupplierFinancialController::class, "recordDebitNote"]);
+    Route::get("/{supplier}/statement",      [\App\Http\Controllers\Api\SupplierFinancialController::class, "statement"]);
+    Route::get("/{supplier}/aging",              [\App\Http\Controllers\Api\SupplierFinancialController::class, "aging"]);
+    Route::get("/{supplier}/monthly-payments",   [\App\Http\Controllers\Api\SupplierFinancialController::class, "monthlyPayments"]);
+    Route::get("/{supplier}/transactions",       [\App\Http\Controllers\Api\SupplierFinancialController::class, "transactions"]);
+
+    // Reports
+    Route::get("/aging-report",              [\App\Http\Controllers\Api\SupplierFinancialController::class, "agingReport"]);
+});
+
+// ── CUSTOMER ROUTES ─────────────────────────────────────────
+Route::prefix("customers")->group(function () {
+    // CRUD
+    Route::get("/",                    [\App\Http\Controllers\Api\CustomerFinancialController::class, "index"]);
+    Route::post("/",                   [\App\Http\Controllers\Api\CustomerFinancialController::class, "store"]);
+    Route::get("/{customer}",          [\App\Http\Controllers\Api\CustomerFinancialController::class, "show"]);
+    Route::put("/{customer}",          [\App\Http\Controllers\Api\CustomerFinancialController::class, "update"]);
+    Route::delete("/{customer}",       [\App\Http\Controllers\Api\CustomerFinancialController::class, "destroy"]);
+
+    // Accounting Operations
+    Route::post("/{customer}/invoice",       [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordInvoice"]);
+    Route::post("/{customer}/receipt",       [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordReceipt"]);
+    Route::post("/{customer}/credit-note",   [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordCreditNote"]);
+    Route::post("/{customer}/debit-note",    [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordDebitNote"]);
+    Route::get("/{customer}/statement",      [\App\Http\Controllers\Api\CustomerFinancialController::class, "statement"]);
+    Route::get("/{customer}/aging",          [\App\Http\Controllers\Api\CustomerFinancialController::class, "aging"]);
+    Route::get("/{customer}/analytics",      [\App\Http\Controllers\Api\CustomerFinancialController::class, "analytics"]);
+
+    // Reports
+    Route::get("/aging-report",              [\App\Http\Controllers\Api\CustomerFinancialController::class, "agingReport"]);
+    Route::get("/collection-report",         [\App\Http\Controllers\Api\CustomerFinancialController::class, "collectionReport"]);
 });
