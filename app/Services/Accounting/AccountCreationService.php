@@ -18,74 +18,41 @@ use RuntimeException;
 class AccountCreationService
 {
     /**
-     * ──────────────────────────────────────────────────────────────
-     * إنشاء حسابات الموظف (اثنان منفصلان)
-     * ──────────────────────────────────────────────────────────────
+     * ⚠️ تم إلغاء إنشاء حسابات الموظف الفرعية — تم الانتقال إلى subledger بالكامل.
      *
-     * نُنشئ حسابين لكل موظف:
-     * 1. سلف الموظف (1130-xxx)  ← Asset   ← مدين
-     * 2. راتب الموظف  (2120-xxx) ← Liability ← دائن
+     * جميع أرصدة الموظفين تُحسب عبر:
+     *   entries.subledger_type = 'employee'
+     *   entries.subledger_id   = {employee_id}
      *
-     * الفصل ضروري محاسبياً لأن:
-     * - السلفة: المال خرج من الشركة → أصل مستحق الاسترداد
-     * - الراتب: التزام على الشركة → يجب دفعه للموظف
-     * خلطهما يُخل بالميزانية العمومية
+     * حسابات التحكم المستخدمة:
+     *   - 1130 (سلف الموظفين)
+     *   - 2120 (رواتب مستحقة)
+     *   - 2130 (قروض الموظفين)
+     *   - 5110 (مصروف رواتب)
+     *
+     * تم إيقاف هذه الدالة نهائياً. لا يُستخدم حساب GL منفصل لكل موظف.
+     *
+     * @deprecated استخدام subledger بدلاً من حسابات GL فردية
      */
-    public function createForEmployee(Employee $employee): array
+    public function createForEmployee(Employee $employee): ?array
     {
-        return DB::transaction(function () use ($employee) {
-            $advanceAccount = $this->createSubAccount(
-                parentCode: '1130',
-                entityType: 'employee',
-                entityId: $employee->id,
-                subType: 'advance',
-                name: "سلف الموظف: {$employee->name}",
-                nameEn: "Employee Advance: {$employee->name}",
-                accountType: 'asset',
-            );
-
-            $salaryAccount = $this->createSubAccount(
-                parentCode: '2120',
-                entityType: 'employee',
-                entityId: $employee->id,
-                subType: 'salary',
-                name: "راتب الموظف: {$employee->name}",
-                nameEn: "Salary Payable: {$employee->name}",
-                accountType: 'liability',
-            );
-
-            $employee->update([
-                'advance_account_id' => $advanceAccount->id,
-                'salary_account_id'  => $salaryAccount->id,
-            ]);
-
-            return [
-                'advance_account' => $advanceAccount,
-                'salary_account'  => $salaryAccount,
-            ];
-        });
+        return null; // تم الانتقال إلى subledger بالكامل
     }
 
     /**
-     * إنشاء حساب العميل تحت Accounts Receivable (1120)
+     * ⚠️ تم إلغاء إنشاء حساب العميل الفرعي — تم الانتقال إلى subledger بالكامل.
+     *
+     * جميع أرصدة العملاء تُحسب عبر:
+     *   entries.subledger_type = 'customer'
+     *   entries.subledger_id   = {customer_id}
+     *
+     * تم إيقاف هذه الدالة نهائياً. لا يُستخدم حساب GL منفصل لكل عميل.
+     *
+     * @deprecated استخدام subledger بدلاً من حسابات GL فردية
      */
-    public function createForCustomer(Customer $customer): Account
+    public function createForCustomer(Customer $customer): ?Account
     {
-        return DB::transaction(function () use ($customer) {
-            $account = $this->createSubAccount(
-                parentCode: '1120',
-                entityType: 'customer',
-                entityId: $customer->id,
-                subType: 'default',
-                name: "ذمة العميل: {$customer->name}",
-                nameEn: "AR: {$customer->name}",
-                accountType: 'asset',
-            );
-
-            $customer->update(['account_id' => $account->id]);
-
-            return $account;
-        });
+        return null; // تم الانتقال إلى subledger بالكامل
     }
 
     /**

@@ -2,10 +2,7 @@
 
 namespace App\Providers;
 
-use App\Models\Customer;
 use App\Models\Supplier;
-use App\Observers\AuditObserver;
-use App\Observers\CustomerObserver;
 use App\Observers\SupplierObserver;
 use Illuminate\Support\ServiceProvider;
 
@@ -30,8 +27,9 @@ class AccountingServiceProvider extends ServiceProvider
 {
     public function boot(): void
     {
-        // ملاحظة: EmployeeObserver حُذف — الموظف لم يعد يحتاج حسابات عند الإنشاء
-        Customer::observe(CustomerObserver::class);
+        // ملاحظة: CustomerObserver و EmployeeObserver تم تعطيلهما
+        // - العملاء: تحولوا إلى subledger بالكامل
+        // - الموظفون: تحولوا إلى EmployeeAccountingService
         Supplier::observe(SupplierObserver::class);
     }
 

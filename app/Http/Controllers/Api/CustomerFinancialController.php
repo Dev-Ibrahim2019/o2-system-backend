@@ -3,11 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\ApiController;
-use App\Http\Requests\Api\Accounting\RecordInvoiceRequest;
-use App\Http\Requests\Api\Accounting\RecordPaymentRequest;
+use App\Models\Account;
 use App\Models\Customer;
+use App\Models\Entry;
 use App\Services\Accounting\CustomerAccountingService;
 use App\Services\Accounting\SubledgerService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -18,69 +19,476 @@ class CustomerFinancialController extends ApiController
         private readonly SubledgerService $subledgerService,
     ) {}
 
+    // ──────────────────────────────────────────────────────────
+    // CUSTOMER CRUD
+    // ──────────────────────────────────────────────────────────
+
+    /**
+     * GET /api/customers
+     */
+    public function index(Request $request): JsonResponse
+    {
+        $query = Customer::query()
+            ->with('branch:id,name');
+
+        // Search
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('code', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('tax_number', 'like', "%{$search}%");
+            });
+        }
+
+        // Filter by status
+        if ($status = $request->input('status')) {
+            $query->where('status', $status);
+        }
+
+        // Filter by risk level
+        if ($riskLevel = $request->input('risk_level')) {
+            $query->where('risk_level', $riskLevel);
+        }
+
+        // Filter by branch
+        if ($branchId = $request->input('branch_id')) {
+            $query->where('branch_id', $branchId);
+        }
+
+        // Sorting
+        $sortField = $request->input('sort_by', 'name');
+        $sortDir   = $request->input('sort_dir', 'asc');
+        $query->orderBy($sortField, $sortDir);
+
+        $perPage = $request->input('per_page', 20);
+        $customers = $query->paginate($perPage);
+
+        // Add balance for each customer
+        $customers->getCollection()->transform(function ($customer) {
+            $customer->balance = $customer->balance;
+            $customer->available_credit = $customer->available_credit;
+            $customer->is_over_limit = $customer->is_over_limit;
+            $customer->credit_usage_percent = $customer->credit_usage_percent;
+            return $customer;
+        });
+
+        return $this->success('تم جلب العملاء', $customers);
+    }
+
+    /**
+     * POST /api/customers
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'name'           => ['required', 'string', 'max:255'],
+            'name_en'        => ['nullable', 'string', 'max:255'],
+            'code'           => ['nullable', 'string', 'max:50', 'unique:customers,code'],
+            'tax_number'     => ['nullable', 'string', 'max:50'],
+            'phone'          => ['nullable', 'string', 'max:30'],
+            'mobile'         => ['nullable', 'string', 'max:30'],
+            'email'          => ['nullable', 'email', 'max:255'],
+            'website'        => ['nullable', 'string', 'max:255'],
+            'address'        => ['nullable', 'string', 'max:500'],
+            'city'           => ['nullable', 'string', 'max:100'],
+            'country'        => ['nullable', 'string', 'max:100'],
+            'category'       => ['nullable', 'string', 'in:retail,wholesale,corporate,government,service'],
+            'currency'       => ['nullable', 'string', 'max:3'],
+            'status'         => ['nullable', 'string', 'in:active,inactive,blocked'],
+            'risk_level'     => ['nullable', 'string', 'in:low,medium,high,critical'],
+            'credit_limit'   => ['nullable', 'numeric', 'min:0'],
+            'payment_terms'  => ['nullable', 'string', 'in:immediate,net15,net30,net60,net90'],
+            'credit_days'    => ['nullable', 'integer', 'min:0', 'max:365'],
+            'opening_balance' => ['nullable', 'numeric', 'min:0'],
+            'notes'          => ['nullable', 'string', 'max:1000'],
+            'gps_link'       => ['nullable', 'string', 'max:500'],
+            'branch_id'      => ['nullable', 'integer', 'exists:branches,id'],
+            'salesperson_id' => ['nullable', 'integer', 'exists:employees,id'],
+        ]);
+
+        // Auto-generate code if not provided
+        if (empty($data['code'])) {
+            $lastId = Customer::withTrashed()->max('id') ?? 0;
+            $data['code'] = 'CUS-' . str_pad($lastId + 1, 4, '0', STR_PAD_LEFT);
+        }
+
+        $data['status'] ??= 'active';
+        $data['currency'] ??= 'ILS';
+        $data['risk_level'] ??= 'low';
+        $data['payment_terms'] ??= 'net30';
+        $data['credit_days'] ??= 30;
+
+        $customer = Customer::create($data);
+
+        // Post opening balance if set
+        if (($data['opening_balance'] ?? 0) > 0) {
+            $openingAccount = Account::where('code', '3999')->first();
+            if ($openingAccount) {
+                $this->customerService->postOpeningBalance(
+                    customer: $customer,
+                    amount: (float) $data['opening_balance'],
+                    openingBalanceAccountId: $openingAccount->id,
+                    date: now()->toDateString(),
+                    branchId: $data['branch_id'] ?? null,
+                );
+            }
+        }
+
+        $customer->load('branch:id,name');
+        $customer->balance = $customer->balance;
+
+        return $this->success('تم إنشاء العميل بنجاح', $customer, 201);
+    }
+
+    /**
+     * GET /api/customers/{customer}
+     */
+    public function show(Customer $customer): JsonResponse
+    {
+        $customer->load(['branch:id,name', 'salesperson:id,name']);
+        $customer->balance = $customer->balance;
+        $customer->available_credit = $customer->available_credit;
+        $customer->is_over_limit = $customer->is_over_limit;
+        $customer->credit_usage_percent = $customer->credit_usage_percent;
+
+        $aging = $this->customerService->getAging($customer);
+
+        return $this->success('تفاصيل العميل', [
+            'customer' => $customer,
+            'aging'    => $aging,
+            'statement_summary' => $this->customerService->getStatement(
+                $customer,
+                now()->startOfMonth()->toDateString(),
+                now()->toDateString(),
+            ),
+        ]);
+    }
+
+    /**
+     * PUT /api/customers/{customer}
+     */
+    public function update(Request $request, Customer $customer): JsonResponse
+    {
+        $data = $request->validate([
+            'name'           => ['required', 'string', 'max:255'],
+            'name_en'        => ['nullable', 'string', 'max:255'],
+            'code'           => ['nullable', 'string', 'max:50', 'unique:customers,code,' . $customer->id],
+            'tax_number'     => ['nullable', 'string', 'max:50'],
+            'phone'          => ['nullable', 'string', 'max:30'],
+            'mobile'         => ['nullable', 'string', 'max:30'],
+            'email'          => ['nullable', 'email', 'max:255'],
+            'website'        => ['nullable', 'string', 'max:255'],
+            'address'        => ['nullable', 'string', 'max:500'],
+            'city'           => ['nullable', 'string', 'max:100'],
+            'country'        => ['nullable', 'string', 'max:100'],
+            'category'       => ['nullable', 'string', 'in:retail,wholesale,corporate,government,service'],
+            'currency'       => ['nullable', 'string', 'max:3'],
+            'status'         => ['nullable', 'string', 'in:active,inactive,blocked'],
+            'risk_level'     => ['nullable', 'string', 'in:low,medium,high,critical'],
+            'credit_limit'   => ['nullable', 'numeric', 'min:0'],
+            'payment_terms'  => ['nullable', 'string', 'in:immediate,net15,net30,net60,net90'],
+            'credit_days'    => ['nullable', 'integer', 'min:0', 'max:365'],
+            'notes'          => ['nullable', 'string', 'max:1000'],
+            'gps_link'       => ['nullable', 'string', 'max:500'],
+            'branch_id'      => ['nullable', 'integer', 'exists:branches,id'],
+            'salesperson_id' => ['nullable', 'integer', 'exists:employees,id'],
+        ]);
+
+        $customer->update($data);
+        $customer->load('branch:id,name');
+        $customer->balance = $customer->balance;
+
+        return $this->success('تم تحديث العميل', $customer);
+    }
+
+    /**
+     * DELETE /api/customers/{customer}
+     */
+    public function destroy(Customer $customer): JsonResponse
+    {
+        $customer->delete();
+        return $this->success('تم حذف العميل');
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // ACCOUNTING OPERATIONS
+    // ──────────────────────────────────────────────────────────
+
     /**
      * POST /api/customers/{customer}/invoice
      */
-    public function recordInvoice(RecordInvoiceRequest $request, Customer $customer): JsonResponse
+    public function recordInvoice(Request $request, Customer $customer): JsonResponse
     {
-        try {
-            $transaction = $this->customerService->recordInvoice(
-                customer: $customer,
-                amount: $request->validated('amount'),
-                date: $request->validated('date'),
-                reference: $request->validated('reference'),
-                branchId: $request->validated('branch_id'),
-            );
+        $data = $request->validate([
+            'amount'     => ['required', 'numeric', 'min:0.001'],
+            'tax_amount' => ['nullable', 'numeric', 'min:0'],
+            'date'       => ['required', 'date'],
+            'reference'  => ['nullable', 'string', 'max:100'],
+            'branch_id'  => ['nullable', 'integer', 'exists:branches,id'],
+        ]);
 
-            return $this->success('تم تسجيل الفاتورة بنجاح', [
-                'transaction' => $transaction,
-                'balance'     => $this->subledgerService->getCustomerBalance($customer->id),
-            ]);
-        } catch (\RuntimeException $e) {
-            return $this->error($e->getMessage(), 422);
-        }
+        $transaction = $this->customerService->recordInvoice(
+            customer: $customer,
+            amount: $data['amount'],
+            taxAmount: $data['tax_amount'] ?? null,
+            date: $data['date'],
+            reference: $data['reference'] ?? null,
+            branchId: $data['branch_id'] ?? null,
+        );
+
+        return $this->success('تم تسجيل فاتورة العميل', [
+            'transaction' => $transaction,
+            'balance'     => $customer->balance,
+        ], 201);
     }
 
     /**
-     * POST /api/customers/{customer}/payment
+     * POST /api/customers/{customer}/receipt
      */
-    public function recordPayment(RecordPaymentRequest $request, Customer $customer): JsonResponse
+    public function recordReceipt(Request $request, Customer $customer): JsonResponse
     {
-        try {
-            $transaction = $this->customerService->recordPayment(
-                customer: $customer,
-                amount: $request->validated('amount'),
-                cashAccountId: $request->validated('cash_account_id'),
-                date: $request->validated('date'),
-                reference: $request->validated('reference'),
-                branchId: $request->validated('branch_id'),
-            );
+        $data = $request->validate([
+            'amount'          => ['required', 'numeric', 'min:0.001'],
+            'cash_account_id' => ['required', 'integer', 'exists:accounts,id'],
+            'date'            => ['required', 'date'],
+            'reference'       => ['nullable', 'string', 'max:100'],
+            'branch_id'       => ['nullable', 'integer', 'exists:branches,id'],
+        ]);
 
-            return $this->success('تم تسجيل الدفعة بنجاح', [
-                'transaction' => $transaction,
-                'balance'     => $this->subledgerService->getCustomerBalance($customer->id),
-            ]);
-        } catch (\RuntimeException $e) {
-            return $this->error($e->getMessage(), 422);
-        }
+        $transaction = $this->customerService->recordPayment(
+            customer: $customer,
+            amount: $data['amount'],
+            cashAccountId: $data['cash_account_id'],
+            date: $data['date'],
+            reference: $data['reference'] ?? null,
+            branchId: $data['branch_id'] ?? null,
+        );
+
+        return $this->success('تم تسجيل الدفعة', [
+            'transaction' => $transaction,
+            'balance'     => $customer->balance,
+        ]);
     }
+
+    /**
+     * POST /api/customers/{customer}/credit-note
+     */
+    public function recordCreditNote(Request $request, Customer $customer): JsonResponse
+    {
+        $data = $request->validate([
+            'amount'              => ['required', 'numeric', 'min:0.001'],
+            'revenue_account_id'  => ['required', 'integer', 'exists:accounts,id'],
+            'date'                => ['required', 'date'],
+            'reference'           => ['nullable', 'string', 'max:100'],
+            'branch_id'           => ['nullable', 'integer', 'exists:branches,id'],
+        ]);
+
+        $transaction = $this->customerService->recordCreditNote(
+            customer: $customer,
+            amount: $data['amount'],
+            revenueAccountId: $data['revenue_account_id'],
+            date: $data['date'],
+            reference: $data['reference'] ?? null,
+            branchId: $data['branch_id'] ?? null,
+        );
+
+        return $this->success('تم تسجيل إشعار دائن', [
+            'transaction' => $transaction,
+            'balance'     => $customer->balance,
+        ]);
+    }
+
+    /**
+     * POST /api/customers/{customer}/debit-note
+     */
+    public function recordDebitNote(Request $request, Customer $customer): JsonResponse
+    {
+        $data = $request->validate([
+            'amount'              => ['required', 'numeric', 'min:0.001'],
+            'revenue_account_id'  => ['required', 'integer', 'exists:accounts,id'],
+            'date'                => ['required', 'date'],
+            'reference'           => ['nullable', 'string', 'max:100'],
+            'branch_id'           => ['nullable', 'integer', 'exists:branches,id'],
+        ]);
+
+        $transaction = $this->customerService->recordDebitNote(
+            customer: $customer,
+            amount: $data['amount'],
+            revenueAccountId: $data['revenue_account_id'],
+            date: $data['date'],
+            reference: $data['reference'] ?? null,
+            branchId: $data['branch_id'] ?? null,
+        );
+
+        return $this->success('تم تسجيل إشعار مدين', [
+            'transaction' => $transaction,
+            'balance'     => $customer->balance,
+        ]);
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // STATEMENTS & REPORTS
+    // ──────────────────────────────────────────────────────────
 
     /**
      * GET /api/customers/{customer}/statement
      */
-    public function accountStatement(Request $request, Customer $customer): JsonResponse
+    public function statement(Request $request, Customer $customer): JsonResponse
     {
-        $from = $request->query('from', now()->startOfMonth()->toDateString());
-        $to   = $request->query('to',   now()->toDateString());
+        $from = $request->input('from', now()->startOfMonth()->toDateString());
+        $to   = $request->input('to', now()->toDateString());
 
-        $statement = $this->subledgerService->getStatement(
-            'customer',
-            $customer->id,
-            '1120',
-            $from,
-            $to
+        $statement = $this->customerService->getStatement(
+            customer: $customer,
+            from: $from,
+            to: $to,
+            branchId: $request->input('branch_id'),
         );
 
-        return $this->success('كشف الحساب مستخرج بنجاح', $statement);
+        return $this->success('كشف حساب العميل', [
+            'customer'  => ['id' => $customer->id, 'name' => $customer->name, 'code' => $customer->code],
+            'balance'   => $customer->balance,
+            'period'    => ['from' => $from, 'to' => $to],
+            'statement' => $statement,
+        ]);
+    }
+
+    /**
+     * GET /api/customers/{customer}/aging
+     */
+    public function aging(Customer $customer): JsonResponse
+    {
+        $aging = $this->customerService->getAging($customer);
+
+        return $this->success('تحليل أعمار العميل', [
+            'customer' => ['id' => $customer->id, 'name' => $customer->name],
+            'aging'    => $aging,
+        ]);
+    }
+
+    /**
+     * GET /api/customers/{customer}/analytics
+     */
+    public function analytics(Customer $customer): JsonResponse
+    {
+        $balance = $this->customerService->getBalance($customer);
+        $aging = $this->customerService->getAging($customer);
+        $monthlyCollections = $this->customerService->getMonthlyCollections($customer);
+        $statement = $this->customerService->getStatement(
+            $customer,
+            now()->startOfYear()->toDateString(),
+            now()->toDateString(),
+        );
+
+        // Compute analytics KPIs
+        $totalSales = $statement['total_debit'] ?? 0;
+        $totalCollected = $statement['total_credit'] ?? 0;
+        $collectionRate = $totalSales > 0 ? round(($totalCollected / $totalSales) * 100, 1) : 0;
+
+        // DSO (Days Sales Outstanding)
+        $dso = $totalSales > 0
+            ? round(($balance / ($totalSales / now()->daysInYear)) * now()->dayOfYear, 1)
+            : 0;
+
+        return $this->success('تحليلات العميل', [
+            'customer'           => ['id' => $customer->id, 'name' => $customer->name],
+            'current_balance'    => $balance,
+            'total_sales'        => $totalSales,
+            'total_collected'    => $totalCollected,
+            'collection_rate'    => $collectionRate,
+            'dso'                => $dso,
+            'monthly_collections' => $monthlyCollections,
+            'aging'              => $aging,
+            'credit_usage'       => $customer->credit_usage_percent,
+            'available_credit'   => $customer->available_credit,
+            'is_over_limit'      => $customer->is_over_limit,
+        ]);
+    }
+
+    /**
+     * GET /api/customers/aging-report
+     * تقرير أعمار جميع العملاء
+     */
+    public function agingReport(Request $request): JsonResponse
+    {
+        $customers = Customer::where('status', 'active')->get();
+        $report = [];
+
+        foreach ($customers as $customer) {
+            $aging = $this->customerService->getAging($customer);
+            if ($aging['total'] > 0) {
+                $report[] = [
+                    'id'      => $customer->id,
+                    'name'    => $customer->name,
+                    'code'    => $customer->code,
+                    'balance' => $customer->balance,
+                    'aging'   => $aging,
+                ];
+            }
+        }
+
+        // Totals
+        $totals = [
+            'current' => collect($report)->sum('aging.current'),
+            '1_30'    => collect($report)->sum('aging.1_30'),
+            '31_60'   => collect($report)->sum('aging.31_60'),
+            '61_90'   => collect($report)->sum('aging.61_90'),
+            'over_90' => collect($report)->sum('aging.over_90'),
+            'total'   => collect($report)->sum('aging.total'),
+        ];
+
+        return $this->success('تقرير أعمار العملاء', [
+            'customers' => $report,
+            'totals'    => $totals,
+        ]);
+    }
+
+    /**
+     * GET /api/customers/collection-report
+     */
+    public function collectionReport(Request $request): JsonResponse
+    {
+        $customers = Customer::where('status', 'active')->get();
+        $report = [];
+
+        foreach ($customers as $customer) {
+            $balance = $this->customerService->getBalance($customer);
+            if ($balance <= 0) continue;
+
+            $aging = $this->customerService->getAging($customer);
+            $monthlyCollections = $this->customerService->getMonthlyCollections($customer);
+
+            // Days past due
+            $overdueDays = 0;
+            if ($aging['over_90'] > 0) $overdueDays = 90;
+            elseif ($aging['61_90'] > 0) $overdueDays = 60;
+            elseif ($aging['31_60'] > 0) $overdueDays = 30;
+            elseif ($aging['1_30'] > 0) $overdueDays = 15;
+
+            $report[] = [
+                'id'                  => $customer->id,
+                'name'                => $customer->name,
+                'code'                => $customer->code,
+                'balance'             => $balance,
+                'aging'               => $aging,
+                'days_past_due'       => $overdueDays,
+                'monthly_collections' => $monthlyCollections,
+                'risk_level'          => $customer->risk_level,
+                'credit_limit'        => $customer->credit_limit,
+                'credit_usage'        => $customer->credit_usage_percent,
+                'phone'               => $customer->phone,
+            ];
+        }
+
+        // Sort by overdue severity
+        usort($report, fn($a, $b) => $b['days_past_due'] <=> $a['days_past_due']);
+
+        return $this->success('تقرير التحصيل', [
+            'customers' => $report,
+            'total_outstanding' => collect($report)->sum('balance'),
+            'total_customers'   => count($report),
+        ]);
     }
 }

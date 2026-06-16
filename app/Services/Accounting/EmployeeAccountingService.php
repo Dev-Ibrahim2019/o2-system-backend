@@ -414,6 +414,81 @@ class EmployeeAccountingService
         );
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // 7. تسوية مالية (Settlement / Manual Adjustment)
+    // ─────────────────────────────────────────────────────────────────────────
+    /**
+     * القيد:
+     *   نوع debit:
+     *     مدين:  1130/2120 (حسب) | subledger: employee 33
+     *     دائن:  الصندوق
+     *   نوع credit:
+     *     مدين:  الصندوق
+     *     دائن:  1130/2120 (حسب) | subledger: employee 33
+     */
+    public function recordSettlement(
+        Employee $employee,
+        float    $amount,
+        int      $cashAccountId,
+        string   $date,
+        string   $type, // 'debit' | 'credit'
+        ?string  $description = null,
+        ?int     $branchId    = null,
+    ): Transaction {
+        $this->ensurePositiveAmount($amount);
+
+        $advanceAccountId = $this->getAccountId(self::ADVANCE_ACCOUNT_CODE);
+
+        $entries = [];
+
+        if ($type === 'debit') {
+            // زيادة على الموظف (مدين)
+            $entries[] = [
+                'account_id'     => $advanceAccountId,
+                'debit'          => $amount,
+                'credit'         => 0,
+                'description'    => "تسوية مدينة - {$employee->name}",
+                'subledger_type' => 'employee',
+                'subledger_id'   => $employee->id,
+            ];
+            $entries[] = [
+                'account_id'  => $cashAccountId,
+                'debit'       => 0,
+                'credit'      => $amount,
+                'description' => "تسوية مدينة - {$employee->name}",
+            ];
+        } else {
+            // تخفيض (دائن)
+            $entries[] = [
+                'account_id'  => $cashAccountId,
+                'debit'       => $amount,
+                'credit'      => 0,
+                'description' => "تسوية دائنة - {$employee->name}",
+            ];
+            $entries[] = [
+                'account_id'     => $advanceAccountId,
+                'debit'          => 0,
+                'credit'         => $amount,
+                'description'    => "تسوية دائنة - {$employee->name}",
+                'subledger_type' => 'employee',
+                'subledger_id'   => $employee->id,
+            ];
+        }
+
+        return $this->postingService->createAndPost(
+            data: [
+                'date'        => $date,
+                'type'        => 'settlement',
+                'description' => $description ?? "تسوية مالية: {$employee->name}",
+                'branch_id'   => $branchId,
+                'source_type' => Employee::class,
+                'source_id'   => $employee->id,
+                'prefix'      => 'SETT',
+            ],
+            entries: $entries,
+        );
+    }
+
     // ── Private Helpers ───────────────────────────────────────────────────────
 
     private function getAccountId(string $code): int
