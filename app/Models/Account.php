@@ -22,10 +22,10 @@ class Account extends Model
     ];
 
     protected $casts = [
-        'is_active'      => 'boolean',
-        'is_system'      => 'boolean',
-        'allow_posting'  => 'boolean',
-        'level'          => 'integer',
+        'is_active' => 'boolean',
+        'is_system' => 'boolean',
+        'allow_posting' => 'boolean',
+        'level' => 'integer',
     ];
 
     // ── Relations ─────────────────────────────────────────────────────────────
@@ -82,12 +82,12 @@ class Account extends Model
      */
     public function getBalanceAttribute(): float
     {
-        $debit  = $this->entries()->sum('debit');
+        $debit = $this->entries()->sum('debit');
         $credit = $this->entries()->sum('credit');
 
         return in_array($this->type, ['asset', 'expense'])
-            ? (float)($debit - $credit)
-            : (float)($credit - $debit);
+            ? (float) ($debit - $credit)
+            : (float) ($credit - $debit);
     }
 
     /**

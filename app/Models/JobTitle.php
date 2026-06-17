@@ -8,6 +8,6 @@ class JobTitle extends Model
 {
     protected $fillable = [
         'name',
-        'description'
+        'description',
     ];
 }

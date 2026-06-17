@@ -22,5 +22,9 @@ class DatabaseSeeder extends Seeder
             'email' => 'test@admin.com',
             'password' => 'secret123',
         ]);
+
+        $this->call([
+            BranchDepartmentItemEmployeeSeeder::class,
+        ]);
     }
 }

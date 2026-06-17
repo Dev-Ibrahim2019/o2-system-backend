@@ -1,33 +1,38 @@
 <?php
-// app/Models/OrderItem.php
 
 namespace App\Models;
 
-use App\Models\Department;
-use App\Models\Item;
-use App\Models\Order;
-use App\Models\ProductionTicketItem;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
+/**
+ * بند الطلب — يحفظ الاسم والسعر وقت الإضافة (مستقل عن تغيّر سعر القائمة لاحقاً).
+ * department_id يأتي من items.department_id ويُستخدم عند تقسيم الطلب للأقسام.
+ */
 class OrderItem extends Model
 {
+    public $timestamps = false;
+
     protected $fillable = [
-        'order_number',
+        'order_id',
         'item_id',
+        'department_id',
         'item_name',
+        'item_name_ar',
         'price',
         'quantity',
         'total',
         'status',
         'notes',
+        'sent_to_kitchen_at',
     ];
 
     protected $casts = [
-        'price'  => 'decimal:3',
-        'quantity'    => 'decimal:3',
-        'total' => 'decimal:3',
+        'price' => 'decimal:2',
+        'quantity' => 'decimal:2',
+        'total' => 'decimal:2',
+        'sent_to_kitchen_at' => 'datetime',
     ];
 
     public function order(): BelongsTo

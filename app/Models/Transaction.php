@@ -25,7 +25,7 @@ class Transaction extends Model
     ];
 
     protected $casts = [
-        'date'      => 'date',
+        'date' => 'date',
         'posted_at' => 'datetime',
     ];
 
@@ -107,7 +107,7 @@ class Transaction extends Model
     {
         return $query
             ->where('source_type', get_class($source))
-            ->where('source_id',   $source->id);
+            ->where('source_id', $source->id);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -148,20 +148,20 @@ class Transaction extends Model
      */
     public static function generateNumber(): string
     {
-        $prefix = 'JV-' . now()->format('Ymd') . '-';
-        $last   = static::where('transaction_number', 'like', $prefix . '%')
+        $prefix = 'JV-'.now()->format('Ymd').'-';
+        $last = static::where('transaction_number', 'like', $prefix.'%')
             ->orderByDesc('id')
             ->value('transaction_number');
 
         $seq = $last ? ((int) substr($last, -4)) + 1 : 1;
 
-        return $prefix . str_pad($seq, 4, '0', STR_PAD_LEFT);
+        return $prefix.str_pad($seq, 4, '0', STR_PAD_LEFT);
     }
 
     public function post(): void
     {
         $this->update([
-            'status'    => 'posted',
+            'status' => 'posted',
             'posted_at' => now(),
         ]);
     }

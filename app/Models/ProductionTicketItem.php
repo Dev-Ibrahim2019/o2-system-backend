@@ -1,29 +1,30 @@
 <?php
-// app/Models/ProductionTicketItem.php
 
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * ربط بين تذكرة القسم وبند الطلب — يسمح بتتبع حالة التحضير لكل صنف في قسمه.
+ */
 class ProductionTicketItem extends Model
 {
     protected $fillable = [
-        'ticket_id',
+        'production_ticket_id',
         'order_item_id',
-        'item_name',
         'quantity',
-        'notes',
         'status',
+        'notes',
     ];
 
     protected $casts = [
-        'quantity' => 'decimal:3',
+        'quantity' => 'integer',
     ];
 
     public function ticket(): BelongsTo
     {
-        return $this->belongsTo(ProductionTicket::class);
+        return $this->belongsTo(ProductionTicket::class, 'production_ticket_id');
     }
 
     public function orderItem(): BelongsTo

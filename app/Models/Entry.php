@@ -2,9 +2,6 @@
 
 namespace App\Models;
 
-use App\Models\Account;
-use App\Models\CostCenter;
-use App\Models\Transaction;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -21,8 +18,8 @@ class Entry extends Model
     ];
 
     protected $casts = [
-        'debit'      => 'decimal:3',
-        'credit'     => 'decimal:3',
+        'debit' => 'decimal:3',
+        'credit' => 'decimal:3',
         'sort_order' => 'integer',
     ];
 
