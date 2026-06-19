@@ -20,8 +20,10 @@ return new class extends Migration
 
             // المنتج
             $table->foreignId('item_id');
+            $table->foreignId('department_id')->nullable();
 
             $table->string('item_name');
+            $table->string('item_name_ar')->nullable();
 
             $table->decimal('quantity', 10, 2)->default(1);
 
