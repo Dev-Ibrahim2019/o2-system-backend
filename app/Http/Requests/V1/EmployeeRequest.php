@@ -4,6 +4,7 @@
 namespace App\Http\Requests\V1;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class EmployeeRequest extends FormRequest
 {
@@ -33,8 +34,8 @@ class EmployeeRequest extends FormRequest
 
             'role'          => ['required', 'string'],
             'status'        => ['required', 'in:ACTIVE,ON_LEAVE,TERMINATED,SUSPENDED,RESIGNED'],
-            'employeeId'    => ['nullable', 'string', "unique:employees,employeeId,{$id}"],
-            'username'      => ['nullable', 'string', "unique:employees,username,{$id}"],
+            'employeeId'    => ['nullable', 'string', Rule::unique('employees', 'employeeId')->ignore($id)],
+            'username'      => ['nullable', 'string', Rule::unique('employees', 'username')->ignore($id)],
             'pin'           => ['nullable', 'string', 'max:10'],
             'permissions'   => ['nullable', 'array'],
             'permissions.*' => ['string'],

@@ -14,16 +14,19 @@ class AuthController extends ApiController
     {
         $request->validated($request->all());
 
-        if (! Auth::attempt($request->only('email', 'password'))) {
+        if (! Auth::attempt($request->only('username', 'password'))) {
             return $this->error('Invalid Credentials', 401);
         }
 
-        $user = User::firstWhere('email', $request->email);
+        $user = User::firstWhere('username', $request->username);
 
         return $this->ok(
             'Authenticated',
             [
-                'token' => $user->createToken('Api token for ' . $user->email)->plainTextToken,
+                'user'        => ['id' => $user->id, 'name' => $user->name, 'username' => $user->username],
+                'token'       => $user->createToken('Api token for ' . $user->username)->plainTextToken,
+                'roles'       => $user->getRoleNames()->toArray(),
+                'permissions' => $user->getAllPermissions()->pluck('name')->toArray(),
             ]
         );
     }

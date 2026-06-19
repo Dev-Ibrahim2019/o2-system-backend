@@ -15,14 +15,19 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        // 1. إنشاء الصلاحيات والأدوار أولاً
+        $this->call([
+            RolesAndPermissionsSeeder::class,
+        ]);
+
+        // 2. إنشاء المستخدمين التجريبيين وتعيين الأدوار
+        $this->call([
+            TestUsersSeeder::class,
+        ]);
+
+        // 3. باقي الـ Seeders
         $this->call([
             ChartOfAccountsSeeder::class,
-        ]);
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@admin.com',
-            'password' => 'secret123',
         ]);
     }
 }
