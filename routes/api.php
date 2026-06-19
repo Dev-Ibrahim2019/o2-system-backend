@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\FinancialTransactionController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\JobTitleController;
 use App\Http\Controllers\Api\MenuController;
+use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductionTicketController;
 use App\Http\Controllers\Api\ShiftController;
@@ -71,8 +72,24 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('orders/{order}/void', [OrderController::class, 'void']);
     Route::apiResource('orders', OrderController::class)->except(['destroy']);
+    Route::post('orders/{order}/items', [OrderController::class, 'addItem']);
+    Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
     Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
+    Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
+    Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
+    Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
     Route::post('orders/{order}/cancel', [OrderController::class, 'cancel']);
+
+    Route::get('production-tickets', [ProductionTicketController::class, 'index']);
+    Route::post('production-tickets/{ticket}/start', [ProductionTicketController::class, 'startPreparing']);
+    Route::post('production-tickets/{ticket}/ready', [ProductionTicketController::class, 'markReady']);
+    Route::post('production-tickets/{ticket}/served', [ProductionTicketController::class, 'markServed']);
+
+    Route::post('orders/{order}/invoice', [InvoiceController::class, 'createFromOrder']);
+    Route::post('orders/{order}/close', [InvoiceController::class, 'createFromOrder']); // alias for cashier close action
+    Route::get('invoices', [InvoiceController::class, 'index']);
+    Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment']);
+    Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry']);
 
     Route::prefix('accounting')->group(function () {
 

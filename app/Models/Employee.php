@@ -46,10 +46,10 @@ class Employee extends Model
     protected $casts = [
         'permissions' => 'array',
         'performance' => 'array',
-        'dob'         => 'date',
-        'hireDate'    => 'date',
-        'salary'      => 'decimal:2',
-        'rating'      => 'decimal:1',
+        'dob' => 'date',
+        'hireDate' => 'date',
+        'salary' => 'decimal:2',
+        'rating' => 'decimal:1',
     ];
 
     // ── Relations ─────────────────────────────────────────────────────────────

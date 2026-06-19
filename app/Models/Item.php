@@ -2,14 +2,15 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Storage;
 
 class Item extends Model
 {
+    use HasFactory;
 
     protected $fillable = [
         'department_id',
@@ -18,7 +19,7 @@ class Item extends Model
         'code',
         'image',
         'unit',
-        'is_active'
+        'is_active',
     ];
 
     protected $appends = [
@@ -56,5 +57,18 @@ class Item extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    /** سعر الصنف في فرع معيّن من جدول branch_item */
+    public function priceForBranch(int $branchId): ?float
+    {
+        $branch = $this->branches()
+            ->where('branches.id', $branchId)
+            ->wherePivot('is_active', true)
+            ->first();
+
+        return $branch?->pivot->price !== null
+            ? (float) $branch->pivot->price
+            : null;
     }
 }
