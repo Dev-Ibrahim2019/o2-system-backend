@@ -1,15 +1,20 @@
 <?php
 
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Account extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'name',
+        'name_en',
         'code',
         'type',
         'normal_balance',
@@ -18,17 +23,24 @@ class Account extends Model
         'allow_posting',
         'is_active',
         'is_system',
+        'entity_type',
+        'entity_id',
+        'sub_type',
+        'meta',
         'notes',
+        'currency',
+        'branch_id',
     ];
 
     protected $casts = [
-        'is_active' => 'boolean',
-        'is_system' => 'boolean',
+        'is_active'     => 'boolean',
+        'is_system'     => 'boolean',
         'allow_posting' => 'boolean',
-        'level' => 'integer',
+        'level'         => 'integer',
+        'meta'          => 'array',
     ];
 
-    // ── Relations ─────────────────────────────────────────────────────────────
+    // ── Relations ──────────────────────────────────────────────────────
 
     public function parent(): BelongsTo
     {
@@ -40,7 +52,6 @@ class Account extends Model
         return $this->hasMany(Account::class, 'parent_id');
     }
 
-    // شجرة كاملة بشكل recursive
     public function childrenRecursive(): HasMany
     {
         return $this->children()->with('childrenRecursive');
@@ -51,80 +62,61 @@ class Account extends Model
         return $this->hasMany(Entry::class);
     }
 
-    // ── Scopes ────────────────────────────────────────────────────────────────
-
-    public function scopeActive($query)
+    public function branch(): BelongsTo
     {
-        return $query->where('is_active', true);
+        return $this->belongsTo(Branch::class);
     }
+
+    // ── Scopes ─────────────────────────────────────────────────────────
 
     public function scopePostable($query)
     {
-        return $query->where('allow_posting', true);
+        return $query->where('allow_posting', true)->where('is_active', true);
     }
 
-    public function scopeRoots($query)
+    public function scopeForEntity($query, string $type, int $id, ?string $subType = null)
     {
-        return $query->whereNull('parent_id');
+        return $query
+            ->where('entity_type', $type)
+            ->where('entity_id', $id)
+            ->when($subType, fn($q) => $q->where('sub_type', $subType));
     }
-
-    public function scopeByType($query, string $type)
-    {
-        return $query->where('type', $type);
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
+ 
+    // ── Helpers ────────────────────────────────────────────────────────
 
     /**
-     * حساب رصيد الحساب
-     * asset + expense → debit - credit
-     * liability + equity + revenue → credit - debit
+     * رصيد الحساب — asset/expense: debit طبيعي
+     * استخدام مباشر للقيم بدون جلب القيود المرحلة فقط
+     * للتقارير الدقيقة استخدم AccountLedgerService
      */
-    public function getBalanceAttribute(): float
-    {
-        $debit = $this->entries()->sum('debit');
-        $credit = $this->entries()->sum('credit');
-
-        return in_array($this->type, ['asset', 'expense'])
-            ? (float) ($debit - $credit)
-            : (float) ($credit - $debit);
-    }
 
     /**
-     * إجمالي المدين
+     * منع نشر قيود على حسابات أم
      */
-    public function getTotalDebitAttribute(): float
+    public function canPost(): bool
     {
-        return (float) $this->entries()->sum('debit');
+        return $this->allow_posting
+            && $this->is_active;
     }
 
-    /**
-     * إجمالي الدائن
-     */
-    public function getTotalCreditAttribute(): float
-    {
-        return (float) $this->entries()->sum('credit');
-    }
-
-    /**
-     * هل الحساب له أولاد (حساب أم)
-     */
-    public function getIsParentAttribute(): bool
-    {
-        return $this->children()->exists();
-    }
-
-    /**
-     * ضبط normal_balance تلقائياً بحسب النوع
-     */
     protected static function booted(): void
     {
         static::creating(function (Account $account) {
             if (empty($account->normal_balance)) {
                 $account->normal_balance = in_array($account->type, ['asset', 'expense'])
-                    ? 'debit'
-                    : 'credit';
+                    ? 'debit' : 'credit';
             }
         });
+    }
+    public function getStatement(string $from, string $to): array
+    {
+        return app(\App\Services\Accounting\AccountLedgerService::class)
+            ->getStatement($this, $from, $to);
+    }
+
+    // إضافة is_parent accessor
+    public function getIsParentAttribute(): bool
+    {
+        return $this->children()->exists();
     }
 }

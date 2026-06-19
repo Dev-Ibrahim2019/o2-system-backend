@@ -1,0 +1,511 @@
+<?php
+
+namespace App\Services\Accounting;
+
+use App\Models\Account;
+use App\Models\Employee;
+use App\Models\Transaction;
+use RuntimeException;
+
+/**
+ * ══════════════════════════════════════════════════════════════
+ * SERVICE: EmployeeAccountingService (Subledger Version)
+ * ══════════════════════════════════════════════════════════════
+ *
+ * الفرق عن النسخة القديمة:
+ *
+ * قديم:
+ *   entries: account_id = 1130-0033 (حساب خاص بالموظف)
+ *
+ * جديد:
+ *   entries: account_id = 1130 (Control Account مشترك)
+ *            subledger_type = 'employee'
+ *            subledger_id   = 33
+ *
+ * النتيجة:
+ * - Chart of Accounts يبقى نظيفاً (حسابان فقط للكل)
+ * - كشف حساب أي موظف بـ query بسيطة على entries
+ * ══════════════════════════════════════════════════════════════
+ */
+class EmployeeAccountingService
+{
+    // الأكواد الثابتة لحسابات التحكم
+    private const ADVANCE_ACCOUNT_CODE       = '1130';  // Asset — سلف الموظفين
+    private const LOAN_ACCOUNT_CODE          = '2130';  // Asset — قروض الموظفين
+    private const SALARY_PAYABLE_ACCOUNT_CODE = '2120';  // Liability — رواتب مستحقة
+    private const SALARY_EXPENSE_ACCOUNT_CODE = '5110';  // Expense — مصروف رواتب
+
+    public function __construct(
+        private readonly TransactionPostingService $postingService,
+        private readonly SubledgerService $subledgerService,
+    ) {}
+
+    // ──────────────────────────────────────────────────────────
+    // 1. سلفة للموظف (Employee Advance)
+    // ──────────────────────────────────────────────────────────
+    /**
+     * القيد:
+     *   مدين:  1130 (سلف الموظفين — Control) | subledger: employee 33
+     *   دائن:  11101 (الصندوق)
+     */
+    public function recordAdvance(
+        Employee $employee,
+        float    $amount,
+        int      $cashAccountId,
+        string   $date,
+        ?string  $description = null,
+        ?int     $branchId    = null,
+    ): Transaction {
+        $this->ensurePositiveAmount($amount);
+
+        $advanceAccountId = $this->getAccountId(self::ADVANCE_ACCOUNT_CODE);
+
+        return $this->postingService->createAndPost(
+            data: [
+                'date'        => $date,
+                'type'        => 'payment',
+                'description' => $description ?? "سلفة للموظف: {$employee->name}",
+                'branch_id'   => $branchId,
+                'source_type' => Employee::class,
+                'source_id'   => $employee->id,
+                'prefix'      => 'ADV',
+            ],
+            entries: [
+                [
+                    'account_id'     => $advanceAccountId,
+                    'debit'          => $amount,
+                    'credit'         => 0,
+                    'description'    => "سلفة للموظف: {$employee->name}",
+                    // ── Subledger ──
+                    'subledger_type' => 'employee',
+                    'subledger_id'   => $employee->id,
+                ],
+                [
+                    'account_id'  => $cashAccountId,
+                    'debit'       => 0,
+                    'credit'      => $amount,
+                    'description' => "صرف سلفة - {$employee->name}",
+                    // الصندوق لا يحتاج subledger
+                ],
+            ],
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // 2. سداد سلفة (Advance Repayment)
+    // ──────────────────────────────────────────────────────────
+    /**
+     * القيد:
+     *   مدين:  11101 (الصندوق)
+     *   دائن:  1130 (سلف الموظفين) | subledger: employee 33
+     */
+    public function recordAdvanceRepayment(
+        Employee $employee,
+        float    $amount,
+        int      $cashAccountId,
+        string   $date,
+        ?string  $description = null,
+        ?int     $branchId    = null,
+    ): Transaction {
+        // التحقق أن السداد لا يتجاوز السلف المستحقة
+        $outstanding = $this->subledgerService->getBalance(
+            'employee',
+            $employee->id,
+            self::ADVANCE_ACCOUNT_CODE
+        );
+
+        if ($amount > $outstanding + 0.001) {
+            throw new RuntimeException(
+                "مبلغ السداد ({$amount}) أكبر من السلف المستحقة ({$outstanding})"
+            );
+        }
+
+        $advanceAccountId = $this->getAccountId(self::ADVANCE_ACCOUNT_CODE);
+
+        return $this->postingService->createAndPost(
+            data: [
+                'date'        => $date,
+                'type'        => 'receipt',
+                'description' => $description ?? "سداد سلفة: {$employee->name}",
+                'branch_id'   => $branchId,
+                'source_type' => Employee::class,
+                'source_id'   => $employee->id,
+                'prefix'      => 'REPR',
+            ],
+            entries: [
+                [
+                    'account_id'  => $cashAccountId,
+                    'debit'       => $amount,
+                    'credit'      => 0,
+                    'description' => "استرداد سلفة من {$employee->name}",
+                ],
+                [
+                    'account_id'     => $advanceAccountId,
+                    'debit'          => 0,
+                    'credit'         => $amount,
+                    'description'    => "تسوية سلفة - {$employee->name}",
+                    'subledger_type' => 'employee',
+                    'subledger_id'   => $employee->id,
+                ],
+            ],
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // 3. استحقاق الراتب (Salary Accrual)
+    // ──────────────────────────────────────────────────────────
+    /**
+     * القيد:
+     *   مدين:  5110 (مصروف الرواتب)
+     *   دائن:  2120 (رواتب مستحقة — Control) | subledger: employee 33
+     *
+     * يُسجَّل في نهاية الشهر قبل الدفع
+     */
+    public function accrualSalary(
+        Employee $employee,
+        float    $amount,
+        string   $date,
+        ?string  $description = null,
+        ?int     $branchId    = null,
+    ): Transaction {
+        $this->ensurePositiveAmount($amount);
+
+        $salaryExpenseId  = $this->getAccountId(self::SALARY_EXPENSE_ACCOUNT_CODE);
+        $salaryPayableId  = $this->getAccountId(self::SALARY_PAYABLE_ACCOUNT_CODE);
+
+        return $this->postingService->createAndPost(
+            data: [
+                'date'        => $date,
+                'type'        => 'salary',
+                'description' => $description ?? "استحقاق راتب: {$employee->name}",
+                'branch_id'   => $branchId,
+                'source_type' => Employee::class,
+                'source_id'   => $employee->id,
+                'prefix'      => 'SAL',
+            ],
+            entries: [
+                [
+                    'account_id'  => $salaryExpenseId,
+                    'debit'       => $amount,
+                    'credit'      => 0,
+                    'description' => "مصروف راتب - {$employee->name}",
+                    // مصروف الرواتب حساب إجمالي — لا يحتاج subledger
+                    // (يمكن إضافته إذا أردت تقرير مصاريف رواتب بالموظف)
+                    'subledger_type' => 'employee',
+                    'subledger_id'   => $employee->id,
+                ],
+                [
+                    'account_id'     => $salaryPayableId,
+                    'debit'          => 0,
+                    'credit'         => $amount,
+                    'description'    => "راتب مستحق - {$employee->name}",
+                    'subledger_type' => 'employee',
+                    'subledger_id'   => $employee->id,
+                ],
+            ],
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // 4. دفع الراتب (Salary Payment)
+    // ──────────────────────────────────────────────────────────
+    /**
+     * القيد الكامل:
+     *   مدين:  2120 (رواتب مستحقة) | subledger: employee 33  = gross
+     *   دائن:  1130 (سلف الموظفين) | subledger: employee 33  = advance_deduction
+     *   دائن:  11101 (نقدية)                                  = net_pay
+     *
+     * net_pay = gross - advance_deduction
+     */
+    public function paySalary(
+        Employee $employee,
+        float    $grossAmount,
+        int      $cashAccountId,
+        string   $date,
+        float    $advanceDeduction = 0,
+        ?string  $description = null,
+        ?int     $branchId    = null,
+    ): Transaction {
+        // التحقق من كفاية الرصيد قبل الدفع
+        $accrued = $this->subledgerService->getBalance(
+            'employee',
+            $employee->id,
+            self::SALARY_PAYABLE_ACCOUNT_CODE
+        );
+
+        if ($grossAmount > $accrued + 0.001) {
+            throw new RuntimeException(
+                "المبلغ المدفوع ({$grossAmount}) أكبر من الراتب المستحق ({$accrued}). " .
+                    "يرجى تسجيل استحقاق الراتب أولاً."
+            );
+        }
+
+        if ($advanceDeduction > 0) {
+            $outstanding = $this->subledgerService->getBalance(
+                'employee',
+                $employee->id,
+                self::ADVANCE_ACCOUNT_CODE
+            );
+
+            if ($advanceDeduction > $outstanding + 0.001) {
+                throw new RuntimeException(
+                    "خصم السلفة ({$advanceDeduction}) أكبر من السلف المستحقة ({$outstanding})"
+                );
+            }
+        }
+
+        $salaryPayableId = $this->getAccountId(self::SALARY_PAYABLE_ACCOUNT_CODE);
+        $advanceAccountId = $this->getAccountId(self::ADVANCE_ACCOUNT_CODE);
+        $netPay = $grossAmount - $advanceDeduction;
+
+        $entries = [
+            [
+                'account_id'     => $salaryPayableId,
+                'debit'          => $grossAmount,
+                'credit'         => 0,
+                'description'    => "سداد راتب - {$employee->name}",
+                'subledger_type' => 'employee',
+                'subledger_id'   => $employee->id,
+            ],
+        ];
+
+        if ($advanceDeduction > 0) {
+            $entries[] = [
+                'account_id'     => $advanceAccountId,
+                'debit'          => 0,
+                'credit'         => $advanceDeduction,
+                'description'    => "خصم سلفة من الراتب - {$employee->name}",
+                'subledger_type' => 'employee',
+                'subledger_id'   => $employee->id,
+            ];
+        }
+
+        if ($netPay > 0) {
+            $entries[] = [
+                'account_id'  => $cashAccountId,
+                'debit'       => 0,
+                'credit'      => $netPay,
+                'description' => "صافي الراتب المدفوع - {$employee->name}",
+            ];
+        }
+
+        return $this->postingService->createAndPost(
+            data: [
+                'date'        => $date,
+                'type'        => 'salary',
+                'description' => $description ?? "دفع راتب: {$employee->name}",
+                'branch_id'   => $branchId,
+                'source_type' => Employee::class,
+                'source_id'   => $employee->id,
+                'prefix'      => 'PAY',
+            ],
+            entries: $entries,
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // 5. قرض للموظف (Employee Loan)
+    // ──────────────────────────────────────────────────────────
+    /**
+     * القيد:
+     *   مدين:  2130 (قروض الموظفين — Control) | subledger: employee 33
+     *   دائن:  (البنك/الصندوق)
+     */
+    public function recordLoan(
+        Employee $employee,
+        float    $amount,
+        int      $cashAccountId,
+        string   $date,
+        ?string  $description = null,
+        ?int     $branchId    = null,
+    ): Transaction {
+        $this->ensurePositiveAmount($amount);
+
+        $loanAccountId = $this->getAccountId(self::LOAN_ACCOUNT_CODE);
+
+        return $this->postingService->createAndPost(
+            data: [
+                'date'        => $date,
+                'type'        => 'payment',
+                'description' => $description ?? "قرض للموظف: {$employee->name}",
+                'branch_id'   => $branchId,
+                'source_type' => Employee::class,
+                'source_id'   => $employee->id,
+                'prefix'      => 'LN',
+            ],
+            entries: [
+                [
+                    'account_id'     => $loanAccountId,
+                    'debit'          => $amount,
+                    'credit'         => 0,
+                    'description'    => "قرض للموظف: {$employee->name}",
+                    'subledger_type' => 'employee',
+                    'subledger_id'   => $employee->id,
+                ],
+                [
+                    'account_id'  => $cashAccountId,
+                    'debit'       => 0,
+                    'credit'      => $amount,
+                    'description' => "صرف قرض - {$employee->name}",
+                ],
+            ],
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // 6. سداد قرض (Loan Repayment)
+    // ──────────────────────────────────────────────────────────
+    /**
+     * القيد:
+     *   مدين:  (الصندوق/البنك)
+     *   دائن:  2130 (قروض الموظفين) | subledger: employee 33
+     */
+    public function recordLoanRepayment(
+        Employee $employee,
+        float    $amount,
+        int      $cashAccountId,
+        string   $date,
+        ?string  $description = null,
+        ?int     $branchId    = null,
+    ): Transaction {
+        $this->ensurePositiveAmount($amount);
+
+        // التحقق أن السداد لا يتجاوز القرض المستحق
+        $outstanding = $this->subledgerService->getBalance(
+            'employee',
+            $employee->id,
+            self::LOAN_ACCOUNT_CODE
+        );
+
+        if ($amount > $outstanding + 0.001) {
+            throw new RuntimeException(
+                "مبلغ السداد ({$amount}) أكبر من القرض المستحق ({$outstanding})"
+            );
+        }
+
+        $loanAccountId = $this->getAccountId(self::LOAN_ACCOUNT_CODE);
+
+        return $this->postingService->createAndPost(
+            data: [
+                'date'        => $date,
+                'type'        => 'receipt',
+                'description' => $description ?? "سداد قرض: {$employee->name}",
+                'branch_id'   => $branchId,
+                'source_type' => Employee::class,
+                'source_id'   => $employee->id,
+                'prefix'      => 'LNR',
+            ],
+            entries: [
+                [
+                    'account_id'  => $cashAccountId,
+                    'debit'       => $amount,
+                    'credit'      => 0,
+                    'description' => "استرداد قرض من {$employee->name}",
+                ],
+                [
+                    'account_id'     => $loanAccountId,
+                    'debit'          => 0,
+                    'credit'         => $amount,
+                    'description'    => "تسوية قرض - {$employee->name}",
+                    'subledger_type' => 'employee',
+                    'subledger_id'   => $employee->id,
+                ],
+            ],
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 7. تسوية مالية (Settlement / Manual Adjustment)
+    // ─────────────────────────────────────────────────────────────────────────
+    /**
+     * القيد:
+     *   نوع debit:
+     *     مدين:  1130/2120 (حسب) | subledger: employee 33
+     *     دائن:  الصندوق
+     *   نوع credit:
+     *     مدين:  الصندوق
+     *     دائن:  1130/2120 (حسب) | subledger: employee 33
+     */
+    public function recordSettlement(
+        Employee $employee,
+        float    $amount,
+        int      $cashAccountId,
+        string   $date,
+        string   $type, // 'debit' | 'credit'
+        ?string  $description = null,
+        ?int     $branchId    = null,
+    ): Transaction {
+        $this->ensurePositiveAmount($amount);
+
+        $advanceAccountId = $this->getAccountId(self::ADVANCE_ACCOUNT_CODE);
+
+        $entries = [];
+
+        if ($type === 'debit') {
+            // زيادة على الموظف (مدين)
+            $entries[] = [
+                'account_id'     => $advanceAccountId,
+                'debit'          => $amount,
+                'credit'         => 0,
+                'description'    => "تسوية مدينة - {$employee->name}",
+                'subledger_type' => 'employee',
+                'subledger_id'   => $employee->id,
+            ];
+            $entries[] = [
+                'account_id'  => $cashAccountId,
+                'debit'       => 0,
+                'credit'      => $amount,
+                'description' => "تسوية مدينة - {$employee->name}",
+            ];
+        } else {
+            // تخفيض (دائن)
+            $entries[] = [
+                'account_id'  => $cashAccountId,
+                'debit'       => $amount,
+                'credit'      => 0,
+                'description' => "تسوية دائنة - {$employee->name}",
+            ];
+            $entries[] = [
+                'account_id'     => $advanceAccountId,
+                'debit'          => 0,
+                'credit'         => $amount,
+                'description'    => "تسوية دائنة - {$employee->name}",
+                'subledger_type' => 'employee',
+                'subledger_id'   => $employee->id,
+            ];
+        }
+
+        return $this->postingService->createAndPost(
+            data: [
+                'date'        => $date,
+                'type'        => 'settlement',
+                'description' => $description ?? "تسوية مالية: {$employee->name}",
+                'branch_id'   => $branchId,
+                'source_type' => Employee::class,
+                'source_id'   => $employee->id,
+                'prefix'      => 'SETT',
+            ],
+            entries: $entries,
+        );
+    }
+
+    // ── Private Helpers ───────────────────────────────────────────────────────
+
+    private function getAccountId(string $code): int
+    {
+        $id = Account::where('code', $code)->value('id');
+
+        if (! $id) {
+            throw new RuntimeException("حساب التحكم ({$code}) غير موجود — تأكد من تشغيل ChartOfAccountsSeeder");
+        }
+
+        return $id;
+    }
+
+    private function ensurePositiveAmount(float $amount): void
+    {
+        if ($amount <= 0) {
+            throw new RuntimeException("المبلغ يجب أن يكون أكبر من صفر");
+        }
+    }
+}

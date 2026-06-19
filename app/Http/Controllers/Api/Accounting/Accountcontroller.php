@@ -36,6 +36,45 @@ class AccountController extends ApiController
         return $this->success('Accounts fetched', AccountResource::collection($accounts));
     }
 
+    // ── GET /accounts/suggest-code ───────────────────────────────────────────
+    public function suggestCode(Request $request): JsonResponse
+    {
+        $parentId = $request->query('parent_id');
+
+        if (!$parentId) {
+            // المستوى الرئيسي: 1, 2, 3, 4, 5
+            $max = Account::whereNull('parent_id')->max('code');
+            $next = $max ? (int)$max + 1 : 1;
+            return $this->success('Suggested code', ['code' => (string)$next]);
+        }
+
+        $parent = Account::findOrFail($parentId);
+        $prefix = $parent->code;
+
+        // البحث عن آخر كود للأبناء المباشرين
+        // النظام المقترح: الأبناء يتبعون كود الأب مع إضافة خانتين أو أكثر
+        // إذا كان الأب 1، الأبناء 101، 102... (أو 11، 12 حسب الرغبة)
+        // لضمان استيعاب أكثر من 9999 حساب فرعي، سنستخدم 4 خانات للأبناء في المستويات الدنيا
+
+        $lastChild = Account::where('parent_id', $parentId)
+            ->orderBy('code', 'desc')
+            ->first();
+
+        if (!$lastChild) {
+            // أول ابن: نستخدم 01 للمستويات العليا و 0001 للمستويات الدنيا لضمان السعة
+            $suffix = ($parent->level >= 2) ? '0001' : '01';
+            return $this->success('Suggested code', ['code' => $prefix . $suffix]);
+        }
+
+        // استخراج الجزء المتغير وزيادته
+        $lastCode = $lastChild->code;
+        $suffixLength = ($parent->level >= 2) ? 4 : 2;
+        $currentSuffix = substr($lastCode, strlen($prefix));
+        $nextSuffix = str_pad((int)$currentSuffix + 1, strlen($currentSuffix), '0', STR_PAD_LEFT);
+
+        return $this->success('Suggested code', ['code' => $prefix . $nextSuffix]);
+    }
+
     // ── POST /accounts ────────────────────────────────────────────────────────
     public function store(StoreAccountRequest $request): JsonResponse
     {
@@ -111,11 +150,11 @@ class AccountController extends ApiController
         $to   = $request->input('to',   now()->toDateString());
 
         $entries = $account->entries()
-            ->with(['transaction:id,transaction_number,date,type,description,reference'])
+            ->with(['transaction:id,transaction_number,date,type,description,reference,status'])
             ->whereHas(
                 'transaction',
                 fn($q) =>
-                $q->where('status', 'posted')
+                $q->whereIn('status', ['posted', 'draft']) // السماح بعرض المسودات أيضاً في الكشف للمعاينة
                     ->whereBetween('date', [$from, $to])
             )
             ->orderBy('created_at')
@@ -126,14 +165,14 @@ class AccountController extends ApiController
             ->whereHas(
                 'transaction',
                 fn($q) =>
-                $q->where('status', 'posted')->where('date', '<', $from)
+                $q->whereIn('status', ['posted', 'draft'])->where('date', '<', $from)
             )->sum('debit');
 
         $openingCredit = $account->entries()
             ->whereHas(
                 'transaction',
                 fn($q) =>
-                $q->where('status', 'posted')->where('date', '<', $from)
+                $q->whereIn('status', ['posted', 'draft'])->where('date', '<', $from)
             )->sum('credit');
 
         $openingBalance = in_array($account->type, ['asset', 'expense'])

@@ -33,6 +33,8 @@ return new class extends Migration
             $table->date('hireDate');
             $table->decimal('salary', 10, 2)->nullable();
 
+
+
             $table->string('role')->default('EMPLOYEE');
             $table->enum('status', ['ACTIVE', 'ON_LEAVE', 'TERMINATED', 'SUSPENDED', 'RESIGNED'])->default('ACTIVE');
             $table->string('username')->nullable()->unique();

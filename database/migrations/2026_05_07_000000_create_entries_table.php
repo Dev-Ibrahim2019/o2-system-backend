@@ -36,6 +36,29 @@ return new class extends Migration
 
             // ✅ ترتيب السطر داخل القيد
             $table->unsignedInteger('sort_order')->default(0);
+            // نوع الكيان المرتبط (nullable — ليس كل قيد له subledger)
+            $table->string('subledger_type', 50)
+                ->nullable()
+                ->comment('employee | customer | supplier');
+
+            // ID الكيان
+            $table->unsignedBigInteger('subledger_id')
+                ->nullable()
+                ->comment('employees.id | customers.id | suppliers.id');
+
+            // Index مركّب للاستعلامات السريعة
+            // مثال: كشف حساب موظف 33
+            $table->index(
+                ['subledger_type', 'subledger_id'],
+                'idx_entries_subledger'
+            );
+
+            // Index إضافي مع account_id للتقارير المالية
+            // مثال: مجموع سلف الموظفين على حساب 1130
+            $table->index(
+                ['subledger_type', 'subledger_id', 'account_id'],
+                'idx_entries_subledger_account'
+            );
 
             $table->timestamps();
         });

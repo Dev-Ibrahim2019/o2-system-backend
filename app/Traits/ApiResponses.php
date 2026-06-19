@@ -1,30 +1,44 @@
 <?php
-// app/Traits/ApiResponses.php
 
 namespace App\Traits;
 
+use Illuminate\Http\JsonResponse;
+
 trait ApiResponses
 {
-    protected function ok($message, $data = [])
-    {
-        return $this->success($message, $data, 200);
-    }
-
-    // ← غيرنا الترتيب: message أولاً، data ثانياً
-    protected function success($message, $data = [], $statusCode = 200)
+    /**
+     * Unified Success Response
+     * Format: { success: true, message, data, errors: null }
+     */
+    protected function success($message, $data = [], $statusCode = 200): JsonResponse
     {
         return response()->json([
+            'success' => true,
+            'message' => $message,
             'data'    => $data,
-            'message' => $message,
-            'status'  => $statusCode,
+            'errors'  => null,
         ], $statusCode);
     }
 
-    protected function error($message, $statusCode = 400)
+    /**
+     * Unified Error Response
+     * Format: { success: false, message, data: null, errors }
+     */
+    protected function error($message, $statusCode = 400, $errors = null): JsonResponse
     {
         return response()->json([
+            'success' => false,
             'message' => $message,
-            'status'  => $statusCode,
+            'data'    => null,
+            'errors'  => $errors,
         ], $statusCode);
+    }
+
+    /**
+     * Compatibility wrapper for existing code
+     */
+    protected function ok($message, $data = []): JsonResponse
+    {
+        return $this->success($message, $data);
     }
 }

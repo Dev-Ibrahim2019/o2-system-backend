@@ -22,23 +22,28 @@ class TransactionResource extends JsonResource
             'description'        => $this->description,
             'notes'              => $this->notes,
 
-            // الإجماليات
-            'total_debit'   => (float) $this->entries()->sum('debit'),
-            'total_credit'  => (float) $this->entries()->sum('credit'),
+            // ── الإجماليات — تُحسب دائماً من الداتابيز ──────────────────────
+            'total_debit'    => (float) $this->entries()->sum('debit'),
+            'total_credit'   => (float) $this->entries()->sum('credit'),
+
+            // ✅ عدد الأسطر — يُجلب من الداتابيز ويُرسل مع كل قيد
+            'entries_count'  => (int) $this->entries()->count(),
+
             'is_balanced'   => $this->isBalanced(),
             'is_editable'   => $this->isEditable(),
 
             // ✅ Polymorphic source
-            'source_type'  => $this->source_type,   // 'App\Models\Order' | null
-            'source_id'    => $this->source_id,      // 5 | null
-            'source_label' => $this->source_label,   // 'Order' | null
-            // المصدر الكامل — يُحمَّل عند الطلب فقط (لأنه morphTo)
+            'source_type'  => $this->source_type,
+            'source_id'    => $this->source_id,
+            'source_label' => $this->source_label,
             'source'       => $this->when(
                 $this->relationLoaded('source') && $this->source,
                 fn() => $this->buildSourcePayload()
             ),
 
-            // العلاقات
+            // ── العلاقات ────────────────────────────────────────────────────
+            // ✅ entries تُحمَّل فقط عند طلب show() أو عند تحميلها صراحةً
+            //    في index() لا تُحمَّل (لتسريع القائمة) — entries_count يكفي
             'entries' => EntryResource::collection($this->whenLoaded('entries')),
 
             'branch' => $this->whenLoaded('branch', fn() => [
@@ -59,7 +64,6 @@ class TransactionResource extends JsonResource
 
     /**
      * بناء payload المصدر بحسب نوعه
-     * كل نوع يُرجع الحقول المناسبة له
      */
     private function buildSourcePayload(): array
     {
@@ -80,7 +84,6 @@ class TransactionResource extends JsonResource
                 'name'        => $source->name,
                 'employee_id' => $source->employeeId,
             ],
-            // إذا أُضيف مصدر جديد مستقبلاً
             default => [
                 'type' => $label,
                 'id'   => $source->id,

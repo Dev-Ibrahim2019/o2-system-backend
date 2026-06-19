@@ -79,4 +79,42 @@ class CostCenterController extends ApiController
 
         return $this->success('تم حذف مركز التكلفة بنجاح', []);
     }
+    // ── GET /cost-centers/suggest-code ────────────────────────────────────────
+    public function suggestCode(Request $request): JsonResponse
+    {
+        $parentId = $request->query('parent_id');
+
+        if (!$parentId) {
+            $last = CostCenter::whereNull('parent_id')
+                ->whereNotNull('code')
+                ->orderBy('code', 'desc')
+                ->first();
+
+            if (!$last || !preg_match('/^CC-(\d+)$/', $last->code ?? '', $m)) {
+                $next = 'CC-01';
+            } else {
+                $next = 'CC-' . str_pad((int)$m[1] + 1, 2, '0', STR_PAD_LEFT);
+            }
+
+            return $this->success('Suggested code', ['code' => $next]);
+        }
+
+        $parent = CostCenter::findOrFail($parentId);
+        $prefix = ($parent->code ?? 'CC') . '-';
+
+        $lastChild = CostCenter::where('parent_id', $parentId)
+            ->whereNotNull('code')
+            ->where('code', 'like', $prefix . '%')
+            ->orderBy('code', 'desc')
+            ->first();
+
+        if (!$lastChild) {
+            return $this->success('Suggested code', ['code' => $prefix . '01']);
+        }
+
+        $suffix     = substr($lastChild->code, strlen($prefix));
+        $nextSuffix = str_pad((int)$suffix + 1, max(2, strlen($suffix)), '0', STR_PAD_LEFT);
+
+        return $this->success('Suggested code', ['code' => $prefix . $nextSuffix]);
+    }
 }
