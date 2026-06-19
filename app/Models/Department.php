@@ -1,10 +1,9 @@
 <?php
+
 // app/Models/Department.php  — updated version
 
 namespace App\Models;
 
-use App\Models\Branch;
-use App\Models\Item;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -37,11 +36,11 @@ class Department extends Model
     ];
 
     protected $casts = [
-        'is_active'           => 'boolean',
-        'hasKds'              => 'boolean',
-        'autoPrintTicket'     => 'boolean',
+        'is_active' => 'boolean',
+        'hasKds' => 'boolean',
+        'autoPrintTicket' => 'boolean',
         'maxConcurrentOrders' => 'integer',
-        'defaultPrepTime'     => 'integer',
+        'defaultPrepTime' => 'integer',
     ];
 
     // ─── Relations ────────────────────────────────────────────────────────────
@@ -56,6 +55,12 @@ class Department extends Model
     public function items(): HasMany
     {
         return $this->hasMany(Item::class);
+    }
+
+    /** تذاكر الإنتاج/الطباعة لهذا القسم */
+    public function productionTickets(): HasMany
+    {
+        return $this->hasMany(ProductionTicket::class);
     }
 
     /** Direct parent */

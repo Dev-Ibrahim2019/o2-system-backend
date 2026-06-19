@@ -1,17 +1,20 @@
 <?php
-// app/Models/Order.php
 
 namespace App\Models;
 
-use App\Models\Branch;
-use App\Models\Employee;
-use App\Models\OrderItem;
-use App\Models\ProductionTicket;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+/**
+ * تسلسل العمل:
+ * 1) pending — حفظ الطلب وبنوده في orders + order_items
+ * 2) confirm — ربط البنود بالأقسام عبر production_tickets + production_ticket_items (للطباعة/KDS)
+ * 3) فاتورة — invoices + invoice_items (نسخة رسمية للدفع)
+ * 4) paid — payments مرتبطة بالفاتورة
+ */
 class Order extends Model
 {
     use SoftDeletes;
@@ -34,13 +37,11 @@ class Order extends Model
     ];
 
     protected $casts = [
-        'subtotal'       => 'decimal:3',
+        'subtotal' => 'decimal:3',
         'discount_value' => 'decimal:3',
         'discount_amount' => 'decimal:3',
-        'total'          => 'decimal:3',
+        'total' => 'decimal:3',
     ];
-
-    // ── Relations ────────────────────────────────────────────────────────────
 
     public function branch(): BelongsTo
     {
@@ -57,25 +58,133 @@ class Order extends Model
         return $this->hasMany(OrderItem::class);
     }
 
+    /** تذاكر الأقسام — كل تذكرة = جزء طباعة/مطبخ لقسم واحد */
     public function tickets(): HasMany
     {
         return $this->hasMany(ProductionTicket::class);
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    public function productionTickets(): HasMany
+    {
+        return $this->tickets();
+    }
 
-    /**
-     * توليد رقم طلب تلقائي: ORD-YYYYMMDD-XXXX
-     */
+    public function invoice(): HasOne
+    {
+        return $this->hasOne(Invoice::class);
+    }
+
+    /** القيد المحاسبي (journal entry) المرتبط بالطلب */
+    public function journalEntry()
+    {
+        return Transaction::where('source_type', self::class)
+            ->where('source_id', $this->id)
+            ->where('type', 'sales')
+            ->first();
+    }
+
     public static function generateOrderNumber(): string
     {
-        $prefix = 'ORD-' . now()->format('Ymd') . '-';
-        $last   = static::where('order_number', 'like', $prefix . '%')
+        $prefix = 'ORD-'.now()->format('Ymd').'-';
+        $last = static::where('order_number', 'like', $prefix.'%')
             ->orderByDesc('id')
             ->value('order_number');
 
         $seq = $last ? (int) substr($last, -4) + 1 : 1;
 
-        return $prefix . str_pad($seq, 4, '0', STR_PAD_LEFT);
+        return $prefix.str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * أجزاء الطلب للطباعة — كل قسم مع أصنافه.
+     * بعد confirm: من التذاكر. قبل confirm: معاينة من order_items.groupBy(department_id)
+     */
+    public function sectionsForPrint(): array
+    {
+        if ($this->relationLoaded('tickets') ? $this->tickets->isNotEmpty() : $this->tickets()->exists()) {
+            return $this->sectionsFromTickets();
+        }
+
+        return $this->sectionsFromOrderItems();
+    }
+
+    protected function sectionsFromTickets(): array
+    {
+        $tickets = $this->tickets()
+            ->with(['department', 'ticketItems.orderItem'])
+            ->orderBy('department_id')
+            ->get();
+
+        return $tickets->map(fn (ProductionTicket $ticket) => [
+            'source' => 'ticket',
+            'ticket_id' => $ticket->id,
+            'ticket_number' => $ticket->ticket_number,
+            'department_id' => $ticket->department_id,
+            'department' => $ticket->department ? [
+                'id' => $ticket->department->id,
+                'name' => $ticket->department->name,
+                'name_ar' => $ticket->department->nameAr,
+                'color' => $ticket->department->color,
+                'icon' => $ticket->department->icon,
+            ] : null,
+            'items' => $ticket->ticketItems->map(fn (ProductionTicketItem $ti) => [
+                'order_item_id' => $ti->order_item_id,
+                'item_id' => $ti->orderItem?->item_id,
+                'item_name' => $ti->orderItem?->item_name,
+                'item_name_ar' => $ti->orderItem?->item_name_ar,
+                'quantity' => (float) ($ti->orderItem?->quantity ?? $ti->quantity),
+                'price' => (float) ($ti->orderItem?->price ?? 0),
+                'total' => (float) ($ti->orderItem?->total ?? 0),
+                'notes' => $ti->notes ?? $ti->orderItem?->notes,
+            ])->values()->all(),
+        ])->values()->all();
+    }
+
+    protected function sectionsFromOrderItems(): array
+    {
+        $grouped = $this->items()->with('department')->get()->groupBy('department_id');
+
+        return $grouped->map(function ($items, $deptId) {
+            $department = $items->first()->department;
+
+            return [
+                'source' => 'order_items',
+                'ticket_id' => null,
+                'ticket_number' => null,
+                'department_id' => $deptId ? (int) $deptId : null,
+                'department' => $department ? [
+                    'id' => $department->id,
+                    'name' => $department->name,
+                    'name_ar' => $department->nameAr,
+                    'color' => $department->color,
+                    'icon' => $department->icon,
+                ] : null,
+                'items' => $items->map(fn (OrderItem $oi) => [
+                    'order_item_id' => $oi->id,
+                    'item_id' => $oi->item_id,
+                    'item_name' => $oi->item_name,
+                    'item_name_ar' => $oi->item_name_ar,
+                    'quantity' => (float) $oi->quantity,
+                    'price' => (float) $oi->price,
+                    'total' => (float) $oi->total,
+                    'notes' => $oi->notes,
+                ])->values()->all(),
+            ];
+        })->values()->all();
+    }
+
+    /** إعادة حساب المجاميع من بنود الطلب */
+    public function recalculateTotals(): void
+    {
+        $subtotal = (float) $this->items()->sum('total');
+        $discountAmount = $this->discount_type === 'percent'
+            ? ($subtotal * (float) $this->discount_value / 100)
+            : (float) $this->discount_value;
+
+        $this->update([
+            'subtotal' => $subtotal,
+            'discount_amount' => $discountAmount,
+            'total' => max(0, $subtotal - $discountAmount),
+        ]);
     }
 }

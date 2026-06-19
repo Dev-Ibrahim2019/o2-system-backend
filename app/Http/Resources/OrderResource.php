@@ -28,11 +28,8 @@ class OrderResource extends JsonResource
             'discount_amount'  => (float) $this->discount_amount,
             'total'            => (float) $this->total,
 
-            'payment_method'   => $this->payment_method,
-            'reference_number' => $this->reference_number,  // ✅
-            'paid_at'          => $this->paid_at?->toIso8601String(), // ✅
-
             'items'   => OrderItemResource::collection($this->whenLoaded('items')),
+            'invoice' => $this->whenLoaded('invoice', fn () => new InvoiceResource($this->invoice)),
             'tickets' => ProductionTicketResource::collection($this->whenLoaded('tickets')),
             'cashier' => $this->whenLoaded('cashier', fn() => [
                 'id'   => $this->cashier->id,
