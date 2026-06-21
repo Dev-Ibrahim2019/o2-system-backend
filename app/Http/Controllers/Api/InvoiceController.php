@@ -86,7 +86,7 @@ class InvoiceController extends ApiController
         } catch (\Throwable $e) {
             DB::rollBack();
 
-            return $this->error('فشل إنشاء الفاتورة: '.$e->getMessage(), 500);
+            return $this->error('فشل إنشاء الفاتورة: ' . $e->getMessage(), 500);
         }
     }
 
@@ -111,17 +111,37 @@ class InvoiceController extends ApiController
             return $this->error("المبلغ يتجاوز المتبقي ({$remaining}).", 422);
         }
 
+        // [TRACE] تسجيل البيانات القادمة من Frontend
+        logger()->info('InvoiceController::addPayment - incoming request', [
+            'method' => $data['method'] ?? null,
+            'amount' => $data['amount'] ?? null,
+            'entity_type' => $data['entity_type'] ?? null,
+            'entity_id' => $data['entity_id'] ?? null,
+            'subledger_type' => $data['subledger_type'] ?? null,
+            'subledger_id' => $data['subledger_id'] ?? null,
+            'all_data' => $data,
+        ]);
+
         DB::beginTransaction();
         try {
+            // Determine entity type/id from request (supports both entity_* and subledger_* naming)
+            $entityType = $data['entity_type'] ?? $data['subledger_type'] ?? null;
+            $entityId = $data['entity_id'] ?? $data['subledger_id'] ?? null;
+
             $payment = Payment::create([
                 'invoice_id' => $invoice->id,
                 'number' => Payment::generateNumber(),
                 'method' => $data['method'],
+                'payment_method_id' => $data['payment_method_id'] ?? null,
                 'amount' => $amount,
                 'paid_at' => now(),
                 'notes' => $data['notes'] ?? null,
                 'branch_id' => $data['branch_id'] ?? $invoice->branch_id,
                 'user_id' => $request->user()?->id,
+                'entity_type' => $entityType,
+                'entity_id' => $entityId,
+                'subledger_type' => $entityType,
+                'subledger_id' => $entityId,
             ]);
 
             $newPaid = $invoice->paidAmount();
@@ -155,7 +175,7 @@ class InvoiceController extends ApiController
         } catch (\Throwable $e) {
             DB::rollBack();
 
-            return $this->error('فشل تسجيل الدفعة: '.$e->getMessage(), 500);
+            return $this->error('فشل تسجيل الدفعة: ' . $e->getMessage(), 500);
         }
     }
 
@@ -218,12 +238,12 @@ class InvoiceController extends ApiController
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('number', 'like', "%{$search}%")
-                  ->orWhereHas('order', function ($q) use ($search) {
-                      $q->where('order_number', 'like', "%{$search}%");
-                  })
-                  ->orWhereHas('order', function ($q) use ($search) {
-                      $q->where('customer_name', 'like', "%{$search}%");
-                  });
+                    ->orWhereHas('order', function ($q) use ($search) {
+                        $q->where('order_number', 'like', "%{$search}%");
+                    })
+                    ->orWhereHas('order', function ($q) use ($search) {
+                        $q->where('customer_name', 'like', "%{$search}%");
+                    });
             });
         }
 

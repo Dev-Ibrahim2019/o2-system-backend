@@ -25,9 +25,15 @@ class DatabaseSeeder extends Seeder
             TestUsersSeeder::class,
         ]);
 
-        // 3. باقي الـ Seeders
+        // 3. إنشاء الأقسام والأصناف وربطها بالفروع
+        $this->call([
+            BranchDepartmentItemEmployeeSeeder::class,
+        ]);
+
+        // 4. باقي الـ Seeders
         $this->call([
             ChartOfAccountsSeeder::class,
+            PaymentMethodSeeder::class,
         ]);
     }
 }
