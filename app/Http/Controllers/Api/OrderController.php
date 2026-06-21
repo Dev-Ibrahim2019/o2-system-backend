@@ -24,9 +24,9 @@ class OrderController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $orders = Order::with(['items.department', 'tickets.department', 'cashier'])
-            ->when($request->branch_id, fn ($q) => $q->where('branch_id', $request->branch_id))
-            ->when($request->status, fn ($q) => $q->where('status', $request->status))
-            ->when($request->date, fn ($q) => $q->whereDate('created_at', $request->date))
+            ->when($request->branch_id, fn($q) => $q->where('branch_id', $request->branch_id))
+            ->when($request->status, fn($q) => $q->where('status', $request->status))
+            ->when($request->date, fn($q) => $q->whereDate('created_at', $request->date))
             ->orderByDesc('id')
             ->get();
 
@@ -87,7 +87,7 @@ class OrderController extends ApiController
         } catch (\Throwable $e) {
             DB::rollBack();
 
-            return $this->error('فشل إنشاء الطلب: '.$e->getMessage(), 500);
+            return $this->error('فشل إنشاء الطلب: ' . $e->getMessage(), 500);
         }
     }
 
@@ -135,7 +135,7 @@ class OrderController extends ApiController
                 new OrderResource($order->fresh()->load(['items.department', 'cashier']))
             );
         } catch (\Throwable $e) {
-            return $this->error('فشل تحديث الطلب: '.$e->getMessage(), 500);
+            return $this->error('فشل تحديث الطلب: ' . $e->getMessage(), 500);
         }
     }
 
@@ -173,7 +173,7 @@ class OrderController extends ApiController
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         } catch (\Throwable $e) {
-            return $this->error('فشل إضافة الصنف: '.$e->getMessage(), 500);
+            return $this->error('فشل إضافة الصنف: ' . $e->getMessage(), 500);
         }
     }
 
@@ -203,7 +203,7 @@ class OrderController extends ApiController
                 new OrderResource($order->fresh()->load(['items.department', 'cashier']))
             );
         } catch (\Throwable $e) {
-            return $this->error('فشل حذف الصنف: '.$e->getMessage(), 500);
+            return $this->error('فشل حذف الصنف: ' . $e->getMessage(), 500);
         }
     }
 
@@ -267,7 +267,7 @@ class OrderController extends ApiController
         } catch (\Throwable $e) {
             DB::rollBack();
 
-            return $this->error('فشل تأكيد الطلب: '.$e->getMessage(), 500);
+            return $this->error('فشل تأكيد الطلب: ' . $e->getMessage(), 500);
         }
     }
 
@@ -289,7 +289,7 @@ class OrderController extends ApiController
 
             return $this->success('تم إلغاء الطلب', new OrderResource($order->fresh()));
         } catch (\Throwable $e) {
-            return $this->error('فشل إلغاء الطلب: '.$e->getMessage(), 500);
+            return $this->error('فشل إلغاء الطلب: ' . $e->getMessage(), 500);
         }
     }
 
@@ -320,7 +320,7 @@ class OrderController extends ApiController
                 new OrderResource($order->fresh()->load(['items.department', 'tickets.department']))
             );
         } catch (\Throwable $e) {
-            return $this->error('فشل تسليم الطلب: '.$e->getMessage(), 500);
+            return $this->error('فشل تسليم الطلب: ' . $e->getMessage(), 500);
         }
     }
 
@@ -332,7 +332,7 @@ class OrderController extends ApiController
         $transaction = Transaction::with(['entries.account', 'entries.costCenter', 'branch', 'user'])
             ->where('source_type', Order::class)
             ->where('source_id', $order->id)
-            ->where('type', 'sales')
+            ->where('type', 'sale')
             ->first();
 
         if (! $transaction) {

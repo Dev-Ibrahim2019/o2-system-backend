@@ -107,6 +107,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('transactions/{transaction}/cancel', [TransactionController::class, 'cancel']);
         Route::apiResource('cost-centers', CostCenterController::class);
     });
+
+    // ── Settlement & Payment Routing ──
+    Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle']);
+    Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
+    Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class);
 });
 
 // ── Job Titles (public) ──
