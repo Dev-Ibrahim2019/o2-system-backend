@@ -42,9 +42,15 @@ class OrderController extends ApiController
 
         DB::beginTransaction();
         try {
+            $authUser = auth()->user();
+
+            // حماية: حقن branch_id تلقائياً من المستخدم المسجل
+            // super-admin (branch_id = null) يمكنه تمرير branch_id يدوياً
+            $branchId = $authUser->branch_id ?? $data['branch_id'] ?? null;
+
             $order = Order::create([
                 'order_number' => Order::generateOrderNumber(),
-                'branch_id' => $data['branch_id'],
+                'branch_id' => $branchId,
                 'cashier_id' => $data['cashier_id'] ?? null,
                 'order_type' => $data['order_type'],
                 'status' => 'pending',

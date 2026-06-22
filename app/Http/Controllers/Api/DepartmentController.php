@@ -1,6 +1,4 @@
 <?php
-// app/Http/Controllers/Api/DepartmentController.php
-// Add/update the `tree` endpoint and ensure `code` is part of the model
 
 namespace App\Http\Controllers\Api;
 
@@ -8,32 +6,70 @@ use App\Http\Controllers\Controller;
 use App\Models\Department;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class DepartmentController extends Controller
 {
-    // ─── Flat list ────────────────────────────────────────────────────────────
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $departments = Department::with('children')
-            ->orderBy('code')
-            ->get();
+        try {
+            $authUser = auth()->user();
+            $isSuperAdmin = $authUser?->hasRole('super-admin') ?? false;
+            $branchId = $isSuperAdmin
+                ? $request->query('branch_id')
+                : $authUser?->branch_id;
 
-        return response()->json(['data' => $departments]);
+            $query = Department::with([
+                'children',
+                'branches' => fn ($q) => $q->withPivot('is_active'),
+            ])->orderBy('code');
+
+            if ($branchId) {
+                $query->whereHas('branches', function ($q) use ($branchId) {
+                    $q->where('branch_department.branch_id', $branchId)
+                        ->where('branch_department.is_active', true);
+                });
+            }
+
+            $departments = $query->get()->each(fn (Department $department) => $this->attachBranchIds($department));
+
+            return response()->json(['data' => $departments]);
+        } catch (\Throwable $e) {
+            Log::error('Error fetching departments: ' . $e->getMessage());
+
+            return response()->json(['data' => []]);
+        }
     }
 
-    // ─── Nested tree (used by frontend ItemsTable) ────────────────────────────
-    public function tree(): JsonResponse
+    public function tree(Request $request): JsonResponse
     {
-        // Only root nodes; children are eager-loaded recursively
-        $roots = Department::whereNull('parent_id')
-            ->with('allChildren')     // see model recursive relation below
-            ->orderBy('code')
-            ->get();
+        $authUser = auth()->user();
+        $isSuperAdmin = $authUser?->hasRole('super-admin') ?? false;
+        $branchId = $isSuperAdmin
+            ? $request->query('branch_id')
+            : $authUser?->branch_id;
 
-        return response()->json(['data' => $roots]);
+        if ($branchId) {
+            $departments = Department::with(['branches' => fn ($q) => $q->withPivot('is_active')])
+                ->whereHas('branches', function ($q) use ($branchId) {
+                    $q->where('branch_department.branch_id', $branchId)
+                        ->where('branch_department.is_active', true);
+                })
+                ->orderBy('code')
+                ->get();
+
+            $departments->each(fn (Department $department) => $this->attachBranchIds($department));
+
+            return response()->json(['data' => $this->buildTree($departments)]);
+        }
+
+        $query = Department::whereNull('parent_id')
+            ->with('allChildren')
+            ->orderBy('code');
+
+        return response()->json(['data' => $query->get()]);
     }
 
-    // ─── Store ────────────────────────────────────────────────────────────────
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -51,26 +87,36 @@ class DepartmentController extends Controller
             'hasKds'              => 'boolean',
             'autoPrintTicket'     => 'boolean',
             'parent_id'           => 'nullable|exists:departments,id',
+            'branch_ids'          => 'nullable|array',
+            'branch_ids.*'        => 'integer|exists:branches,id',
         ]);
 
-        // Auto-generate code based on parent if not provided
         if (empty($data['code'])) {
             $data['code'] = $this->generateDeptCode($data['parent_id'] ?? null);
         }
 
-        $dept = Department::create($data);
+        $branchIds = $data['branch_ids'] ?? [];
+        unset($data['branch_ids']);
 
-        return response()->json(['data' => $dept], 201);
+        $department = Department::create($data);
+
+        if (! empty($branchIds)) {
+            $department->branches()->sync($this->branchSyncData($branchIds));
+        }
+
+        $department->load('branches');
+        $this->attachBranchIds($department);
+
+        return response()->json(['data' => $department], 201);
     }
 
-    // ─── Update ───────────────────────────────────────────────────────────────
     public function update(Request $request, Department $department): JsonResponse
     {
         $data = $request->validate([
             'name'                => 'sometimes|string|max:255',
             'nameAr'              => 'nullable|string|max:255',
             'shortName'           => 'nullable|string|max:10',
-            'code'                => "nullable|string|max:20|unique:departments,code,{$department->id}",
+            'code'                => "sometimes|string|max:20|unique:departments,code,{$department->id}",
             'icon'                => 'nullable|string',
             'color'               => 'nullable|string|max:20',
             'type'                => 'sometimes|in:section,department,unit',
@@ -81,55 +127,96 @@ class DepartmentController extends Controller
             'hasKds'              => 'boolean',
             'autoPrintTicket'     => 'boolean',
             'parent_id'           => 'nullable|exists:departments,id',
+            'branch_ids'          => 'nullable|array',
+            'branch_ids.*'        => 'integer|exists:branches,id',
         ]);
 
+        $branchIds = $data['branch_ids'] ?? [];
+        unset($data['branch_ids']);
+
         $department->update($data);
+
+        if ($request->has('branch_ids')) {
+            $department->branches()->sync($this->branchSyncData($branchIds));
+        }
+
+        $department->load('branches');
+        $this->attachBranchIds($department);
 
         return response()->json(['data' => $department]);
     }
 
-    // ─── Destroy ──────────────────────────────────────────────────────────────
+    public function show(Department $department): JsonResponse
+    {
+        $authUser = auth()->user();
+        $isSuperAdmin = $authUser?->hasRole('super-admin') ?? false;
+        $branchId = $isSuperAdmin ? null : $authUser?->branch_id;
+
+        if ($branchId && ! $department->branches()
+            ->where('branch_department.branch_id', $branchId)
+            ->where('branch_department.is_active', true)
+            ->exists()) {
+            abort(404);
+        }
+
+        $department->load(['branches' => fn ($q) => $q->withPivot('is_active')]);
+        $this->attachBranchIds($department);
+
+        return response()->json(['data' => $department]);
+    }
+
     public function destroy(Department $department): JsonResponse
     {
         $department->delete();
-        return response()->json(['message' => 'تم الحذف بنجاح']);
+
+        return response()->json(['message' => 'Deleted successfully']);
     }
 
-    // ─── Code Generator ───────────────────────────────────────────────────────
-    /**
-     * Hierarchy from image:
-     *   Root → 1 (root dept, code=1)
-     *     └─ أصناف تشغيلية → 11
-     *           ├─ قسم الشاورما  → 1101
-     *           └─ قسم الإبداعات → 1102
-     *
-     * Logic:
-     *   - Root depts: 1, 2, 3 …
-     *   - Children: parent.code + 2-digit index  (01, 02 …)
-     *   - Grand-children: same pattern, always appending 2 digits
-     */
     private function generateDeptCode(?int $parentId): string
     {
         if ($parentId === null) {
-            // Root level — find max single-digit or root code
             $max = Department::whereNull('parent_id')->max('code');
-            return (string)(((int)$max) + 1);
+
+            return (string) (((int) $max) + 1);
         }
 
         $parent = Department::findOrFail($parentId);
         $prefix = $parent->code ?? (string) $parent->id;
 
-        // Siblings: codes that start with prefix and have exactly 2 more digits
         $siblings = Department::where('parent_id', $parentId)
             ->whereNotNull('code')
             ->get()
             ->pluck('code')
-            ->filter(fn($c) => str_starts_with($c, $prefix))
-            ->map(fn($c)    => (int) substr($c, strlen($prefix)))
+            ->filter(fn ($code) => str_starts_with($code, $prefix))
+            ->map(fn ($code) => (int) substr($code, strlen($prefix)))
             ->sort();
 
         $next = $siblings->isEmpty() ? 1 : $siblings->last() + 1;
 
         return $prefix . str_pad((string) $next, 2, '0', STR_PAD_LEFT);
+    }
+
+    private function branchSyncData(array $branchIds): array
+    {
+        return collect($branchIds)
+            ->mapWithKeys(fn ($id) => [$id => ['is_active' => true]])
+            ->all();
+    }
+
+    private function buildTree($departments, ?int $parentId = null)
+    {
+        return $departments
+            ->where('parent_id', $parentId)
+            ->values()
+            ->map(function (Department $department) use ($departments) {
+                $department->setRelation('children', $this->buildTree($departments, $department->id));
+
+                return $department;
+            });
+    }
+
+    private function attachBranchIds(Department $department): void
+    {
+        $department->setAttribute('branch_ids', $department->branches->pluck('id')->values());
     }
 }

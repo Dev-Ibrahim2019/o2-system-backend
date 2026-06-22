@@ -14,28 +14,80 @@ use Illuminate\Support\Facades\Storage;
 
 class ItemController extends Controller
 {
-    // ─── List (optionally filter by department) ───────────────────────────────
+    // ─── List (فلترة صارمة حسب الفرع — لشاشة POS والإدارة) ──
     public function index(Request $request): JsonResponse
     {
-        $query = Item::with(['department', 'branches'])
+        $authUser = auth()->user();
+        $branchId = $request->branch_id ?? $authUser?->branch_id;
+
+        $isSuperAdmin = $authUser?->hasRole('super-admin') ?? true;
+        $hasNoBranch = ! $authUser?->branch_id;
+
+        $query = Item::with(['department'])
             ->when($request->department_id, fn($q, $id) => $q->where('department_id', $id))
-            ->when($request->branch_id, fn($q, $id) =>
-                $q->whereHas('branches', fn($q) => $q->where('branches.id', $id))
-            )
             ->when($request->search, function ($q, $s) {
                 $q->where(fn($q) =>
-                    $q->where('name',    'like', "%$s%")
-                      ->orWhere('name_ar','like', "%$s%")
-                      ->orWhere('code',   'like', "%$s%")
+                    $q->where('name', 'like', "%{$s}%")
+                      ->orWhere('name_ar', 'like', "%{$s}%")
+                      ->orWhere('code', 'like', "%{$s}%")
                 );
-            })
-            ->orderBy('code')
-            ->get();
+            });
 
-        return response()->json(['data' => $query]);
+        if (! $isSuperAdmin && ! $hasNoBranch && $branchId) {
+            $query->whereHas('branches', function ($q) use ($branchId) {
+                $q->where('branch_item.branch_id', $branchId)
+                  ->where('branch_item.is_active', true);
+            });
+
+            $query->with(['branches' => function ($q) use ($branchId) {
+                $q->where('branch_item.branch_id', $branchId)
+                  ->where('branch_item.is_active', true)
+                  ->withPivot(['price', 'is_active']);
+            }]);
+        } elseif ($branchId && $request->branch_id) {
+            $query->whereHas('branches', fn($q) => $q->where('branch_item.branch_id', $branchId))
+                  ->with(['branches' => fn($q) => $q->where('branch_item.branch_id', $branchId)
+                      ->withPivot(['price', 'is_active'])]);
+        }
+
+        $items = $query->orderBy('code')->get();
+
+        $data = $items->map(function ($item) use ($branchId) {
+            $result = [
+                'id'            => $item->id,
+                'name'          => $item->name,
+                'name_ar'       => $item->name_ar ?? $item->name,
+                'code'          => $item->code,
+                'image'         => $item->image,
+                'image_url'     => $item->image_url,
+                'unit'          => $item->unit,
+                'department_id' => $item->department_id,
+                'department'    => $item->department ? [
+                    'id'      => $item->department->id,
+                    'name'    => $item->department->name,
+                    'name_ar' => $item->department->nameAr ?? $item->department->name,
+                    'icon'    => $item->department->icon ?? '🍽️',
+                    'color'   => $item->department->color ?? '#ef4444',
+                ] : null,
+                'is_active'     => $item->is_active,
+            ];
+
+            if ($branchId && $item->branches->isNotEmpty()) {
+                $pivot = $item->branches->first()->pivot;
+                $result['price'] = (float) ($pivot->price ?? 0);
+                $result['is_available'] = (bool) ($pivot->is_active ?? true);
+            } else {
+                $result['price'] = 0;
+                $result['is_available'] = true;
+            }
+
+            return $result;
+        });
+
+        return response()->json(['data' => $data]);
     }
 
-    // ─── Store (with optional auto-code generation) ───────────────────────────
+    // ─── Store ───────────────────────────────────────────────────────────────
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -50,9 +102,9 @@ class ItemController extends Controller
             'branches.*.id' => 'required_with:branches|integer|exists:branches,id',
             'branches.*.price' => 'nullable|numeric|min:0',
             'branches.*.is_active' => 'sometimes|boolean',
+            'branches.*.is_availble' => 'sometimes|boolean',
         ]);
 
-        // Auto-generate code if not provided
         if (empty($data['code'])) {
             $data['code'] = $this->generateCode($data['department_id']);
         }
@@ -77,7 +129,54 @@ class ItemController extends Controller
     // ─── Show ─────────────────────────────────────────────────────────────────
     public function show(Item $item): JsonResponse
     {
-        return response()->json(['data' => $item->load(['department', 'branches'])]);
+        $authUser = auth()->user();
+        $branchId = $authUser?->branch_id;
+
+        // جلب جميع الفروع المرتبطة بالصنف مع بيانات pivot
+        $item->load(['department', 'branches' => function ($q) {
+            $q->withPivot(['price', 'is_active']);
+        }]);
+
+        // تحويل بيانات الفروع مع الحقلين للتوافق
+        $branchesData = $item->branches->map(function ($branch) {
+            $isActive = (bool) ($branch->pivot->is_active ?? true);
+            return [
+                'id'          => $branch->id,
+                'name'        => $branch->name,
+                'code'        => $branch->code,
+                'price'       => (float) ($branch->pivot->price ?? 0),
+                'is_active'   => $isActive,
+                'is_availble' => $isActive,
+            ];
+        })->values()->all();
+
+        // السعر العام للصنف: من الفرع الخاص بالمستخدم أو أول فرع
+        $generalPrice = $branchId
+            ? (float) ($item->branches->firstWhere('id', $branchId)?->pivot->price ?? $item->branches->first()?->pivot->price ?? 0)
+            : (float) ($item->branches->first()?->pivot->price ?? 0);
+
+        $data = [
+            'id'            => $item->id,
+            'name'          => $item->name,
+            'name_ar'       => $item->name_ar ?? $item->name,
+            'code'          => $item->code,
+            'image'         => $item->image,
+            'image_url'     => $item->image_url,
+            'unit'          => $item->unit,
+            'is_active'     => $item->is_active,
+            'department_id' => $item->department_id,
+            'department'    => $item->department ? [
+                'id'      => $item->department->id,
+                'name'    => $item->department->name,
+                'name_ar' => $item->department->nameAr ?? $item->department->name,
+                'icon'    => $item->department->icon ?? '🍽️',
+                'color'   => $item->department->color ?? '#ef4444',
+            ] : null,
+            'branches'      => $branchesData,
+            'price'         => $generalPrice,
+        ];
+
+        return response()->json(['data' => $data]);
     }
 
     public function uploadImage(Request $request): JsonResponse
@@ -111,6 +210,7 @@ class ItemController extends Controller
             'branches.*.id' => 'required_with:branches|integer|exists:branches,id',
             'branches.*.price' => 'nullable|numeric|min:0',
             'branches.*.is_active' => 'sometimes|boolean',
+            'branches.*.is_availble' => 'sometimes|boolean',
         ]);
 
         if ($request->hasFile('image')) {
@@ -143,27 +243,11 @@ class ItemController extends Controller
     }
 
     // ─── Code Generator ───────────────────────────────────────────────────────
-    /**
-     * Generates the next sequential item code based on the department's own code.
-     *
-     * Department code examples (from the hierarchy image):
-     *   Root (1) → أصناف تشغيلية (11) → قسم الشاورما (1101)
-     *   → items: 1101001, 1101002, 1101003 …
-     *
-     * Algorithm:
-     *   prefix = department.code  (e.g. "1101")
-     *   Find max existing item code that starts with prefix
-     *   next = max_suffix + 1, zero-padded to 3 digits
-     *   result = prefix + next  (e.g. "1101004")
-     */
     private function generateCode(int $departmentId): string
     {
         $dept = Department::findOrFail($departmentId);
-
-        // If department has no code, fall back to dept id as prefix
         $prefix = $dept->code ?? (string) $dept->id;
 
-        // Find existing items whose code starts with the prefix
         $last = Item::where('code', 'like', $prefix . '%')
             ->orderByRaw('CAST(SUBSTRING(code, ?) AS UNSIGNED) DESC', [strlen($prefix) + 1])
             ->value('code');
@@ -183,30 +267,19 @@ class ItemController extends Controller
         return $request->file('image')->store('items', 'public');
     }
 
+    /**
+     * تحويل مصفوفة الفروع من الفرونت إند إلى صيغة sync للـ pivot
+     * يقبل كلا الحقلين is_active و is_availble للتوافق
+     */
     private function branchSyncData(array $branches): array
     {
         return collect($branches)
             ->mapWithKeys(fn(array $branch) => [
                 $branch['id'] => [
-                    'price' => $branch['price'] ?? null,
-                    'is_active' => $branch['is_active'] ?? true,
+                    'price'     => $branch['price'] ?? null,
+                    'is_active' => $branch['is_availble'] ?? $branch['is_active'] ?? true,
                 ],
             ])
             ->all();
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Helper: بناء مصفوفة الـ sync للـ pivot
-    // ─────────────────────────────────────────────────────────────────────────
-    private function buildSyncData(array $branches): array
-    {
-        $syncData = [];
-        foreach ($branches as $b) {
-            $syncData[$b['branch_id']] = [
-                'price'     => $b['price'],
-                'is_active' => $b['is_active'] ?? true,
-            ];
-        }
-        return $syncData;
     }
 }

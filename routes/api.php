@@ -25,7 +25,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 // ── Public routes ──
-Route::get('menu', [MenuController::class, 'index']);
 Route::get('branches', [BranchController::class, 'index']);
 Route::post('/login', [AuthController::class, 'login']);
 
@@ -34,8 +33,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', fn(Request $r) => response()->json(['user' => $r->user()]));
 
+    // المنيو — محمي ويُفلتر تلقائياً حسب فرع المستخدم
+    Route::get('menu', [MenuController::class, 'index']);
+
     // ── إدارة المستخدمين ──
     Route::get('users', [UserController::class, 'index'])->middleware('permission:manage-users');
+    Route::post('users', [UserController::class, 'store'])->middleware('permission:manage-users');
+    Route::put('users/{user}', [UserController::class, 'update'])->middleware('permission:manage-users');
     Route::get('roles', [UserController::class, 'roles'])->middleware('permission:manage-users');
     Route::put('users/{user}/role', [UserController::class, 'updateRole'])->middleware('permission:manage-users');
     Route::post('users/{user}/toggle-status', [UserController::class, 'toggleStatus'])->middleware('permission:manage-users');
@@ -113,10 +117,11 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::apiResource('job-titles', \App\Http\Controllers\Api\JobTitleController::class);
 
 // ── Departments ──
-Route::prefix('departments')->group(function () {
+Route::middleware('auth:sanctum')->prefix('departments')->group(function () {
     Route::get('/', [DepartmentController::class, 'index']);
     Route::get('/tree', [DepartmentController::class, 'tree']);
     Route::post('/', [DepartmentController::class, 'store']);
+    Route::get('/{department}', [DepartmentController::class, 'show']);
     Route::put('/{department}', [DepartmentController::class, 'update']);
     Route::delete('/{department}', [DepartmentController::class, 'destroy']);
 });

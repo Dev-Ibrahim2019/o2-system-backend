@@ -50,7 +50,7 @@ class Item extends Model
     public function branches(): BelongsToMany
     {
         return $this->belongsToMany(Branch::class, 'branch_item')
-            ->withPivot(['is_active', 'price'])
+            ->withPivot('price', 'is_active')
             ->withTimestamps();
     }
 

@@ -23,7 +23,13 @@ class AuthController extends ApiController
         return $this->ok(
             'Authenticated',
             [
-                'user'        => ['id' => $user->id, 'name' => $user->name, 'username' => $user->username],
+                'user'        => [
+                    'id'        => $user->id,
+                    'name'      => $user->name,
+                    'username'  => $user->username,
+                    'email'     => $user->email,
+                    'branch_id' => $user->branch_id,
+                ],
                 'token'       => $user->createToken('Api token for ' . $user->username)->plainTextToken,
                 'roles'       => $user->getRoleNames()->toArray(),
                 'permissions' => $user->getAllPermissions()->pluck('name')->toArray(),
