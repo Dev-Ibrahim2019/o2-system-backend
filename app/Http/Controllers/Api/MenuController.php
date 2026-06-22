@@ -6,7 +6,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\ApiController;
 use App\Models\Department;
 use App\Models\Item;
+<<<<<<< HEAD
 use Illuminate\Http\Request;
+=======
+use Illuminate\Support\Facades\Log;
+>>>>>>> 21af0c356aab4f252a0f27adc43da3448c061ce0
 
 class MenuController extends ApiController
 {
