@@ -116,6 +116,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle']);
     Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
     Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class);
+
+    // ── Discount Management ──
+    // All endpoints accessible to all authenticated users
+    Route::prefix('discounts')->group(function () {
+        Route::get('/calculate', [\App\Http\Controllers\Api\DiscountController::class, 'calculate']);
+        Route::post('/calculate-cart', [\App\Http\Controllers\Api\DiscountController::class, 'calculateCart']);
+        Route::get('/dashboard', [\App\Http\Controllers\Api\DiscountController::class, 'dashboard']);
+        Route::get('/', [\App\Http\Controllers\Api\DiscountController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Api\DiscountController::class, 'store']);
+        Route::get('/{discount}', [\App\Http\Controllers\Api\DiscountController::class, 'show']);
+        Route::put('/{discount}', [\App\Http\Controllers\Api\DiscountController::class, 'update']);
+        Route::delete('/{discount}', [\App\Http\Controllers\Api\DiscountController::class, 'destroy']);
+    });
 });
 
 // ── Job Titles (public) ──
