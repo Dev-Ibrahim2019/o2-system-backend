@@ -12,6 +12,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\PosRegister;
 use App\Models\Transaction;
 use App\Services\AccountingService;
 use Illuminate\Http\JsonResponse;
@@ -44,6 +45,11 @@ class InvoiceController extends ApiController
 
         $data = $request->validated();
 
+        // ── جلب معلومات نقطة البيع من الهيدر ──
+        $deviceUuid = $request->header('X-Device-UUID');
+        $posRegister = $deviceUuid ? PosRegister::where('device_uuid', $deviceUuid)->first() : null;
+        $user = $request->user();
+
         DB::beginTransaction();
         try {
             $invoice = Invoice::create([
@@ -57,6 +63,15 @@ class InvoiceController extends ApiController
                 'total' => $order->total,
                 'invoice_date' => now(),
                 'notes' => $data['notes'] ?? $order->note,
+                // ── معلومات نقطة البيع (POS) ──
+                'pos_register_id' => $posRegister?->id,
+                'pos_code'        => $posRegister?->code,
+                'pos_name'        => $posRegister?->name,
+                // ── معلومات فتح الفاتورة ──
+                'opened_by'       => $user?->id,
+                'opened_at'       => now(),
+                'currency'        => $data['currency'] ?? 'ILS',
+                'account_number'  => $data['account_number'] ?? null,
             ]);
 
             $orderItems = $order->items()->where('status', '!=', 'cancelled')->get();
@@ -150,6 +165,9 @@ class InvoiceController extends ApiController
                 $invoice->update([
                     'status' => 'paid',
                     'payment_method' => $data['method'],
+                    // ── معلومات إغلاق الفاتورة ──
+                    'closed_by' => $request->user()?->id,
+                    'closed_at' => now(),
                 ]);
 
                 if ($invoice->order_id) {

@@ -36,6 +36,41 @@ Route::middleware('auth:sanctum')->group(function () {
     // المنيو — محمي ويُفلتر تلقائياً حسب فرع المستخدم
     Route::get('menu', [MenuController::class, 'index']);
 
+    // ══════════════════════════════════════════════════════════
+    //  مسارات الكاشير / POS — محمية بـ CheckPosNetwork
+    //  تمنع استخدام هذه المسارات من خارج شبكة الفرع
+    // ══════════════════════════════════════════════════════════
+    Route::middleware('check.pos.network')->group(function () {
+
+        // ── Orders ──
+        Route::post('orders/{order}/void', [OrderController::class, 'void']);
+        Route::apiResource('orders', OrderController::class)->except(['destroy']);
+        Route::post('orders/{order}/items', [OrderController::class, 'addItem']);
+        Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
+        Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
+        Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
+        Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
+        Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
+        Route::post('orders/{order}/cancel', [OrderController::class, 'cancel']);
+
+        Route::get('production-tickets', [ProductionTicketController::class, 'index']);
+        Route::post('production-tickets/{ticket}/start', [ProductionTicketController::class, 'startPreparing']);
+        Route::post('production-tickets/{ticket}/ready', [ProductionTicketController::class, 'markReady']);
+        Route::post('production-tickets/{ticket}/served', [ProductionTicketController::class, 'markServed']);
+
+        Route::post('orders/{order}/invoice', [InvoiceController::class, 'createFromOrder']);
+        Route::post('orders/{order}/close', [InvoiceController::class, 'createFromOrder']);
+        Route::get('invoices', [InvoiceController::class, 'index']);
+        Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment']);
+        Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry']);
+
+        // ── Settlement & Payment Routing ──
+        Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle']);
+        Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
+        Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class);
+
+    }); // ← نهاية مسارات POS المحمية بشبكة الفرع
+
     // ── إدارة المستخدمين ──
     Route::get('users', [UserController::class, 'index'])->middleware('permission:manage-users');
     Route::post('users', [UserController::class, 'store'])->middleware('permission:manage-users');
@@ -80,28 +115,6 @@ Route::middleware('auth:sanctum')->group(function () {
     });
     Route::apiResource('employees', EmployeeController::class);
 
-    // ── Orders ──
-    Route::post('orders/{order}/void', [OrderController::class, 'void']);
-    Route::apiResource('orders', OrderController::class)->except(['destroy']);
-    Route::post('orders/{order}/items', [OrderController::class, 'addItem']);
-    Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
-    Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
-    Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
-    Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
-    Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
-    Route::post('orders/{order}/cancel', [OrderController::class, 'cancel']);
-
-    Route::get('production-tickets', [ProductionTicketController::class, 'index']);
-    Route::post('production-tickets/{ticket}/start', [ProductionTicketController::class, 'startPreparing']);
-    Route::post('production-tickets/{ticket}/ready', [ProductionTicketController::class, 'markReady']);
-    Route::post('production-tickets/{ticket}/served', [ProductionTicketController::class, 'markServed']);
-
-    Route::post('orders/{order}/invoice', [InvoiceController::class, 'createFromOrder']);
-    Route::post('orders/{order}/close', [InvoiceController::class, 'createFromOrder']); // alias for cashier close action
-    Route::get('invoices', [InvoiceController::class, 'index']);
-    Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment']);
-    Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry']);
-
     Route::prefix('accounting')->group(function () {
         Route::apiResource('accounts', AccountController::class);
         Route::get('accounts/{account}/ledger', [AccountController::class, 'ledger']);
@@ -111,11 +124,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('transactions/{transaction}/cancel', [TransactionController::class, 'cancel']);
         Route::apiResource('cost-centers', CostCenterController::class);
     });
+});
 
-    // ── Settlement & Payment Routing ──
-    Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle']);
-    Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
-    Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class);
+// ── POS Registers (Admin) ──
+Route::middleware('auth:sanctum')->prefix('admin/pos-registers')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\PosRegisterController::class, 'index']);
+    Route::post('/', [\App\Http\Controllers\Admin\PosRegisterController::class, 'store']);
+    Route::post('{id}/generate-token', [\App\Http\Controllers\Admin\PosRegisterController::class, 'generateActivationToken']);
+    Route::post('{id}/revoke', [\App\Http\Controllers\Admin\PosRegisterController::class, 'revokeDevice']);
 });
 
 // ── Job Titles (public) ──
@@ -166,3 +182,6 @@ Route::prefix("customers")->group(function () {
     Route::get("/aging-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "agingReport"]);
     Route::get("/collection-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "collectionReport"]);
 });
+
+Route::post('pos/activate', [\App\Http\Controllers\Admin\PosRegisterController::class, 'activate']);
+Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);

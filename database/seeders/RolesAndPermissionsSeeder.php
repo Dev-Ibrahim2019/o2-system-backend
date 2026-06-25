@@ -63,6 +63,12 @@ class RolesAndPermissionsSeeder extends Seeder
 
             // ── إدارة المستخدمين ──
             'manage-users',
+
+            // ── نقاط البيع ──
+            'manage-pos-registers',
+
+            // ── واجهة الكاشير ──
+            'access-pos-interface',
         ];
 
         // إنشاء جميع الصلاحيات
@@ -101,6 +107,8 @@ class RolesAndPermissionsSeeder extends Seeder
             'manage-invoices',
             'manage-customers',
             'manage-suppliers',
+            'manage-pos-registers',
+            'access-pos-interface',
         ]);
 
         // ── 4. الكاشير (cashier) ──
