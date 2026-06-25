@@ -11,8 +11,8 @@ class InvoiceResource extends JsonResource
     {
         $paidAmount = $this->whenLoaded(
             'payments',
-            fn () => (float) $this->payments->sum('amount'),
-            fn () => (float) $this->payments()->sum('amount')
+            fn() => (float) $this->payments->sum('amount'),
+            fn() => (float) $this->payments()->sum('amount')
         );
 
         return [
@@ -23,6 +23,7 @@ class InvoiceResource extends JsonResource
             'customer_id' => $this->customer_id,
             'status' => $this->status,
             'payment_method' => $this->payment_method,
+            'payment_method_display' => $this->payment_method_display,
             'subtotal' => (float) $this->subtotal,
             'discount' => (float) $this->discount,
             'total' => (float) $this->total,

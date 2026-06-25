@@ -46,7 +46,8 @@ class OrderController extends ApiController
 
             // حماية: حقن branch_id تلقائياً من المستخدم المسجل
             // super-admin (branch_id = null) يمكنه تمرير branch_id يدوياً
-            $branchId = $authUser->branch_id ?? $data['branch_id'] ?? null;
+            // إذا كان كل شيء null، نأخذ أول برانش موجود كـ fallback
+            $branchId = $authUser->branch_id ?? $data['branch_id'] ?? \App\Models\Branch::value('id');
 
             $order = Order::create([
                 'order_number' => Order::generateOrderNumber(),

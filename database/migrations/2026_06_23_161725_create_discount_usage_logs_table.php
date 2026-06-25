@@ -1,0 +1,42 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('discount_usage_logs', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('discount_id')->constrained('discounts')->cascadeOnDelete();
+            $table->foreignId('invoice_id')->nullable()->constrained('invoices')->nullOnDelete();
+            $table->foreignId('invoice_item_id')->nullable()->constrained('invoice_items')->nullOnDelete();
+            $table->foreignId('order_id')->nullable()->constrained('orders')->nullOnDelete();
+
+            // معلومات العميل/الموظف/المورد عند الاستخدام
+            $table->string('entity_type', 50)->nullable();
+            $table->unsignedBigInteger('entity_id')->nullable();
+
+            // تفاصيل الخصم المُطبق
+            $table->decimal('original_price', 15, 3)->default(0);
+            $table->decimal('discount_amount', 15, 3)->default(0);
+            $table->decimal('final_price', 15, 3)->default(0);
+            $table->decimal('discount_percent', 5, 2)->nullable();
+
+            $table->foreignId('applied_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('branch_id')->nullable()->constrained('branches')->nullOnDelete();
+
+            $table->index(['discount_id', 'created_at']);
+            $table->index(['entity_type', 'entity_id']);
+
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('discount_usage_logs');
+    }
+};

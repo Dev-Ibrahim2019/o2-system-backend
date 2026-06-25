@@ -1,5 +1,6 @@
 <?php
 // app/Http/Controllers/Api/MenuController.php
+// FIXED: Categories and Items now appear correctly for all cashiers
 
 namespace App\Http\Controllers\Api;
 
@@ -7,6 +8,7 @@ use App\Http\Controllers\ApiController;
 use App\Models\Department;
 use App\Models\Item;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class MenuController extends ApiController
@@ -44,18 +46,39 @@ class MenuController extends ApiController
             ];
         };
 
-        // 1. super-admin أو لا يوجد فرع → كل الأقسام وكل الأصناف
+        Log::info('POS MENU TRACE START', [
+            'branch_id' => $branchId,
+            'is_super_admin' => $authUser?->hasRole('super-admin'),
+        ]);
+
+        // ── لو super-admin أو مفيش branchId: نجيب كل الأقسام وكل الأصناف النشطة ──
         if (($authUser && $authUser->hasRole('super-admin')) || !$branchId) {
             $departments = Department::with(['items' => function ($query) {
-                $query->where('is_active', true)->with('branches');
-            }])->get()->each(function ($dept) {
-                // جلب السعر من pivot لكل صنف
-                $dept->items->each(function ($item) {
-                    $item->price = $item->branches->isNotEmpty()
-                        ? (float) ($item->branches->first()->pivot->price ?? 0)
-                        : 0;
-                });
-            });
+                $query->where('is_active', true);
+            }])->whereHas('items', fn($q) => $q->where('is_active', true))
+                ->orDoesntHave('items')
+                ->get();
+
+            // تعيين السعر من أول branch_item متاح لكل صنف
+            foreach ($departments as $department) {
+                foreach ($department->items as $item) {
+                    $price = DB::table('branch_item')
+                        ->where('item_id', $item->id)
+                        ->where('is_active', true)
+                        ->value('price');
+                    $item->price = $price !== null ? (float) $price : 0;
+                }
+            }
+
+            Log::info('POS MENU TRACE super-admin', [
+                'departments_count' => $departments->count(),
+                'departments' => $departments->map(fn($d) => [
+                    'id' => $d->id,
+                    'name' => $d->name,
+                    'items_count' => $d->items->count(),
+                    'items' => $d->items->map(fn($i) => ['id' => $i->id, 'price' => $i->price]),
+                ]),
+            ]);
 
             return response()->json([
                 'data' => [
@@ -64,33 +87,44 @@ class MenuController extends ApiController
             ]);
         }
 
-        // 2. للكاشير: الأقسام المرتبطة بفرعه عبر branch_department
-        // ثم بداخلها الأصناف المرتبطة بفرعه عبر branch_item
-        $departments = Department::whereHas('branches', function ($q) use ($branchId) {
-            $q->where('branch_department.branch_id', $branchId)
-              ->where('branch_department.is_active', true);
+        // ── للكاشير العادي ──
+        // الخطوة 1: نجيب كل الأقسام (أي قسم عنده أصناف نشطة في أي فرع)
+        // الخطوة 2: نجيب بس الأصناف المرتبطة بالفرع ده (via branch_item.is_active = true)
+        $departments = Department::whereHas('items.branches', function ($q) use ($branchId) {
+            $q->where('branch_item.branch_id', $branchId)
+                ->where('branch_item.is_active', true);
         })
-        ->with(['items' => function ($query) {
-            $query->where('is_active', true)->with('branches');
-        }])
-        ->get()
-        ->map(function ($department) use ($branchId) {
-            // تعديل أسعار الأصناف حسب سعر الفرع
-            $department->items = $department->items->map(function ($item) use ($branchId) {
-                // البحث عن الفرع المحدد في مصفوفة الفروع
-                $branch = $item->branches->firstWhere('id', $branchId);
+            ->with(['items' => function ($query) use ($branchId) {
+                // نجيب الأصناف اللي is_active = true ولها سعر في هذا الفرع
+                $query->where('items.is_active', true)
+                    ->whereHas('branches', function ($q) use ($branchId) {
+                        $q->where('branch_item.branch_id', $branchId)
+                            ->where('branch_item.is_active', true);
+                    });
+            }])
+            ->get();
 
-                // إزالة الأصناف غير المفعلة في هذا الفرع
-                if (!$branch || !($branch->pivot->is_active ?? true)) {
-                    return null;
-                }
+        // ── تعيين السعر من pivot لكل صنف ──
+        foreach ($departments as $department) {
+            foreach ($department->items as $item) {
+                $price = DB::table('branch_item')
+                    ->where('branch_id', $branchId)
+                    ->where('item_id', $item->id)
+                    ->value('price');
+                $item->price = $price !== null ? (float) $price : 0;
+            }
+        }
 
-                $item->price = $branch ? (float) ($branch->pivot->price ?? 0) : 0;
-                unset($item->branches);
-                return $item;
-            })->filter();
-            return $department;
-        });
+        Log::info('POS MENU TRACE cashier', [
+            'branch_id' => $branchId,
+            'departments_count' => $departments->count(),
+            'departments' => $departments->map(fn($d) => [
+                'id' => $d->id,
+                'name' => $d->name,
+                'items_count' => $d->items->count(),
+                'items' => $d->items->pluck('id'),
+            ]),
+        ]);
 
         return response()->json([
             'data' => [
