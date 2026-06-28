@@ -11,8 +11,8 @@ class InvoiceResource extends JsonResource
     {
         $paidAmount = $this->whenLoaded(
             'payments',
-            fn () => (float) $this->payments->sum('amount'),
-            fn () => (float) $this->payments()->sum('amount')
+            fn() => (float) $this->payments->sum('amount'),
+            fn() => (float) $this->payments()->sum('amount')
         );
 
         $entityName = null;
@@ -45,6 +45,7 @@ class InvoiceResource extends JsonResource
             'status' => $this->status,
             'currency' => $this->currency ?? 'SAR',
             'payment_method' => $this->payment_method,
+            'payment_method_display' => $this->payment_method_display,
             'subtotal' => (float) $this->subtotal,
             'discount' => (float) $this->discount,
             'tax_total' => (float) ($this->tax_total ?? 0),
@@ -60,6 +61,56 @@ class InvoiceResource extends JsonResource
             'payments' => PaymentResource::collection($this->whenLoaded('payments')),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
+
+            // ═══════════════════════════════════════════════════
+            //  🖥️ تفاصيل نقطة البيع (POS Details)
+            // ═══════════════════════════════════════════════════
+            'pos' => [
+                'register_id' => $this->pos_register_id,
+                'code'        => $this->pos_code,
+                'name'        => $this->pos_name,
+                'branch'      => $this->whenLoaded('branch', fn () => [
+                    'id'   => $this->branch?->id,
+                    'name' => $this->branch?->name,
+                ]),
+            ],
+
+            // ═══════════════════════════════════════════════════
+            //  📋 تفاصيل الفاتورة (Invoice Details)
+            // ═══════════════════════════════════════════════════
+            'details' => [
+                'number'         => $this->number,
+                'date'           => $this->invoice_date?->format('Y-m-d'),
+                'time'           => $this->invoice_date?->format('H:i:s'),
+                'currency'       => $this->currency ?? 'ILS',
+                'account_number' => $this->account_number,
+            ],
+
+            // ═══════════════════════════════════════════════════
+            //  🔓 تفاصيل فتح الفاتورة (Open Details)
+            // ═══════════════════════════════════════════════════
+            'opening' => [
+                'user'       => $this->whenLoaded('openedByUser', fn () => [
+                    'id'   => $this->openedByUser?->id,
+                    'name' => $this->openedByUser?->name,
+                ]),
+                'pos_name'   => $this->pos_name,
+                'date'       => $this->opened_at?->format('Y-m-d'),
+                'time'       => $this->opened_at?->format('H:i:s'),
+            ],
+
+            // ═══════════════════════════════════════════════════
+            //  🔒 تفاصيل إغلاق الفاتورة (Close Details)
+            // ═══════════════════════════════════════════════════
+            'closing' => $this->closed_at ? [
+                'user'       => $this->whenLoaded('closedByUser', fn () => [
+                    'id'   => $this->closedByUser?->id,
+                    'name' => $this->closedByUser?->name,
+                ]),
+                'pos_name'   => $this->pos_name,
+                'date'       => $this->closed_at?->format('Y-m-d'),
+                'time'       => $this->closed_at?->format('H:i:s'),
+            ] : null,
         ];
     }
 }

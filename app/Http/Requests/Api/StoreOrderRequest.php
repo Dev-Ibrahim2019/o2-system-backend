@@ -18,7 +18,6 @@ class StoreOrderRequest extends FormRequest
 
         return [
             'branch_id' => [
-                Rule::requiredIf(! $user?->branch_id),
                 'nullable',
                 'exists:branches,id',
             ],

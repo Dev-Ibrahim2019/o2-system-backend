@@ -25,6 +25,7 @@ class BranchDepartmentItemEmployeeSeeder extends Seeder
                 'phone' => '0210000001',
                 'openingTime' => '07:00:00',
                 'closingTime' => '23:30:00',
+                'static_ip' => '127.0.0.1',
             ]);
 
         $secondBranch = Branch::factory()->create([
@@ -34,6 +35,7 @@ class BranchDepartmentItemEmployeeSeeder extends Seeder
             'phone' => '0210000002',
             'openingTime' => '09:00:00',
             'closingTime' => '22:00:00',
+            'static_ip' => '127.0.0.1',
         ]);
 
         $kitchen = Department::factory()->create([
