@@ -102,6 +102,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment']);
     Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry']);
 
+    // ── Financial Invoices ──
+    Route::prefix('financial/invoices')->group(function () {
+        Route::get('/', [InvoiceController::class, 'financialIndex']);
+        Route::get('/stats', [InvoiceController::class, 'financialStats']);
+        Route::get('/{invoice}', [InvoiceController::class, 'financialShow']);
+        Route::post('/', [InvoiceController::class, 'financialStore']);
+        Route::put('/{invoice}', [InvoiceController::class, 'financialUpdate']);
+        Route::delete('/{invoice}', [InvoiceController::class, 'financialDestroy']);
+        Route::post('/{invoice}/approve', [InvoiceController::class, 'approve']);
+        Route::post('/{invoice}/void', [InvoiceController::class, 'voidFinancial']);
+    });
+
     Route::prefix('accounting')->group(function () {
         Route::apiResource('accounts', AccountController::class);
         Route::get('accounts/{account}/ledger', [AccountController::class, 'ledger']);

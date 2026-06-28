@@ -14,23 +14,39 @@ class Invoice extends Model
 {
     protected $fillable = [
         'number',
+        'type',
         'order_id',
         'customer_id',
+        'entity_type',
+        'entity_id',
         'branch_id',
         'status',
+        'currency',
         'payment_method',
         'subtotal',
         'discount',
+        'tax_total',
         'total',
+        'paid_amount',
+        'remaining_amount',
         'invoice_date',
+        'due_date',
+        'delivery_date',
+        'expected_payment_date',
         'notes',
     ];
 
     protected $casts = [
         'invoice_date' => 'datetime',
+        'due_date' => 'datetime',
+        'delivery_date' => 'datetime',
+        'expected_payment_date' => 'datetime',
         'subtotal' => 'decimal:2',
         'discount' => 'decimal:2',
+        'tax_total' => 'decimal:2',
         'total' => 'decimal:2',
+        'paid_amount' => 'decimal:2',
+        'remaining_amount' => 'decimal:2',
     ];
 
     public function items(): HasMany
