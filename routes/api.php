@@ -155,6 +155,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('timeline', [InvoiceDetailsController::class, 'timeline']);
         Route::get('attachments', [InvoiceDetailsController::class, 'attachments']);
         Route::get('notes', [InvoiceDetailsController::class, 'notes']);
+    });
+
     // ── Financial Invoices ──
     Route::prefix('financial/invoices')->group(function () {
         Route::get('/', [InvoiceController::class, 'financialIndex']);

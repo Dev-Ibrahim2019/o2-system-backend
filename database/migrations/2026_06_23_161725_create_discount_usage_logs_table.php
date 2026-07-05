@@ -43,7 +43,8 @@ if ($hasOrders) {
     $table->unsignedBigInteger('order_id')->nullable();
 }
 
-// معلومات العميل/الموظف/المورد عند الاستخدام            $table->string('entity_type', 50)->nullable();
+// معلومات العميل/الموظف/المورد عند الاستخدام
+            $table->string('entity_type', 50)->nullable();
             $table->unsignedBigInteger('entity_id')->nullable();
             $table->decimal('original_price', 15, 3)->default(0);
             $table->decimal('discount_amount', 15, 3)->default(0);
