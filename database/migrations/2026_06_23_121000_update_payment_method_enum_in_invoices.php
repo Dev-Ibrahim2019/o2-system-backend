@@ -2,20 +2,24 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
     /**
-     * Run the migrations.
-     * تغيير payment_method من ENUM إلى VARCHAR لدعم جميع أنواع الدفع
-     * (cash, bank, card, wallet, customer, employee, supplier, mixed, account)
+     * تغيير payment_method من ENUM إلى VARCHAR لدعم جميع أنواع الدفع.
+     * يُتخطى على SQLite وعند عدم وجود الجدول (يُنشأ كـ VARCHAR في migration الإنشاء).
      */
     public function up(): void
     {
-        // MySQL لا يدعم ALTER ENUM مباشرة لإضافة قيم جديدة في منتصف الجدول
-        // الحل: تغيير العمود إلى VARCHAR
+        if (! Schema::hasTable('invoices')) {
+            return;
+        }
+
+        if (Schema::getConnection()->getDriverName() === 'sqlite') {
+            return;
+        }
+
         Schema::table('invoices', function (Blueprint $table) {
             $table->string('payment_method', 50)
                 ->nullable()
@@ -23,12 +27,12 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
-        // العودة إلى ENUM
+        if (! Schema::hasTable('invoices') || Schema::getConnection()->getDriverName() === 'sqlite') {
+            return;
+        }
+
         Schema::table('invoices', function (Blueprint $table) {
             $table->string('payment_method', 50)->nullable()->change();
         });

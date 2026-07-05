@@ -18,6 +18,9 @@ class InvoiceItem extends Model
         'discount_amount',
         'discount_percent',
         'discount_id',
+        'discount_apply_strategy',
+        'tax_rate',
+        'tax_amount',
         'final_price',
     ];
 
@@ -30,6 +33,8 @@ class InvoiceItem extends Model
         'discount_amount' => 'decimal:3',
         'discount_percent' => 'decimal:2',
         'final_price' => 'decimal:3',
+        'tax_rate' => 'decimal:2',
+        'tax_amount' => 'decimal:3',
     ];
 
     public function invoice()

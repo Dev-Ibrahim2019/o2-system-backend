@@ -36,6 +36,7 @@ class DiscountTarget extends Model
             'supplier' => $this->belongsTo(Supplier::class, 'target_id'),
             'department' => $this->belongsTo(Department::class, 'target_id'),
             'item' => $this->belongsTo(Item::class, 'target_id'),
+            'branch' => $this->belongsTo(Branch::class, 'target_id'),
             default => null,
         };
     }

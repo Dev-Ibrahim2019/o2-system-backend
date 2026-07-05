@@ -8,31 +8,47 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('invoice_items', function (Blueprint $table) {
-            // الحقول الجديدة لدعم الخصومات لكل بند فاتورة
-            $table->decimal('original_price', 15, 3)->nullable()->after('price')->comment('السعر الأصلي قبل الخصم');
-            $table->decimal('discount_amount', 15, 3)->default(0)->after('total')->comment('قيمة الخصم');
-            $table->decimal('discount_percent', 5, 2)->nullable()->after('discount_amount')->comment('نسبة الخصم');
-            $table->foreignId('discount_id')->nullable()->constrained('discounts')->nullOnDelete()->after('discount_percent');
-            $table->decimal('final_price', 15, 3)->default(0)->after('discount_id')->comment('السعر النهائي بعد الخصم');
+        if (! Schema::hasTable('invoice_items')) {
+            return;
+        }
 
-            // إعادة تسمية حقل total ليكون subtotal للتوضيح
-            // total سيظل كما هو للتوافق مع النظام الحالي
-            $table->decimal('subtotal', 15, 3)->nullable()->after('price')->comment('المجموع الفرعي (price * quantity) قبل الخصم');
+        Schema::table('invoice_items', function (Blueprint $table) {
+            if (! Schema::hasColumn('invoice_items', 'original_price')) {
+                $table->decimal('original_price', 15, 3)->nullable()->after('price');
+            }
+            if (! Schema::hasColumn('invoice_items', 'subtotal')) {
+                $table->decimal('subtotal', 15, 3)->nullable()->after('price');
+            }
+            if (! Schema::hasColumn('invoice_items', 'discount_amount')) {
+                $table->decimal('discount_amount', 15, 3)->default(0)->after('total');
+            }
+            if (! Schema::hasColumn('invoice_items', 'discount_percent')) {
+                $table->decimal('discount_percent', 5, 2)->nullable()->after('discount_amount');
+            }
+            if (! Schema::hasColumn('invoice_items', 'discount_id')) {
+                $table->foreignId('discount_id')->nullable()->constrained('discounts')->nullOnDelete();
+            }
+            if (! Schema::hasColumn('invoice_items', 'final_price')) {
+                $table->decimal('final_price', 15, 3)->default(0)->after('discount_id');
+            }
         });
     }
 
     public function down(): void
     {
+        if (! Schema::hasTable('invoice_items')) {
+            return;
+        }
+
         Schema::table('invoice_items', function (Blueprint $table) {
-            $table->dropColumn([
-                'original_price',
-                'discount_amount',
-                'discount_percent',
-                'discount_id',
-                'final_price',
-                'subtotal',
-            ]);
+            if (Schema::hasColumn('invoice_items', 'discount_id')) {
+                $table->dropConstrainedForeignId('discount_id');
+            }
+            foreach (['final_price', 'discount_percent', 'discount_amount', 'subtotal', 'original_price'] as $column) {
+                if (Schema::hasColumn('invoice_items', $column)) {
+                    $table->dropColumn($column);
+                }
+            }
         });
     }
 };

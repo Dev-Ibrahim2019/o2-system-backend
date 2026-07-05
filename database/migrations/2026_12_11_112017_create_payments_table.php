@@ -23,17 +23,12 @@ return new class extends Migration
             $table->string('number')->unique();
 
             // نوع الدفع
-            $table->enum('method', [
-                'cash',
-                'card',
-                'bank',
-                'wallet',
-                'account',
-                'mixed'
-            ]);
+            $table->string('method', 50);
 
             // المبلغ
             $table->decimal('amount', 15, 2);
+
+            $table->string('reference_number', 255)->nullable();
 
             // وقت الدفع
             $table->dateTime('paid_at');

@@ -15,6 +15,24 @@ class InvoiceResource extends JsonResource
             fn() => (float) $this->payments()->sum('amount')
         );
 
+        // جمع معلومات الخصم من بنود الفاتورة
+        $appliedDiscount = null;
+        if ($this->relationLoaded('items')) {
+            $discountItem = $this->items->first(function ($item) {
+                return $item->discount_id !== null;
+            });
+            if ($discountItem && $discountItem->relationLoaded('discount') && $discountItem->discount) {
+                $appliedDiscount = [
+                    'id' => $discountItem->discount->id,
+                    'name' => $discountItem->discount->name,
+                    'name_ar' => $discountItem->discount->name_ar,
+                    'code' => $discountItem->discount->code,
+                    'discount_type' => $discountItem->discount->discount_type,
+                    'value' => (float) $discountItem->discount->value,
+                ];
+            }
+        }
+
         return [
             'id' => $this->id,
             'number' => $this->number,
@@ -29,6 +47,7 @@ class InvoiceResource extends JsonResource
             'total' => (float) $this->total,
             'paid_amount' => $paidAmount,
             'remaining_amount' => max(0, (float) $this->total - $paidAmount),
+            'discount_info' => $appliedDiscount,
             'invoice_date' => $this->invoice_date?->toIso8601String(),
             'notes' => $this->notes,
             'items' => InvoiceItemResource::collection($this->whenLoaded('items')),

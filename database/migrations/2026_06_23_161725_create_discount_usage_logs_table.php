@@ -11,9 +11,9 @@ return new class extends Migration
         Schema::create('discount_usage_logs', function (Blueprint $table) {
             $table->id();
             $table->foreignId('discount_id')->constrained('discounts')->cascadeOnDelete();
-            $table->foreignId('invoice_id')->nullable()->constrained('invoices')->nullOnDelete();
-            $table->foreignId('invoice_item_id')->nullable()->constrained('invoice_items')->nullOnDelete();
-            $table->foreignId('order_id')->nullable()->constrained('orders')->nullOnDelete();
+            $table->unsignedBigInteger('invoice_id')->nullable();
+            $table->unsignedBigInteger('invoice_item_id')->nullable();
+            $table->unsignedBigInteger('order_id')->nullable();
 
             // معلومات العميل/الموظف/المورد عند الاستخدام
             $table->string('entity_type', 50)->nullable();

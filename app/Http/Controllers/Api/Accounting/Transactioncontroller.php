@@ -36,7 +36,7 @@ class TransactionController extends ApiController
         ]);
 
         $transactions = Transaction::forSource($request->source_type, $request->source_id)
-            ->with(['entries.account:id,name,code,type', 'branch:id,name'])
+            ->with(['entries.account:id,name,code,type', 'branch:id,name', 'source'])
             ->orderByDesc('date')
             ->get();
 
@@ -87,6 +87,7 @@ class TransactionController extends ApiController
         $transactions = Transaction::with([
             'branch:id,name',
             'user:id,name',
+            'source',
             'entries.account:id,name,code,type',  // ✅ إضافة الحسابات مع النوع
             'entries.costCenter:id,name'            // ✅ إضافة مراكز التكلفة
         ])
@@ -142,6 +143,7 @@ class TransactionController extends ApiController
     {
         // ✅ جلب جميع التفاصيل المطلوبة
         $transaction->load([
+            'source',
             'entries.account:id,name,code,type',      // الحساب مع النوع
             'entries.costCenter:id,name',               // مركز التكلفة
             'branch:id,name',                           // الفرع

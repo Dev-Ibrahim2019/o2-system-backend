@@ -29,6 +29,9 @@ class StoreOrderRequest extends FormRequest
             'note' => 'nullable|string',
             'discount_value' => 'nullable|numeric|min:0',
             'discount_type' => 'nullable|in:amount,percent',
+            'customer_id' => 'nullable|integer|exists:customers,id',
+            'employee_id' => 'nullable|integer|exists:employees,id',
+            'supplier_id' => 'nullable|integer|exists:suppliers,id',
 
             // اختياري: إرسال الأصناف مع إنشاء الطلب (نفس تنسيق الواجهة القديمة)
             'items' => 'sometimes|array|min:1',
@@ -83,6 +86,9 @@ class StoreOrderRequest extends FormRequest
             'customer_phone' => $this->input('customer_phone') ?? $this->input('customerPhone'),
             'discount_value' => $this->input('discount_value') ?? $this->input('discountValue'),
             'discount_type' => $this->input('discount_type') ?? $this->input('discountType'),
+            'customer_id' => $this->input('customer_id') ?? $this->input('customerId'),
+            'employee_id' => $this->input('employee_id') ?? $this->input('employeeId'),
+            'supplier_id' => $this->input('supplier_id') ?? $this->input('supplierId'),
         ];
 
         if ($this->has('items')) {

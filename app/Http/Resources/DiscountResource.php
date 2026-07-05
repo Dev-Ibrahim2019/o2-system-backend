@@ -16,6 +16,7 @@ class DiscountResource extends JsonResource
             'code' => $this->code,
             'description' => $this->description,
             'discount_type' => $this->discount_type,
+            'apply_strategy' => $this->apply_strategy ?? 'per_quantity',
             'discount_type_label' => match ($this->discount_type) {
                 'percentage' => 'نسبة مئوية',
                 'fixed_amount' => 'مبلغ ثابت',
@@ -32,6 +33,7 @@ class DiscountResource extends JsonResource
             'max_discount_amount' => $this->max_discount_amount ? (float) $this->max_discount_amount : null,
             'min_order_amount' => $this->min_order_amount ? (float) $this->min_order_amount : null,
             'targets' => DiscountTargetResource::collection($this->whenLoaded('targets')),
+            'exclusions' => DiscountExclusionResource::collection($this->whenLoaded('exclusions')),
             'creator' => $this->whenLoaded('creator', fn() => [
                 'id' => $this->creator->id,
                 'name' => $this->creator->name,
