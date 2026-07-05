@@ -24,6 +24,7 @@ class TestUsersSeeder extends Seeder
             'isMainBranch' => true,
             'openingTime'  => '08:00',
             'closingTime'  => '23:00',
+            'static_ip' => '127.0.0.1',
         ]);
 
         $branch2 = Branch::firstOrCreate(['code' => 'NSRS-01'], [
@@ -34,6 +35,7 @@ class TestUsersSeeder extends Seeder
             'isMainBranch' => false,
             'openingTime'  => '09:00',
             'closingTime'  => '22:00',
+            'static_ip' => '127.0.0.1',
         ]);
 
         $branch3 = Branch::firstOrCreate(['code' => 'KHAN-01'], [
@@ -44,6 +46,7 @@ class TestUsersSeeder extends Seeder
             'isMainBranch' => false,
             'openingTime'  => '08:00',
             'closingTime'  => '23:00',
+            'static_ip' => '127.0.0.1',
         ]);
 
         $this->command->info("✅ تم التأكد من وجود 3 فروع");

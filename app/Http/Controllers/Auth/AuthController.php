@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\ApiController;
 use App\Http\Requests\V1\LoginUserRequest;
 use App\Models\User;
+use App\Models\PosRegister;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -19,6 +20,33 @@ class AuthController extends ApiController
         }
 
         $user = User::firstWhere('username', $request->username);
+
+        // ═══════════════════════════════════════════════════════════
+        //  🛡️ فحص (1): تقييد دخول الكاشيرات حسب الفرع (Branch Access)
+        //  إذا كان الجهاز مرسلاً X-Device-UUID، نتحقق من أن المستخدم
+        //  ينتمي لنفس فرع الجهاز (ما عدا الأدمن)
+        // ═══════════════════════════════════════════════════════════
+        $deviceUuid = $request->header('X-Device-UUID');
+
+        if ($deviceUuid) {
+            // 1. جلب نقطة البيع المربوطة بهذا الجهاز
+            $posRegister = PosRegister::where('device_uuid', $deviceUuid)->first();
+
+            // 2. إذا وجد السجل والجهاز مفعّل، قارن الفروع
+            if ($posRegister && $posRegister->status === 'ACTIVE') {
+                // 3. المستثنى الوحيد: الأدمن (super-admin) له حق الدخول من أي جهاز
+                if (!$user->hasRole('super-admin')) {
+                    // 4. مقارنة branch_id الخاص بالمستخدم مع branch_id الخاص بالجهاز
+                    if ((int) $user->branch_id !== (int) $posRegister->branch_id) {
+                        Auth::logout(); // إلغاء تسجيل الدخول
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'عذراً، أنت لا تنتمي لهذا الفرع! لا يمكنك استخدام هذا الجهاز.',
+                        ], 403);
+                    }
+                }
+            }
+        }
 
         return $this->ok(
             'Authenticated',
