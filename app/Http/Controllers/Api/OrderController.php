@@ -58,11 +58,15 @@ class OrderController extends ApiController
                 'table_number' => $data['table_number'] ?? null,
                 'customer_name' => $data['customer_name'] ?? null,
                 'customer_phone' => $data['customer_phone'] ?? null,
+                'customer_id' => $data['customer_id'] ?? null,
+                'employee_id' => $data['employee_id'] ?? null,
+                'supplier_id' => $data['supplier_id'] ?? null,
                 'note' => $data['note'] ?? null,
                 'subtotal' => 0,
                 'discount_value' => $data['discount_value'] ?? 0,
                 'discount_type' => $data['discount_type'] ?? 'amount',
                 'discount_amount' => 0,
+                'engine_discount_amount' => 0,
                 'total' => 0,
             ]);
 
@@ -129,8 +133,8 @@ class OrderController extends ApiController
 
     public function update(UpdateOrderRequest $request, Order $order): JsonResponse
     {
-        if ($order->status !== 'pending') {
-            return $this->error('لا يمكن تعديل طلب بعد تأكيده.', 422);
+        if (in_array($order->status, ['paid', 'cancelled'], true)) {
+            return $this->error('لا يمكن تعديل طلب مغلق أو ملغى.', 422);
         }
 
         try {
@@ -143,6 +147,28 @@ class OrderController extends ApiController
             );
         } catch (\Throwable $e) {
             return $this->error('فشل تحديث الطلب: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * مزامنة سياق التسعير (كيان مالي + خصم يدوي) وإعادة حساب المجاميع — قبل إغلاق الفاتورة.
+     */
+    public function syncPricing(UpdateOrderRequest $request, Order $order): JsonResponse
+    {
+        if (in_array($order->status, ['paid', 'cancelled'], true)) {
+            return $this->error('لا يمكن تعديل تسعير طلب مغلق أو ملغى.', 422);
+        }
+
+        try {
+            $order->update($request->validated());
+            $order->recalculateTotals();
+
+            return $this->success(
+                'تمت مزامنة التسعير',
+                new OrderResource($order->fresh()->load(['items.department', 'cashier']))
+            );
+        } catch (\Throwable $e) {
+            return $this->error('فشل مزامنة التسعير: ' . $e->getMessage(), 500);
         }
     }
 
@@ -427,6 +453,8 @@ class OrderController extends ApiController
             'item_name' => $item->name,
             'item_name_ar' => $item->name_ar ?? $item->name,
             'price' => $price,
+            'original_price' => $price,
+            'final_price' => $price,
             'quantity' => $quantity,
             'total' => round($price * $quantity, 2),
             'status' => 'pending',

@@ -6,13 +6,23 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /**
+     * إضافة قيود UNIQUE ومفاتيح idempotency لمنع تكرار العمليات المالية.
+     * يُتخطى على SQLite وعند عدم وجود جدول payments (يُنشأ بالتعريف الصحيح لاحقاً).
+     */
     public function up(): void
     {
-        if (! Schema::hasTable('payments')) return;
+        if (! Schema::hasTable('payments')) {
+            return;
+        }
 
-        Schema::table('payments', function (Blueprint $table) {
-            $table->string('method', 50)->change();
-        });
+        $driver = Schema::getConnection()->getDriverName();
+
+        if ($driver !== 'sqlite') {
+            Schema::table('payments', function (Blueprint $table) {
+                $table->string('method', 50)->change();
+            });
+        }
 
         if (! Schema::hasColumn('payments', 'reference_number')) {
             Schema::table('payments', function (Blueprint $table) {
@@ -27,16 +37,22 @@ return new class extends Migration
                 $table->unique(['invoice_id', 'reference_number'], 'uq_payments_invoice_ref');
             });
         } catch (\Exception $e) {
-            logger()->warning('Unique constraint uq_payments_invoice_ref could not be created: ' . $e->getMessage());
+            logger()->warning('Unique constraint uq_payments_invoice_ref could not be created: '.$e->getMessage());
         }
     }
 
     public function down(): void
     {
-        if (! Schema::hasTable('payments')) return;
+        if (! Schema::hasTable('payments')) {
+            return;
+        }
 
-        Schema::table('payments', function (Blueprint $table) {
-            $table->dropUnique('uq_payments_invoice_ref');
-        });
+        try {
+            Schema::table('payments', function (Blueprint $table) {
+                $table->dropUnique('uq_payments_invoice_ref');
+            });
+        } catch (\Exception $e) {
+            // ignore
+        }
     }
 };

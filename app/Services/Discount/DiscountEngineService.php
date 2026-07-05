@@ -3,27 +3,13 @@
 namespace App\Services\Discount;
 
 use App\Models\Discount;
+use App\Models\DiscountSetting;
 use App\Models\DiscountTarget;
 use App\Models\DiscountUsageLog;
-use App\Models\DiscountSetting;
-use App\Models\Item;
 use Illuminate\Support\Collection;
 
-/**
- * محرك الخصومات — قلب نظام إدارة الخصومات
- * 
- * المسؤوليات:
- * 1. البحث عن الخصومات المطبقة على سياق معين (عميل/موظف/مورد/قسم/صنف)
- * 2. تقييم الأولويات وتحديد الخصم الأنسب
- * 3. حساب الخصم على سعر صنف
- * 4. تسجيل استخدام الخصم
- * 5. التحقق من الصلاحية والشروط
- */
 class DiscountEngineService
 {
-    /**
-     * وضع الأولوية الافتراضي
-     */
     private string $priorityMode;
 
     public function __construct()
@@ -31,13 +17,6 @@ class DiscountEngineService
         $this->priorityMode = DiscountSetting::get('default_priority_mode', 'highest_first');
     }
 
-    /**
-     * البحث عن الخصومات المطبقة على عنصر في سياق معين
-     * 
-     * @param array $context سياق الفاتورة: customer_id, employee_id, supplier_id, department_id, item_id
-     * @param int|null $branch_id
-     * @return Collection<array{discount: Discount, discount_amount: float, final_price: float}>
-     */
     public function findApplicableDiscounts(
         float $itemPrice,
         int $quantity = 1,
@@ -46,53 +25,28 @@ class DiscountEngineService
         ?int $supplierId = null,
         ?int $departmentId = null,
         ?int $itemId = null,
-        ?int $branchId = null
+        ?int $branchId = null,
+        ?int $categoryId = null,
+        ?int $brandId = null,
+        ?int $modifierId = null,
+        ?float $invoiceSubtotal = null
     ): Collection {
-        // الحصول على جميع الخصومات النشطة
-        $activeDiscounts = Discount::with('targets')
-            ->active()
-            ->byPriority()
-            ->get();
-
-        $applicable = collect();
-
-        foreach ($activeDiscounts as $discount) {
-            // التحقق من شروط إضافية (الحد الأدنى للطلب)
-            if ($discount->min_order_amount && ($itemPrice * $quantity) < $discount->min_order_amount) {
-                continue;
-            }
-
-            // التحقق من أن الخصم ينطبق على هذا السياق
-            if ($this->discountAppliesToContext($discount, $customerId, $employeeId, $supplierId, $departmentId, $itemId)) {
-                // حساب الخصم
-                $discountAmount = $discount->calculateDiscount($itemPrice, $quantity);
-
-                // تطبيق الحد الأقصى للخصم إذا وجد
-                if ($discount->max_discount_amount && $discountAmount > $discount->max_discount_amount) {
-                    $discountAmount = $discount->max_discount_amount;
-                }
-
-                $finalPrice = max(0, $itemPrice - $discountAmount);
-
-                $applicable->push([
-                    'discount' => $discount,
-                    'discount_amount' => $discountAmount,
-                    'original_price' => $itemPrice,
-                    'final_price' => $finalPrice,
-                    'discount_percent' => $discount->discount_type === 'percentage' ? $discount->value : null,
-                ]);
-            }
-        }
-
-        // تطبيق نظام الأولويات
-        return $this->applyPriority($applicable);
+        return collect($this->evaluateDiscounts(
+            $itemPrice,
+            $quantity,
+            $customerId,
+            $employeeId,
+            $supplierId,
+            $departmentId,
+            $itemId,
+            $branchId,
+            $categoryId,
+            $brandId,
+            $modifierId,
+            $invoiceSubtotal
+        )['matched']);
     }
 
-    /**
-     * الحصول على أفضل خصم لعنصر في سياق معين
-     * 
-     * @return array{discount: Discount|null, discount_amount: float, original_price: float, final_price: float, discount_percent: float|null}|null
-     */
     public function getBestDiscount(
         float $itemPrice,
         int $quantity = 1,
@@ -101,7 +55,11 @@ class DiscountEngineService
         ?int $supplierId = null,
         ?int $departmentId = null,
         ?int $itemId = null,
-        ?int $branchId = null
+        ?int $branchId = null,
+        ?int $categoryId = null,
+        ?int $brandId = null,
+        ?int $modifierId = null,
+        ?float $invoiceSubtotal = null
     ): ?array {
         $applicable = $this->findApplicableDiscounts(
             $itemPrice,
@@ -111,30 +69,16 @@ class DiscountEngineService
             $supplierId,
             $departmentId,
             $itemId,
-            $branchId
+            $branchId,
+            $categoryId,
+            $brandId,
+            $modifierId,
+            $invoiceSubtotal
         );
 
-        if ($applicable->isEmpty()) {
-            return null;
-        }
-
-        $best = $applicable->first();
-
-        return [
-            'discount' => $best['discount'],
-            'discount_amount' => $best['discount_amount'],
-            'original_price' => $best['original_price'],
-            'final_price' => $best['final_price'],
-            'discount_percent' => $best['discount_percent'],
-        ];
+        return $applicable->first();
     }
 
-    /**
-     * حساب إجمالي الخصم لمجموعة من أصناف السلة
-     * 
-     * @param array $items مصفوفة من العناصر: [{price, quantity, item_id, department_id}]
-     * @return array{items: array, total_original: float, total_discount: float, total_final: float}
-     */
     public function calculateCartDiscounts(
         array $items,
         ?int $customerId = null,
@@ -142,82 +86,149 @@ class DiscountEngineService
         ?int $supplierId = null,
         ?int $branchId = null
     ): array {
-        $totalOriginal = 0;
-        $totalDiscount = 0;
-        $totalFinal = 0;
+        $totalOriginal = 0.0;
+        foreach ($items as $item) {
+            $totalOriginal += (float) ($item['price'] ?? 0) * max(1, (int) ($item['quantity'] ?? 1));
+        }
+
+        $totalDiscount = 0.0;
         $processedItems = [];
 
         foreach ($items as $item) {
-            $itemPrice = (float) ($item['price'] ?? 0);
-            $quantity = (int) ($item['quantity'] ?? 1);
-            $itemId = $item['item_id'] ?? null;
-            $departmentId = $item['department_id'] ?? null;
+            $unitPrice = (float) ($item['price'] ?? 0);
+            $quantity = max(1, (int) ($item['quantity'] ?? 1));
+            $lineOriginal = $unitPrice * $quantity;
 
-            // الحصول على السعر الأصلي الإجمالي لهذا البند
-            $lineOriginal = $itemPrice * $quantity;
-
-            // البحث عن أفضل خصم
             $bestDiscount = $this->getBestDiscount(
-                $itemPrice,
+                $unitPrice,
                 $quantity,
                 $customerId,
                 $employeeId,
                 $supplierId,
-                $departmentId,
-                $itemId,
-                $branchId
+                $item['department_id'] ?? null,
+                $item['item_id'] ?? null,
+                $branchId,
+                $item['category_id'] ?? null,
+                $item['brand_id'] ?? null,
+                $item['modifier_id'] ?? null,
+                $totalOriginal
             );
 
-            if ($bestDiscount && $bestDiscount['discount']) {
-                $lineDiscount = $bestDiscount['discount_amount'];
-                $lineFinal = $bestDiscount['final_price'] * $quantity;
+            $lineDiscount = $bestDiscount ? (float) $bestDiscount['discount_amount'] : 0.0;
+            $lineFinal = max(0, $lineOriginal - $lineDiscount);
 
-                $processedItems[] = [
-                    'item_id' => $itemId,
-                    'item_name' => $item['item_name'] ?? '',
-                    'quantity' => $quantity,
-                    'unit_price' => $itemPrice,
-                    'original_price' => $itemPrice,
-                    'original_total' => $lineOriginal,
-                    'discount' => $bestDiscount['discount'],
-                    'discount_amount' => $lineDiscount,
-                    'discount_percent' => $bestDiscount['discount_percent'],
-                    'final_unit_price' => $bestDiscount['final_price'],
-                    'final_total' => $lineFinal,
-                ];
+            $processedItems[] = [
+                'item_id' => $item['item_id'] ?? null,
+                'item_name' => $item['item_name'] ?? '',
+                'quantity' => $quantity,
+                'unit_price' => $unitPrice,
+                'original_price' => $unitPrice,
+                'original_total' => round($lineOriginal, 3),
+                'discount' => $bestDiscount['discount'] ?? null,
+                'discount_amount' => round($lineDiscount, 3),
+                'discount_percent' => $bestDiscount['discount_percent'] ?? null,
+                'apply_strategy' => $bestDiscount['apply_strategy'] ?? null,
+                'final_unit_price' => round($lineFinal / $quantity, 3),
+                'final_total' => round($lineFinal, 3),
+            ];
 
-                $totalDiscount += $lineDiscount;
-            } else {
-                $processedItems[] = [
-                    'item_id' => $itemId,
-                    'item_name' => $item['item_name'] ?? '',
-                    'quantity' => $quantity,
-                    'unit_price' => $itemPrice,
-                    'original_price' => $itemPrice,
-                    'original_total' => $lineOriginal,
-                    'discount' => null,
-                    'discount_amount' => 0,
-                    'discount_percent' => null,
-                    'final_unit_price' => $itemPrice,
-                    'final_total' => $lineOriginal,
-                ];
-            }
-
-            $totalOriginal += $lineOriginal;
-            $totalFinal += $processedItems[count($processedItems) - 1]['final_total'];
+            $totalDiscount += $lineDiscount;
         }
 
         return [
             'items' => $processedItems,
-            'total_original' => $totalOriginal,
-            'total_discount' => $totalDiscount,
-            'total_final' => $totalFinal,
+            'total_original' => round($totalOriginal, 3),
+            'total_discount' => round($totalDiscount, 3),
+            'total_final' => round(max(0, $totalOriginal - $totalDiscount), 3),
         ];
     }
 
-    /**
-     * تسجيل استخدام الخصم في قاعدة البيانات
-     */
+    public function evaluateDiscounts(
+        float $itemPrice,
+        int $quantity = 1,
+        ?int $customerId = null,
+        ?int $employeeId = null,
+        ?int $supplierId = null,
+        ?int $departmentId = null,
+        ?int $itemId = null,
+        ?int $branchId = null,
+        ?int $categoryId = null,
+        ?int $brandId = null,
+        ?int $modifierId = null,
+        ?float $invoiceSubtotal = null
+    ): array {
+        $quantity = max(1, $quantity);
+        $context = compact(
+            'customerId',
+            'employeeId',
+            'supplierId',
+            'departmentId',
+            'itemId',
+            'branchId',
+            'categoryId',
+            'brandId',
+            'modifierId'
+        );
+
+        $discounts = Discount::with(['targets', 'exclusions'])
+            ->active()
+            ->byPriority()
+            ->get();
+
+        $matched = collect();
+        $rejected = [];
+        $excluded = [];
+
+        foreach ($discounts as $discount) {
+            $lineOriginal = $itemPrice * $quantity;
+
+            if ($discount->min_order_amount && $lineOriginal < (float) $discount->min_order_amount) {
+                $rejected[] = $this->ruleSummary($discount, 'Minimum order amount not reached.');
+                continue;
+            }
+
+            $matchedExclusion = $discount->exclusions->first(
+                fn($target) => $this->targetMatches($target, $context)
+            );
+
+            if ($matchedExclusion) {
+                $excluded[] = $this->ruleSummary(
+                    $discount,
+                    "Excluded by {$matchedExclusion->target_type} {$matchedExclusion->target_id}."
+                );
+                continue;
+            }
+
+            if (! $this->discountAppliesToContext($discount, $context)) {
+                $rejected[] = $this->ruleSummary($discount, 'Targets did not match the current context.');
+                continue;
+            }
+
+            $lineDiscount = $discount->calculateLineDiscount($itemPrice, $quantity, $invoiceSubtotal);
+            $lineDiscount = min($lineDiscount, $lineOriginal);
+
+            if ($discount->max_discount_amount && $lineDiscount > (float) $discount->max_discount_amount) {
+                $lineDiscount = (float) $discount->max_discount_amount;
+            }
+
+            $matched->push([
+                'discount' => $discount,
+                'discount_amount' => round($lineDiscount, 3),
+                'original_price' => round($lineOriginal, 3),
+                'final_price' => round(max(0, $lineOriginal - $lineDiscount), 3),
+                'discount_percent' => $discount->discount_type === 'percentage' ? (float) $discount->value : null,
+                'apply_strategy' => $discount->apply_strategy ?? 'per_quantity',
+                'reason' => 'Targets matched and no exclusion rule applied.',
+            ]);
+        }
+
+        return [
+            'matched' => $this->applyPriority($matched)->values()->all(),
+            'rejected' => $rejected,
+            'excluded' => $excluded,
+        ];
+    }
+
     public function logDiscountUsage(
         Discount $discount,
         float $originalPrice,
@@ -248,61 +259,46 @@ class DiscountEngineService
         ]);
     }
 
-    /**
-     * التحقق مما إذا كان الخصم ينطبق على سياق معين
-     */
-    protected function discountAppliesToContext(
-        Discount $discount,
-        ?int $customerId = null,
-        ?int $employeeId = null,
-        ?int $supplierId = null,
-        ?int $departmentId = null,
-        ?int $itemId = null
-    ): bool {
+    protected function discountAppliesToContext(Discount $discount, array $context): bool
+    {
         $targets = $discount->targets;
 
-        // إذا لم يكن هناك مستهدفون، الخصم يسري على الجميع
         if ($targets->isEmpty()) {
             return true;
         }
 
         foreach ($targets as $target) {
-            if ($this->targetMatches($target, $customerId, $employeeId, $supplierId, $departmentId, $itemId)) {
-                return true;
+            if (! $this->targetMatches($target, $context)) {
+                return false;
             }
         }
 
-        return false;
+        return true;
     }
 
-    /**
-     * التحقق مما إذا كان مستهدف معين يطابق السياق الحالي
-     */
-    protected function targetMatches(
-        DiscountTarget $target,
-        ?int $customerId = null,
-        ?int $employeeId = null,
-        ?int $supplierId = null,
-        ?int $departmentId = null,
-        ?int $itemId = null
-    ): bool {
-        return match ($target->target_type) {
+    protected function targetMatches(object $target, array $context): bool
+    {
+        $type = $target->target_type;
+        $id = $target->target_id !== null ? (int) $target->target_id : null;
+
+        return match ($type) {
             'all' => true,
-            'all_customers' => $customerId !== null,
-            'all_employees' => $employeeId !== null,
-            'all_suppliers' => $supplierId !== null,
-            'customer' => $customerId !== null && (int) $target->target_id === $customerId,
-            'employee' => $employeeId !== null && (int) $target->target_id === $employeeId,
-            'supplier' => $supplierId !== null && (int) $target->target_id === $supplierId,
-            'department' => $departmentId !== null && (int) $target->target_id === $departmentId,
-            'item' => $itemId !== null && (int) $target->target_id === $itemId,
+            'all_customers' => $context['customerId'] !== null,
+            'all_employees' => $context['employeeId'] !== null,
+            'all_suppliers' => $context['supplierId'] !== null,
+            'customer' => $context['customerId'] !== null && $id === (int) $context['customerId'],
+            'employee' => $context['employeeId'] !== null && $id === (int) $context['employeeId'],
+            'supplier' => $context['supplierId'] !== null && $id === (int) $context['supplierId'],
+            'department' => $context['departmentId'] !== null && $id === (int) $context['departmentId'],
+            'item' => $context['itemId'] !== null && $id === (int) $context['itemId'],
+            'branch' => $context['branchId'] !== null && $id === (int) $context['branchId'],
+            'category' => $context['categoryId'] !== null && $id === (int) $context['categoryId'],
+            'brand' => $context['brandId'] !== null && $id === (int) $context['brandId'],
+            'modifier' => $context['modifierId'] !== null && $id === (int) $context['modifierId'],
             default => false,
         };
     }
 
-    /**
-     * تطبيق نظام الأولويات على الخصومات المطبقة
-     */
     protected function applyPriority(Collection $applicable): Collection
     {
         if ($applicable->isEmpty()) {
@@ -311,33 +307,31 @@ class DiscountEngineService
 
         $allowCompound = DiscountSetting::get('allow_compound_discounts', 'true') === 'true';
 
-        if (!$allowCompound) {
-            // اختيار الخصم ذو الأولوية الأعلى فقط
-            $best = $applicable->sortBy(function ($item) {
-                // حسب الأولوية (الأصغر = الأهم)، ثم حسب قيمة الخصم
-                return [$item['discount']->priority, -$item['discount_amount']];
-            })->first();
-
-            return collect([$best]);
-        }
-
-        // السماح بالخصومات المركبة — نرتب حسب الأولوية
-        return $applicable->sortBy(function ($item) {
+        $sorted = $applicable->sortBy(function ($item) {
             return match ($this->priorityMode) {
                 'lowest_first' => [$item['discount']->priority, $item['discount_amount']],
                 'cumulative' => $item['discount']->priority,
-                default => [$item['discount']->priority, -$item['discount_amount']], // highest_first
+                default => [$item['discount']->priority, -$item['discount_amount']],
             };
         })->values();
+
+        return $allowCompound ? $sorted : collect([$sorted->first()]);
     }
 
-    /**
-     * إعادة حساب أسعار أصناف السلة بناءً على الخصومات
-     * (للدمج مع نظام السلة الحالي)
-     */
+    protected function ruleSummary(Discount $discount, string $reason): array
+    {
+        return [
+            'id' => $discount->id,
+            'name' => $discount->name,
+            'code' => $discount->code,
+            'priority' => $discount->priority,
+            'apply_strategy' => $discount->apply_strategy ?? 'per_quantity',
+            'reason' => $reason,
+        ];
+    }
+
     public function recalculateCartWithDiscounts(array $cartItems, ?int $customerId = null): array
     {
-        $result = $this->calculateCartDiscounts($cartItems, $customerId);
-        return $result['items'];
+        return $this->calculateCartDiscounts($cartItems, $customerId)['items'];
     }
 }

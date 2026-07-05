@@ -390,6 +390,18 @@ class ChartOfAccountsSeeder extends Seeder
             'allow_posting'  => true,
             'is_system'      => true,
         ]);
+
+        $this->create([
+            'code'           => '4120',
+            'name'           => 'خصومات المبيعات',
+            'name_en'        => 'Sales Discounts',
+            'type'           => 'revenue',
+            'normal_balance' => 'debit',
+            'level'          => 2,
+            'parent_id'      => $revenue->id,
+            'allow_posting'  => true,
+            'is_system'      => true,
+        ]);
     }
 
     // ══════════════════════════════════════════════════════════
@@ -476,10 +488,15 @@ class ChartOfAccountsSeeder extends Seeder
 
     private function create(array $data): Account
     {
-        return Account::create(array_merge([
+        $defaults = [
             'is_active' => true,
             'currency'  => 'ILS',
             'is_system' => false,
-        ], $data));
+        ];
+
+        return Account::firstOrCreate(
+            ['code' => $data['code']],
+            array_merge($defaults, $data)
+        );
     }
 }

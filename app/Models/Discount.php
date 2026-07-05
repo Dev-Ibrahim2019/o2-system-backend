@@ -26,6 +26,7 @@ class Discount extends Model
         'code',
         'description',
         'discount_type',
+        'apply_strategy',
         'value',
         'priority',
         'start_date',
@@ -42,6 +43,7 @@ class Discount extends Model
 
     protected $casts = [
         'value' => 'decimal:3',
+        'apply_strategy' => 'string',
         'priority' => 'integer',
         'is_active' => 'boolean',
         'start_date' => 'date',
@@ -92,6 +94,11 @@ class Discount extends Model
     public function targets(): HasMany
     {
         return $this->hasMany(DiscountTarget::class);
+    }
+
+    public function exclusions(): HasMany
+    {
+        return $this->hasMany(DiscountExclusion::class);
     }
 
     public function usageLogs(): HasMany
@@ -147,6 +154,34 @@ class Discount extends Model
             ),
             'price_override' => max(0, $price - $this->value),
             'buy_x_get_y' => $this->calculateBuyXGetY($price, $quantity),
+            default => 0,
+        };
+    }
+
+    public function calculateLineDiscount(float $unitPrice, int $quantity = 1, ?float $invoiceSubtotal = null): float
+    {
+        $quantity = max(1, $quantity);
+        $strategy = $this->apply_strategy ?: 'per_quantity';
+
+        if ($strategy === 'per_invoice') {
+            $base = $invoiceSubtotal ?? ($unitPrice * $quantity);
+            return $this->calculateDiscountForBase($base);
+        }
+
+        $unitDiscount = $this->calculateDiscount($unitPrice, $quantity);
+
+        return match ($strategy) {
+            'per_line', 'once' => $unitDiscount,
+            default => $unitDiscount * $quantity,
+        };
+    }
+
+    protected function calculateDiscountForBase(float $base): float
+    {
+        return match ($this->discount_type) {
+            'percentage' => min($base * $this->value / 100, $this->max_discount_amount ?? PHP_FLOAT_MAX),
+            'fixed_amount' => min($this->value, $base, $this->max_discount_amount ?? $this->value),
+            'price_override' => max(0, $base - $this->value),
             default => 0,
         };
     }

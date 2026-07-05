@@ -16,22 +16,34 @@ return new class extends Migration
         Schema::create('discount_usage_logs', function (Blueprint $table) use ($hasDiscounts, $hasInvoices, $hasInvoiceItems, $hasOrders) {
             $table->id();
             $table->foreignId('discount_id')->constrained('discounts')->cascadeOnDelete();
-            if ($hasInvoices) {
-                $table->foreignId('invoice_id')->nullable()->constrained('invoices')->nullOnDelete();
-            } else {
-                $table->unsignedBigInteger('invoice_id')->nullable();
-            }
-            if ($hasInvoiceItems) {
-                $table->foreignId('invoice_item_id')->nullable()->constrained('invoice_items')->nullOnDelete();
-            } else {
-                $table->unsignedBigInteger('invoice_item_id')->nullable();
-            }
-            if ($hasOrders) {
-                $table->foreignId('order_id')->nullable()->constrained('orders')->nullOnDelete();
-            } else {
-                $table->unsignedBigInteger('order_id')->nullable();
-            }
-            $table->string('entity_type', 50)->nullable();
+if ($hasInvoices) {
+    $table->foreignId('invoice_id')
+        ->nullable()
+        ->constrained('invoices')
+        ->nullOnDelete();
+} else {
+    $table->unsignedBigInteger('invoice_id')->nullable();
+}
+
+if ($hasInvoiceItems) {
+    $table->foreignId('invoice_item_id')
+        ->nullable()
+        ->constrained('invoice_items')
+        ->nullOnDelete();
+} else {
+    $table->unsignedBigInteger('invoice_item_id')->nullable();
+}
+
+if ($hasOrders) {
+    $table->foreignId('order_id')
+        ->nullable()
+        ->constrained('orders')
+        ->nullOnDelete();
+} else {
+    $table->unsignedBigInteger('order_id')->nullable();
+}
+
+// معلومات العميل/الموظف/المورد عند الاستخدام            $table->string('entity_type', 50)->nullable();
             $table->unsignedBigInteger('entity_id')->nullable();
             $table->decimal('original_price', 15, 3)->default(0);
             $table->decimal('discount_amount', 15, 3)->default(0);

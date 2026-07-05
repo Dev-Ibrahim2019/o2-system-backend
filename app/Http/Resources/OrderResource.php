@@ -26,7 +26,13 @@ class OrderResource extends JsonResource
             'discount_value'   => (float) $this->discount_value,
             'discount_type'    => $this->discount_type,
             'discount_amount'  => (float) $this->discount_amount,
+            'engine_discount_amount' => (float) ($this->engine_discount_amount ?? 0),
+            'total_discount'   => (float) ($this->engine_discount_amount ?? 0) + (float) $this->discount_amount,
             'total'            => (float) $this->total,
+            'grand_total'      => (float) $this->total,
+            'customer_id'      => $this->customer_id,
+            'employee_id'      => $this->employee_id,
+            'supplier_id'      => $this->supplier_id,
 
             'items'   => OrderItemResource::collection($this->whenLoaded('items')),
             'invoice' => $this->whenLoaded('invoice', fn () => new InvoiceResource($this->invoice)),

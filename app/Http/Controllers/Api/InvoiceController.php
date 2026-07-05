@@ -12,19 +12,23 @@ use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Employee;
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Supplier;
 use App\Models\PosRegister;
 use App\Models\Transaction;
 use App\Services\AccountingService;
+use App\Services\Invoice\InvoiceFromOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class InvoiceController extends ApiController
 {
+    public function __construct(
+        private readonly InvoiceFromOrderService $invoiceFromOrderService,
+    ) {}
+
     /**
      * إنشاء فاتورة رسمية من الطلب — بعد تقسيمه للأقسام (تذاكر) وقبل/أثناء الدفع
      */
@@ -39,7 +43,6 @@ class InvoiceController extends ApiController
         }
 
         if ($order->status === 'pending') {
-            // إذا وُجدت تذاكر بالفعل، فالمقصود أن الطلب مرتبط بالأقسام حتى لو بقيت الحالة مؤقتاً.
             $order->update(['status' => 'confirmed']);
         }
 
@@ -56,50 +59,32 @@ class InvoiceController extends ApiController
 
         DB::beginTransaction();
         try {
-            $invoice = Invoice::create([
-                'number' => Invoice::generateNumber(),
-                'order_id' => $order->id,
-                'customer_id' => $data['customer_id'] ?? null,
-                'branch_id' => $order->branch_id,
-                'status' => 'draft',
-                'subtotal' => $order->subtotal,
-                'discount' => $order->discount_amount,
-                'total' => $order->total,
-                'invoice_date' => now(),
-                'notes' => $data['notes'] ?? $order->note,
-                // ── معلومات نقطة البيع (POS) ──
-                'pos_register_id' => $posRegister?->id,
-                'pos_code'        => $posRegister?->code,
-                'pos_name'        => $posRegister?->name,
-                // ── معلومات فتح الفاتورة ──
-                'opened_by'       => $user?->id,
-                'opened_at'       => now(),
-                'currency'        => $data['currency'] ?? 'ILS',
-                'account_number'  => $data['account_number'] ?? null,
-            ]);
+$invoice = $this->invoiceFromOrderService->createFromOrder(
+    $order,
+    array_merge($data, [
+        'customer_id'     => $data['customer_id'] ?? null,
+        'notes'           => $data['notes'] ?? $order->note,
 
-            $orderItems = $order->items()->where('status', '!=', 'cancelled')->get();
+        // معلومات نقطة البيع POS
+        'pos_register_id' => $posRegister?->id,
+        'pos_code'        => $posRegister?->code,
+        'pos_name'        => $posRegister?->name,
 
-            if ($orderItems->isEmpty()) {
-                throw new \InvalidArgumentException('لا توجد أصناف صالحة للفوترة.');
-            }
+        // معلومات فتح الفاتورة
+        'opened_by'       => $user?->id,
+        'opened_at'       => now(),
 
-            foreach ($orderItems as $orderItem) {
-                InvoiceItem::create([
-                    'invoice_id' => $invoice->id,
-                    'item_id' => $orderItem->item_id,
-                    'item_name' => $orderItem->item_name,
-                    'quantity' => $orderItem->quantity,
-                    'price' => $orderItem->price,
-                    'total' => $orderItem->total,
-                ]);
-            }
+        'currency'        => $data['currency'] ?? 'ILS',
+        'account_number'  => $data['account_number'] ?? null,
+    ]),
+    $request->user()?->id
+);
 
             DB::commit();
 
             return $this->success(
                 'تم إنشاء الفاتورة',
-                new InvoiceResource($invoice->load(['items', 'payments', 'order'])),
+                new InvoiceResource($invoice),
                 201
             );
         } catch (\Throwable $e) {
@@ -130,20 +115,8 @@ class InvoiceController extends ApiController
             return $this->error("المبلغ يتجاوز المتبقي ({$remaining}).", 422);
         }
 
-        // [TRACE] تسجيل البيانات القادمة من Frontend
-        logger()->info('InvoiceController::addPayment - incoming request', [
-            'method' => $data['method'] ?? null,
-            'amount' => $data['amount'] ?? null,
-            'entity_type' => $data['entity_type'] ?? null,
-            'entity_id' => $data['entity_id'] ?? null,
-            'subledger_type' => $data['subledger_type'] ?? null,
-            'subledger_id' => $data['subledger_id'] ?? null,
-            'all_data' => $data,
-        ]);
-
         DB::beginTransaction();
         try {
-            // Determine entity type/id from request (supports both entity_* and subledger_* naming)
             $entityType = $data['entity_type'] ?? $data['subledger_type'] ?? null;
             $entityId = $data['entity_id'] ?? $data['subledger_id'] ?? null;
 
@@ -163,7 +136,8 @@ class InvoiceController extends ApiController
                 'subledger_id' => $entityId,
             ]);
 
-            $newPaid = $invoice->paidAmount();
+            $newPaid = $invoice->fresh()->paidAmount();
+            $journalEntry = null;
 
             if ($newPaid >= (float) $invoice->total - 0.001) {
                 $invoice->update([
@@ -178,7 +152,8 @@ class InvoiceController extends ApiController
                     $invoice->order()->update(['status' => 'paid']);
                 }
 
-                $journalEntry = app(AccountingService::class)->createJournalEntryForInvoice($invoice);
+                $journalEntry = app(AccountingService::class)
+                    ->createJournalEntryForInvoice($invoice->fresh());
             } elseif ($newPaid > 0) {
                 $invoice->update(['status' => 'partial']);
             }
@@ -189,8 +164,8 @@ class InvoiceController extends ApiController
                 'تم تسجيل الدفعة',
                 [
                     'payment' => new PaymentResource($payment),
-                    'invoice' => new InvoiceResource($invoice->fresh()->load(['items', 'payments', 'order'])),
-                    'journal_entry' => $journalEntry ?? null,
+                    'invoice' => new InvoiceResource($invoice->fresh()->load(['items.discount', 'payments', 'order'])),
+                    'journal_entry' => $journalEntry,
                 ],
                 201
             );
@@ -210,10 +185,10 @@ class InvoiceController extends ApiController
             return $this->error('لا يوجد طلب مرتبط بهذه الفاتورة.', 422);
         }
 
-        $transaction = Transaction::with(['entries.account', 'entries.costCenter', 'branch', 'user'])
+        $transaction = Transaction::with(['entries.account', 'entries.costCenter', 'branch', 'user', 'source'])
             ->where('source_type', Order::class)
             ->where('source_id', $invoice->order_id)
-            ->where('type', 'sales')
+            ->where('type', 'sale')
             ->first();
 
         if (! $transaction) {
@@ -228,34 +203,28 @@ class InvoiceController extends ApiController
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Invoice::with(['items', 'payments', 'order', 'branch']);
+        $query = Invoice::with(['items.discount', 'payments', 'order', 'branch']);
 
-        // סינון לפי סניף
         if ($request->has('branch_id') && $request->branch_id !== '') {
             $query->where('branch_id', $request->branch_id);
         }
 
-        // סינון לפי מזהה הזמנה
         if ($request->has('order_id') && $request->order_id !== '') {
             $query->where('order_id', $request->order_id);
         }
 
-        // סינון לפי סטטוס
         if ($request->has('status') && $request->status !== '') {
             $query->where('status', $request->status);
         }
 
-        // סינון לפי תאריך התחלה
         if ($request->has('from') && $request->from !== '') {
             $query->whereDate('invoice_date', '>=', $request->from);
         }
 
-        // סינון לפי תאריך סיום
         if ($request->has('to') && $request->to !== '') {
             $query->whereDate('invoice_date', '<=', $request->to);
         }
 
-        // סינון לפי חיפוש (במספר החשבון, מספר ההזמנה או שם הלקוח)
         if ($request->has('search') && $request->search !== '') {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
@@ -269,7 +238,6 @@ class InvoiceController extends ApiController
             });
         }
 
-        // מיון לפי תאריך יצירה יורד (הכי חדש קודם)
         $query->orderByDesc('created_at');
 
         $invoices = $query->get();

@@ -9,8 +9,12 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (! Schema::hasTable('payments')) return;
+        if (! Schema::hasTable('payments')) {
+            return;
+        }
 
+        // 1. Add a dedicated index on invoice_id first (FK needs an index on this column)
+        //    This allows us to drop the composite index without breaking FK constraints
         Schema::table('payments', function (Blueprint $table) {
             $table->index('invoice_id', 'idx_payments_invoice_id');
         });

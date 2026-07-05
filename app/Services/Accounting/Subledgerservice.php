@@ -8,31 +8,31 @@ use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
 /**
- * ══════════════════════════════════════════════════════════════
+ * â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
  * SERVICE: SubledgerService
- * ══════════════════════════════════════════════════════════════
+ * â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
  *
- * مسؤولية واحدة: استخراج كشوف الحساب لأي كيان (موظف/عميل/مورد)
- * عبر subledger_type + subledger_id في entries
+ * ظ…ط³ط¤ظˆظ„ظٹط© ظˆط§ط­ط¯ط©: ط§ط³طھط®ط±ط§ط¬ ظƒط´ظˆظپ ط§ظ„ط­ط³ط§ط¨ ظ„ط£ظٹ ظƒظٹط§ظ† (ظ…ظˆط¸ظپ/ط¹ظ…ظٹظ„/ظ…ظˆط±ط¯)
+ * ط¹ط¨ط± subledger_type + subledger_id ظپظٹ entries
  *
- * لا ينشئ حسابات — هذا دور AccountCreationService (المحذوف)
- * لا يُنشئ قيوداً — هذا دور TransactionPostingService
+ * ظ„ط§ ظٹظ†ط´ط¦ ط­ط³ط§ط¨ط§طھ â€” ظ‡ط°ط§ ط¯ظˆط± AccountCreationService (ط§ظ„ظ…ط­ط°ظˆظپ)
+ * ظ„ط§ ظٹظڈظ†ط´ط¦ ظ‚ظٹظˆط¯ط§ظ‹ â€” ظ‡ط°ط§ ط¯ظˆط± TransactionPostingService
  *
- * الاستخدام:
+ * ط§ظ„ط§ط³طھط®ط¯ط§ظ…:
  *   $service->getStatement('employee', 33, '2026-01-01', '2026-12-31')
  *   $service->getSupplierFullStatement(33)
  *   $service->getBalance('employee', 33, '1130')
  *   $service->getAllBalances('employee', 33)
- * ══════════════════════════════════════════════════════════════
+ * â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
  */
 class SubledgerService
 {
     /**
-     * كشف حساب كامل لكيان على حساب معين
+     * ظƒط´ظپ ط­ط³ط§ط¨ ظƒط§ظ…ظ„ ظ„ظƒظٹط§ظ† ط¹ظ„ظ‰ ط­ط³ط§ط¨ ظ…ط¹ظٹظ†
      *
      * @param string      $type      'employee' | 'customer' | 'supplier'
-     * @param int         $id        ID الكيان
-     * @param string      $accountCode كود الحساب (مثال: '1130', '2120')
+     * @param int         $id        ID ط§ظ„ظƒظٹط§ظ†
+     * @param string      $accountCode ظƒظˆط¯ ط§ظ„ط­ط³ط§ط¨ (ظ…ط«ط§ظ„: '1130', '2120')
      * @param string|null $from
      * @param string|null $to
      * @param int|null    $branchId
@@ -50,7 +50,7 @@ class SubledgerService
         $fromDate = $from ? Carbon::parse($from)->startOfDay() : null;
         $toDate   = $to   ? Carbon::parse($to)->endOfDay()     : null;
 
-        // ── Opening Balance ────────────────────────────────────────────────
+        // â”€â”€ Opening Balance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         $openingQuery = Entry::query()
             ->forSubledgerAccount($type, $id, $account->id)
             ->whereHas('transaction', function ($q) use ($fromDate, $branchId) {
@@ -65,10 +65,14 @@ class SubledgerService
 
         $openingBalance = $this->calcBalance($account, (float)$opening->d, (float)$opening->c);
 
-        // ── Period Entries ─────────────────────────────────────────────────
+        // â”€â”€ Period Entries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         $entries = Entry::query()
             ->forSubledgerAccount($type, $id, $account->id)
-            ->with(['transaction:id,transaction_number,date,type,description,status'])
+            ->with([
+                'transaction:id,transaction_number,date,type,description,status,reference,source_type,source_id,branch_id',
+                'transaction.source',
+                'transaction.branch:id,name',
+            ])
             ->whereHas('transaction', function ($q) use ($fromDate, $toDate, $branchId) {
                 $q->where('status', 'posted');
                 if ($fromDate) $q->where('date', '>=', $fromDate);
@@ -78,21 +82,29 @@ class SubledgerService
             ->orderBy('id')
             ->get();
 
-        // ── Running Balance ────────────────────────────────────────────────
+        // â”€â”€ Running Balance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         $runningBalance = $openingBalance;
         $lines = $entries->map(function (Entry $entry) use ($account, &$runningBalance) {
             $d = (float) $entry->debit;
             $c = (float) $entry->credit;
+            $txn = $entry->transaction;
             $runningBalance += $this->calcBalance($account, $d, $c);
 
             return [
-                'date'               => $entry->transaction->date->format('Y-m-d'),
-                'transaction_number' => $entry->transaction->transaction_number,
-                'type'               => $entry->transaction->type,
-                'description'        => $entry->description ?? $entry->transaction->description,
+                'date'               => $txn->date->format('Y-m-d'),
+                'transaction_number' => $txn->transaction_number,
+                'transaction_id'     => $txn->id,
+                'type'               => $txn->type,
+                'reference'          => $txn->reference,
+                'description'        => $entry->description ?? $txn->description,
                 'debit'              => $d,
                 'credit'             => $c,
                 'balance'            => round($runningBalance, 3),
+                'source_type'        => $txn->source_type,
+                'source_id'          => $txn->source_id,
+                'source_label'       => $txn->source_type ? class_basename($txn->source_type) : null,
+                'branch_id'          => $txn->branch_id,
+                'branch_name'        => $txn->relationLoaded('branch') && $txn->branch ? $txn->branch->name : null,
             ];
         });
 
@@ -108,18 +120,18 @@ class SubledgerService
         ];
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // ✅ NEW: كشف حساب كامل لكيان بجميع حساباته (بدون filter على حساب معين)
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // âœ… NEW: ظƒط´ظپ ط­ط³ط§ط¨ ظƒط§ظ…ظ„ ظ„ظƒظٹط§ظ† ط¨ط¬ظ…ظٹط¹ ط­ط³ط§ط¨ط§طھظ‡ (ط¨ط¯ظˆظ† filter ط¹ظ„ظ‰ ط­ط³ط§ط¨ ظ…ط¹ظٹظ†)
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /**
-     * كشف حساب كامل لكيان بجميع حساباته (بدون filter على حساب معين)
+     * ظƒط´ظپ ط­ط³ط§ط¨ ظƒط§ظ…ظ„ ظ„ظƒظٹط§ظ† ط¨ط¬ظ…ظٹط¹ ط­ط³ط§ط¨ط§طھظ‡ (ط¨ط¯ظˆظ† filter ط¹ظ„ظ‰ ط­ط³ط§ط¨ ظ…ط¹ظٹظ†)
      *
-     * مثال:
+     * ظ…ط«ط§ظ„:
      *   $service->getFullStatement('supplier', 1, '2026-01-01', '2026-12-31')
      *
      * @param string      $type  'employee' | 'customer' | 'supplier'
-     * @param int         $id    ID الكيان
+     * @param int         $id    ID ط§ظ„ظƒظٹط§ظ†
      * @param string|null $from
      * @param string|null $to
      * @param int|null    $branchId
@@ -135,7 +147,7 @@ class SubledgerService
         $fromDate = $from ? Carbon::parse($from)->startOfDay() : null;
         $toDate   = $to   ? Carbon::parse($to)->endOfDay()     : null;
 
-        // ── Opening Balance (all entries before from date) ────────────────
+        // â”€â”€ Opening Balance (all entries before from date) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         $openingQuery = Entry::query()
             ->forSubledger($type, $id)
             ->with('account:id,code,name,type')
@@ -148,12 +160,13 @@ class SubledgerService
         $openingEntries = $openingQuery->get();
         $openingBalance = $this->computeNetBalance($openingEntries);
 
-        // ── Period Entries ─────────────────────────────────────────────────
+        // â”€â”€ Period Entries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         $entries = Entry::query()
             ->forSubledger($type, $id)
             ->with([
                 'account:id,code,name,type',
-                'transaction:id,transaction_number,date,type,description,status',
+                'transaction:id,transaction_number,date,type,description,status,source_type,source_id,branch_id',
+                'transaction.branch:id,name',
             ])
             ->whereHas('transaction', function ($q) use ($fromDate, $toDate, $branchId) {
                 $q->where('status', 'posted');
@@ -164,12 +177,13 @@ class SubledgerService
             ->orderBy('id')
             ->get();
 
-        // ── Running Balance ────────────────────────────────────────────────
+        // â”€â”€ Running Balance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         $runningBalance = $openingBalance;
         $lines = $entries->map(function (Entry $entry) use (&$runningBalance) {
             $d = (float) $entry->debit;
             $c = (float) $entry->credit;
             $account = $entry->account;
+            $txn = $entry->transaction;
 
             // Calculate balance effect based on account normal balance type
             if ($account) {
@@ -181,25 +195,31 @@ class SubledgerService
             }
 
             return [
-                'date'               => $entry->transaction->date->format('Y-m-d'),
-                'transaction_number' => $entry->transaction->transaction_number,
-                'type'               => $entry->transaction->type,
-                'description'        => $entry->description ?? $entry->transaction->description,
-                'account_name'       => $account?->name ?? '—',
-                'account_code'       => $account?->code ?? '—',
+                'date'               => $txn->date->format('Y-m-d'),
+                'transaction_number' => $txn->transaction_number,
+                'transaction_id'     => $txn->id,
+                'type'               => $txn->type,
+                'description'        => $entry->description ?? $txn->description,
+                'account_name'       => $account?->name ?? 'â€”',
+                'account_code'       => $account?->code ?? 'â€”',
                 'debit'              => $d,
                 'credit'             => $c,
                 'balance'            => round($runningBalance, 3),
+                'source_type'        => $txn->source_type,
+                'source_id'          => $txn->source_id,
+                'source_label'       => $txn->source_type ? class_basename($txn->source_type) : null,
+                'branch_id'          => $txn->branch_id,
+                'branch_name'        => $txn->relationLoaded('branch') && $txn->branch ? $txn->branch->name : null,
             ];
         });
 
-        // ── Compute totals across all accounts ─────────────────────────────
+        // â”€â”€ Compute totals across all accounts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         $totalsByAccount = $entries->groupBy('account_id')->map(function ($group) {
             $account = $group->first()->account;
             return [
                 'account_id'   => $group->first()->account_id,
-                'account_code' => $account?->code ?? '—',
-                'account_name' => $account?->name ?? '—',
+                'account_code' => $account?->code ?? 'â€”',
+                'account_name' => $account?->name ?? 'â€”',
                 'debit'        => round((float) $group->sum('debit'), 3),
                 'credit'       => round((float) $group->sum('credit'), 3),
                 'net'          => round(
@@ -223,12 +243,12 @@ class SubledgerService
         ];
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // ✅ NEW: إجمالي المدفوعات لكيان في فترة معينة
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // âœ… NEW: ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظ…ط¯ظپظˆط¹ط§طھ ظ„ظƒظٹط§ظ† ظپظٹ ظپطھط±ط© ظ…ط¹ظٹظ†ط©
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /**
-     * إجمالي المدفوعات المدفوعة لكيان في فترة معينة
+     * ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظ…ط¯ظپظˆط¹ط§طھ ط§ظ„ظ…ط¯ظپظˆط¹ط© ظ„ظƒظٹط§ظ† ظپظٹ ظپطھط±ط© ظ…ط¹ظٹظ†ط©
      */
     public function getPaymentsTotal(
         string  $type,
@@ -264,12 +284,12 @@ class SubledgerService
             : round((float) ($result?->total_debit ?? 0), 3);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Balance Methods (unchanged)
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /**
-     * رصيد كيان على حساب معين حتى تاريخ معين
+     * ط±طµظٹط¯ ظƒظٹط§ظ† ط¹ظ„ظ‰ ط­ط³ط§ط¨ ظ…ط¹ظٹظ† ط­طھظ‰ طھط§ط±ظٹط® ظ…ط¹ظٹظ†
      */
     public function getBalance(
         string  $type,
@@ -295,8 +315,8 @@ class SubledgerService
     }
 
     /**
-     * كل أرصدة موظف دفعة واحدة (advance + loan + salary)
-     * يُستخدم في account statement API
+     * ظƒظ„ ط£ط±طµط¯ط© ظ…ظˆط¸ظپ ط¯ظپط¹ط© ظˆط§ط­ط¯ط© (advance + loan + salary)
+     * ظٹظڈط³طھط®ط¯ظ… ظپظٹ account statement API
      */
     public function getEmployeeBalances(int $employeeId, ?string $asOf = null): array
     {
@@ -308,7 +328,7 @@ class SubledgerService
     }
 
     /**
-     * كل أرصدة عميل
+     * ظƒظ„ ط£ط±طµط¯ط© ط¹ظ…ظٹظ„
      */
     public function getCustomerBalance(int $customerId, ?string $asOf = null): float
     {
@@ -316,7 +336,7 @@ class SubledgerService
     }
 
     /**
-     * كل أرصدة مورد
+     * ظƒظ„ ط£ط±طµط¯ط© ظ…ظˆط±ط¯
      */
     public function getSupplierBalance(int $supplierId, ?string $asOf = null): float
     {
@@ -324,7 +344,7 @@ class SubledgerService
     }
 
     /**
-     * كشف حساب موظف الكامل (سلف + رواتب معاً)
+     * ظƒط´ظپ ط­ط³ط§ط¨ ظ…ظˆط¸ظپ ط§ظ„ظƒط§ظ…ظ„ (ط³ظ„ظپ + ط±ظˆط§طھط¨ ظ…ط¹ط§ظ‹)
      */
     public function getEmployeeFullStatement(
         int     $employeeId,
@@ -337,7 +357,7 @@ class SubledgerService
         ];
     }
 
-    // ── Private ───────────────────────────────────────────────────────────────
+    // â”€â”€ Private â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private function calcBalance(Account $account, float $debit, float $credit): float
     {
@@ -347,7 +367,7 @@ class SubledgerService
     }
 
     /**
-     * حساب صافي الرصيد من مجموعة entries عبر كل الحسابات
+     * ط­ط³ط§ط¨ طµط§ظپظٹ ط§ظ„ط±طµظٹط¯ ظ…ظ† ظ…ط¬ظ…ظˆط¹ط© entries ط¹ط¨ط± ظƒظ„ ط§ظ„ط­ط³ط§ط¨ط§طھ
      */
     private function computeNetBalance(Collection $entries): float
     {
@@ -366,3 +386,4 @@ class SubledgerService
         return $balance;
     }
 }
+

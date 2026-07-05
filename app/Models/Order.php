@@ -35,11 +35,15 @@ class Order extends Model
         'table_number',
         'customer_name',
         'customer_phone',
+        'customer_id',
+        'employee_id',
+        'supplier_id',
         'note',
         'subtotal',
         'discount_value',
         'discount_type',
         'discount_amount',
+        'engine_discount_amount',
         'total',
     ];
 
@@ -47,6 +51,7 @@ class Order extends Model
         'subtotal' => 'decimal:3',
         'discount_value' => 'decimal:3',
         'discount_amount' => 'decimal:3',
+        'engine_discount_amount' => 'decimal:3',
         'total' => 'decimal:3',
     ];
 
@@ -86,7 +91,7 @@ class Order extends Model
     {
         return Transaction::where('source_type', self::class)
             ->where('source_id', $this->id)
-            ->where('type', 'sales')
+            ->where('type', 'sale')
             ->first();
     }
 
@@ -180,18 +185,9 @@ class Order extends Model
         })->values()->all();
     }
 
-    /** إعادة حساب المجاميع من بنود الطلب */
+    /** إعادة حساب المجاميع — محرك الخصومات + الخصم اليدوي */
     public function recalculateTotals(): void
     {
-        $subtotal = (float) $this->items()->sum('total');
-        $discountAmount = $this->discount_type === 'percent'
-            ? ($subtotal * (float) $this->discount_value / 100)
-            : (float) $this->discount_value;
-
-        $this->update([
-            'subtotal' => $subtotal,
-            'discount_amount' => $discountAmount,
-            'total' => max(0, $subtotal - $discountAmount),
-        ]);
+        app(\App\Services\Order\OrderPricingService::class)->recalculateAndSave($this);
     }
 }

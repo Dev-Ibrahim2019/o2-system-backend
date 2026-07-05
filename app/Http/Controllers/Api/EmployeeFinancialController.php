@@ -4,8 +4,20 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\ApiController;
 use App\Models\Employee;
+use App\Models\Entry;
+use App\Models\Account;
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
+use App\Models\Order;
+use App\Models\Transaction;
+use App\Models\Payment;
 use App\Services\Accounting\EmployeeAccountingService;
+use App\Services\Accounting\EmployeeModuleService;
+use App\Services\Accounting\EmployeeStatementService;
+use App\Services\Accounting\StatementClassifier;
+use App\Services\Accounting\StatementExportService;
 use App\Services\Accounting\SubledgerService;
+use Mpdf\Mpdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -14,6 +26,9 @@ class EmployeeFinancialController extends ApiController
     public function __construct(
         private readonly EmployeeAccountingService $employeeService,
         private readonly SubledgerService $subledgerService,
+        private readonly EmployeeStatementService $statementService,
+        private readonly StatementExportService $exportService,
+        private readonly EmployeeModuleService $moduleService,
     ) {}
 
     /**
@@ -244,54 +259,9 @@ class EmployeeFinancialController extends ApiController
      */
     public function financialBatch(Request $request): JsonResponse
     {
-        $employees = \App\Models\Employee::with(['department', 'branch'])->get();
+        $data = $this->moduleService->financialBatch($request->all());
 
-        $result = [];
-        foreach ($employees as $emp) {
-            $advBalance = $this->subledgerService->getBalance('employee', $emp->id, '1130');
-            $salBalance = $this->subledgerService->getBalance('employee', $emp->id, '2120');
-            $netPayable = max(0, $salBalance - $advBalance);
-
-            // Get last transaction date
-            $lastTransaction = \App\Models\Entry::forSubledger('employee', $emp->id)
-                ->whereHas('transaction', fn($q) => $q->where('status', 'posted'))
-                ->orderByDesc('id')
-                ->first();
-
-            $result[] = [
-                'id'                   => $emp->id,
-                'name'                 => $emp->name,
-                'employeeId'           => $emp->employeeId,
-                'phone'                => $emp->phone,
-                'status'               => $emp->status,
-                'salary'               => (float) ($emp->salary ?? 0),
-                'department'           => $emp->department?->name,
-                'department_id'        => $emp->department_id,
-                'branch'               => $emp->branch?->name,
-                'branch_id'            => $emp->branch_id,
-                'job_title'            => null,
-                'hireDate'             => $emp->hireDate?->toDateString(),
-                'outstanding_advance'  => round($advBalance, 2),
-                'accrued_salary'       => round($salBalance, 2),
-                'net_payable'          => round($netPayable, 2),
-                'last_transaction_date' => $lastTransaction?->transaction?->date?->toDateString(),
-            ];
-        }
-
-        return $this->success('البيانات المالية للموظفين', [
-            'employees' => $result,
-            'totals' => [
-                'total_employees'       => $employees->count(),
-                'active_employees'      => $employees->where('status', 'active')->count(),
-                'total_salaries'        => round($employees->sum('salary'), 2),
-                'total_outstanding_advances' => round(collect($result)->sum('outstanding_advance'), 2),
-                'total_accrued_salaries'     => round(collect($result)->sum('accrued_salary'), 2),
-                'total_net_payable'          => round(collect($result)->sum('net_payable'), 2),
-                'average_salary'        => $employees->where('status', 'active')->count() > 0
-                    ? round($employees->where('status', 'active')->sum('salary') / $employees->where('status', 'active')->count(), 2)
-                    : 0,
-            ],
-        ]);
+        return $this->success('البيانات المالية للموظفين', $data);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -341,57 +311,7 @@ class EmployeeFinancialController extends ApiController
      */
     public function dashboard(Request $request): JsonResponse
     {
-        $month = (int) $request->input('month', now()->month);
-        $year  = (int) $request->input('year', now()->year);
-        $departmentId = $request->input('department_id');
-        $branchId     = $request->input('branch_id');
-
-        $employees = \App\Models\Employee::query()
-            ->when($departmentId, fn($q) => $q->where('department_id', $departmentId))
-            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->get();
-
-        $active = $employees->where('status', 'active');
-
-        $totalSalaries = $active->sum('salary');
-        $totalAdvances = 0;
-        $totalPayments = 0;
-        $pendingSalaryCount = 0;
-
-        foreach ($active as $emp) {
-            $adv = $this->subledgerService->getBalance('employee', $emp->id, '1130');
-            $sal = $this->subledgerService->getBalance('employee', $emp->id, '2120');
-            $totalAdvances += $adv;
-            $netPayable = max(0, $sal - $adv);
-            $totalPayments += $netPayable;
-            if ($netPayable > 0) $pendingSalaryCount++;
-        }
-
-        $totalEmployees = $employees->count();
-        $activeCount = $active->count();
-        $avgSalary = $activeCount > 0 ? $totalSalaries / $activeCount : 0;
-
-        // Department breakdown
-        $deptBreakdown = $active->groupBy(fn($e) => $e->department?->name ?? 'بدون قسم')
-            ->map(function ($group, $dept) {
-                return [
-                    'department' => $dept,
-                    'count'      => $group->count(),
-                    'salary'     => $group->sum('salary'),
-                    'advances'   => $group->sum(fn($e) => $this->subledgerService->getBalance('employee', $e->id, '1130')),
-                ];
-            })->values();
-
-        return $this->success('إحصائيات لوحة الموظفين', [
-            'total_employees'        => $totalEmployees,
-            'active_employees'       => $activeCount,
-            'monthly_salary_expense' => $totalSalaries,
-            'outstanding_advances'   => $totalAdvances,
-            'total_payments'         => $totalPayments,
-            'average_salary'         => round($avgSalary, 2),
-            'pending_salary_employees' => $pendingSalaryCount,
-            'department_breakdown'   => $deptBreakdown,
-        ]);
+        return $this->success('إحصائيات لوحة الموظفين', $this->moduleService->dashboard($request->all()));
     }
 
     // ──────────────────────────────────────────────────────────
@@ -404,95 +324,446 @@ class EmployeeFinancialController extends ApiController
      */
     public function analytics(Request $request): JsonResponse
     {
-        $month = (int) $request->input('month', now()->month);
-        $year  = (int) $request->input('year', now()->year);
-        $departmentId = $request->input('department_id');
+        return $this->success('تحليلات الموظفين', $this->moduleService->analytics($request->all()));
+    }
 
-        $employees = \App\Models\Employee::query()
-            ->when($departmentId, fn($q) => $q->where('department_id', $departmentId))
-            ->where('status', 'active')
-            ->get();
-
-        $deptPayroll = $employees->groupBy(fn($e) => $e->department?->name ?? 'بدون قسم')
-            ->map(function ($group, $name) {
-                $advances = $group->sum(fn($e) => $this->subledgerService->getBalance('employee', $e->id, '1130'));
-                return [
-                    'name'     => $name,
-                    'salaries' => $group->sum('salary'),
-                    'advances' => $advances,
-                    'count'    => $group->count(),
-                ];
-            })->values();
-
-        $totalSalaries = $employees->sum('salary');
-        $totalEmployees = $employees->count();
-        $totalAdvances = $employees->sum(fn($e) => $this->subledgerService->getBalance('employee', $e->id, '1130'));
-        $totalPayments = $employees->sum(fn($e) => max(0, $this->subledgerService->getBalance('employee', $e->id, '2120') - $this->subledgerService->getBalance('employee', $e->id, '1130')));
-
-        return $this->success('تحليلات الموظفين', [
-            'department_payroll' => $deptPayroll,
-            'totals' => [
-                'total_salaries'  => $totalSalaries,
-                'total_advances'  => $totalAdvances,
-                'total_payments'  => $totalPayments,
-                'average_salary'  => $totalEmployees > 0 ? round($totalSalaries / $totalEmployees, 2) : 0,
-                'total_employees' => $totalEmployees,
-            ],
-        ]);
+    /**
+     * GET /api/employees/{employee}/financial-summary
+     */
+    public function financialSummary(Employee $employee): JsonResponse
+    {
+        return $this->success('ملخص مالي للموظف', $this->moduleService->employeeSummary($employee));
     }
 
     /**
      * GET /api/employees/{employee}/account-statement
-     * كشف حساب الموظف (سلف + رواتب + قروض)
+     * كشف حساب الموظف (سلف + رواتب + قروض + فواتير مبيعات + دفعات + قيود)
+     *
+     * ═══════════════════════════════════════════════════
+     * محرك التصنيف الموحد — StatementClassifier
+     * ═══════════════════════════════════════════════════
+     * - جميع الحسابات وجميع المصادر تُجلب دائماً
+     * - التصنيف عبر StatementClassifier::classifyLine()
+     *   (لا يعتمد على account_id/account_name إطلاقاً)
+     * - الفلترة حسب movement_type تتم بعد التصنيف
+     * ═══════════════════════════════════════════════════
      */
     public function accountStatement(Request $request, Employee $employee): JsonResponse
     {
-        $from = $request->input('from', now()->startOfMonth()->toDateString());
-        $to   = $request->input('to',   now()->toDateString());
-        $type = $request->input('type', 'all'); // advance | salary | loan | all
-
-        $result = [];
-
-        if (in_array($type, ['advance', 'all'])) {
-            $result['advance'] = $this->subledgerService->getStatement(
-                'employee',
-                $employee->id,
-                '1130',
-                $from,
-                $to
-            );
-        }
-
-        if (in_array($type, ['salary', 'all'])) {
-            $result['salary'] = $this->subledgerService->getStatement(
-                'employee',
-                $employee->id,
-                '2120',
-                $from,
-                $to
-            );
-        }
-
-        if (in_array($type, ['loan', 'all'])) {
-            $result['loan'] = $this->subledgerService->getStatement(
-                'employee',
-                $employee->id,
-                '2130',
-                $from,
-                $to
-            );
-        }
-
-        $balances = $this->subledgerService->getEmployeeBalances($employee->id, $to);
-
-        return $this->success('كشف حساب الموظف', [
-            'employee'            => ['id' => $employee->id, 'name' => $employee->name],
-            'period'              => ['from' => $from, 'to' => $to],
-            'outstanding_advance' => $balances['outstanding_advance'],
-            'outstanding_loan'    => $balances['outstanding_loan'] ?? 0,
-            'accrued_salary'      => $balances['accrued_salary'],
-            'net_payable'         => max(0, $balances['accrued_salary'] - $balances['outstanding_advance']),
-            'accounts'            => $result,
+        $filters = $request->validate([
+            'from'           => ['nullable', 'date'],
+            'to'             => ['nullable', 'date'],
+            'type'           => ['nullable', 'string'],
+            'mode'           => ['nullable', 'in:simple,detailed'],
+            'branch_id'      => ['nullable', 'integer'],
+            'search'         => ['nullable', 'string', 'max:200'],
+            'document_type'  => ['nullable', 'string', 'max:100'],
+            'status'         => ['nullable', 'string', 'max:50'],
+            'amount_from'    => ['nullable', 'numeric', 'min:0'],
+            'amount_to'      => ['nullable', 'numeric', 'min:0'],
+            'has_discounts'  => ['nullable'],
+            'invoice_number' => ['nullable', 'string', 'max:100'],
+            'order_number'   => ['nullable', 'string', 'max:100'],
+            'journal_number' => ['nullable', 'string', 'max:100'],
+            'cursor'         => ['nullable'],
+            'limit'          => ['nullable', 'integer', 'min:1', 'max:1000'],
         ]);
+
+        $filters['from'] = $filters['from'] ?? now()->startOfMonth()->toDateString();
+        $filters['to']   = $filters['to']   ?? now()->toDateString();
+        $filters['type'] = $filters['type'] ?? 'all';
+        $filters['mode'] = $filters['mode'] ?? 'detailed';
+
+        if (!in_array($filters['type'], StatementClassifier::getAllowedFilters(), true)) {
+            $filters['type'] = 'all';
+        }
+
+        $data = $this->statementService->build($employee, $filters);
+
+        return $this->success('كشف حساب الموظف', $data);
+    }
+
+    /**
+     * GET /api/employees/{employee}/account-statement/export
+     */
+    public function accountStatementExport(Request $request, Employee $employee)
+    {
+        $format = $request->get('format', 'csv');
+        $filters = $request->all();
+        $filters['mode'] = $request->get('mode', 'detailed');
+        $filters['limit'] = 100000;
+
+        $data = $this->statementService->build($employee, $filters);
+        $from = $data['period']['from'];
+        $to   = $data['period']['to'];
+        $base = "كشف_حساب_{$employee->name}_{$from}_{$to}";
+
+        if ($format === 'excel') {
+            return $this->exportService->exportExcelXml($data, "{$base}.xls");
+        }
+
+        return $this->exportService->exportCsv($data, "{$base}.csv");
+    }
+
+    /**
+     * GET /api/employees/{employee}/account-statement/pdf
+     */
+    public function accountStatementPdf(Request $request, Employee $employee)
+    {
+        $request->validate([
+            'from'     => 'nullable|date',
+            'to'       => 'nullable|date|after_or_equal:from',
+            'type'     => 'nullable|string',
+            'pdf_style' => 'nullable|in:simple,detailed',
+            'mode'     => 'nullable|in:simple,detailed',
+        ]);
+
+        $from = $request->get('from', now()->startOfMonth()->format('Y-m-d'));
+        $to   = $request->get('to', now()->format('Y-m-d'));
+        $type = $request->get('type', 'all');
+        $pdfStyle = $request->get('pdf_style', 'detailed');
+
+        $typeLabels = [
+            'all'        => 'الكل',
+            'advance'    => 'السلف',
+            'salary'     => 'الرواتب',
+            'loan'       => 'القروض',
+            'sales'      => 'المبيعات',
+            'payment'    => 'الدفعات',
+            'journal'    => 'القيود',
+            'return'     => 'المرتجعات',
+            'purchase'   => 'المشتريات',
+            'transfer'   => 'التحويلات',
+            'adjustment' => 'التسويات',
+            'opening'    => 'الرصيد الافتتاحي',
+            'closing'    => 'الرصيد الختامي',
+        ];
+
+        $statementTypeLabel = $typeLabels[$type] ?? $type;
+
+        // Reuse accountStatement logic (الفلترة تتم داخله الآن)
+        $request->merge(['from' => $from, 'to' => $to, 'type' => $type, 'mode' => $pdfStyle]);
+        $jsonResponse = $this->accountStatement($request, $employee);
+        $data = $jsonResponse->getData(true);
+
+        if (!$data['success']) {
+            return $jsonResponse;
+        }
+
+        $allEntries = $data['data']['all_lines'] ?? [];
+
+        if ($pdfStyle === 'detailed') {
+            // STEP 1: اشتقاق order_id من source_type/source_id أولاً
+            foreach ($allEntries as &$entry) {
+                $orderId = $entry['order_id'] ?? null;
+                if (!$orderId && !empty($entry['source_type']) && $entry['source_type'] === Order::class && !empty($entry['source_id'])) {
+                    $orderId = (int) $entry['source_id'];
+                    $entry['order_id'] = $orderId;
+                }
+            }
+            unset($entry);
+
+            // STEP 2: جمع orderIds الآن بعد الاشتقاق
+            $orderIds = [];
+            $invoiceNumbersFromDescriptions = [];
+            foreach ($allEntries as $entry) {
+                if (!empty($entry['order_id'])) {
+                    $orderIds[] = $entry['order_id'];
+                }
+                $desc = $entry['description'] ?? '';
+                if (preg_match('/فاتورة\s*-?\s*(\d{8})-(\d{4})INV/i', $desc, $m)) {
+                    $invoiceNumbersFromDescriptions[] = 'INV-' . $m[1] . '-' . $m[2];
+                }
+            }
+            $orderIds = array_unique($orderIds);
+            $invoiceNumbersFromDescriptions = array_unique($invoiceNumbersFromDescriptions);
+
+            // STEP 3: استعلام Invoices/Orders باستخدام orderIds الممتلئة
+            $invoicesByOrderId = [];
+            $invoicesByNumber = [];
+            $paymentsByInvoiceId = [];
+            $transactionsByOrderId = [];
+
+            $ordersById = [];
+
+            if (!empty($orderIds)) {
+                $invoices = Invoice::with(['items', 'payments', 'order.branch', 'order.cashier'])
+                    ->whereIn('order_id', $orderIds)
+                    ->get()
+                    ->keyBy('order_id');
+
+                foreach ($invoices as $orderId => $invoice) {
+                    $invoicesByOrderId[$orderId] = $invoice;
+                    $paymentsByInvoiceId[$invoice->id] = $invoice->payments ?? collect();
+                }
+
+                $ordersById = Order::with(['items.department', 'branch:id,name', 'cashier:id,name'])
+                    ->whereIn('id', $orderIds)
+                    ->get()
+                    ->keyBy('id');
+
+                $transactions = Transaction::with(['entries.account', 'entries.costCenter'])
+                    ->where('source_type', Order::class)
+                    ->whereIn('source_id', $orderIds)
+                    ->where('type', 'sale')
+                    ->get()
+                    ->keyBy('source_id');
+
+                foreach ($transactions as $orderId => $transaction) {
+                    $transactionsByOrderId[$orderId] = $transaction;
+                }
+            }
+
+            if (!empty($invoiceNumbersFromDescriptions)) {
+                $invoicesByNumber = Invoice::with(['items', 'payments', 'order.branch', 'order.cashier'])
+                    ->whereIn('number', $invoiceNumbersFromDescriptions)
+                    ->get()
+                    ->keyBy('number');
+            }
+
+            // STEP 4: تحضير salesByOrderId (من buildSalesLines — قد تكون فارغة)
+            $salesLines = $data['data']['accounts']['sales']['lines'] ?? [];
+            $salesByOrderId = [];
+            foreach ($salesLines as $sl) {
+                if (!empty($sl['order_id'])) {
+                    $salesByOrderId[$sl['order_id']] = $sl;
+                }
+            }
+
+            // STEP 5: الإثراء الفعلي — القواميس الآن ممتلئة
+            foreach ($allEntries as &$entry) {
+                $orderId = $entry['order_id'] ?? null;
+
+                if ($orderId && isset($salesByOrderId[$orderId])) {
+                    $entry['items'] = $salesByOrderId[$orderId]['items'] ?? [];
+                    $entry['has_discounts'] = $salesByOrderId[$orderId]['has_discounts'] ?? false;
+                    $entry['total_items'] = $salesByOrderId[$orderId]['total_items'] ?? 0;
+                    $entry['total_discount_amount'] = $salesByOrderId[$orderId]['total_discount_amount'] ?? 0;
+                    $entry['discount_count'] = $salesByOrderId[$orderId]['discount_count'] ?? 0;
+                }
+
+                if ($orderId && isset($invoicesByOrderId[$orderId])) {
+                    $invoice = $invoicesByOrderId[$orderId];
+
+                    if (empty($entry['items']) || count($entry['items']) === 0) {
+                        $entry['items'] = $invoice->items->map(fn($ii) => [
+                            'product_name'            => $ii->item_name,
+                            'product_name_ar'         => $ii->item_name_ar ?? $ii->item_name,
+                            'quantity'                => (float) $ii->quantity,
+                            'unit_price'              => (float) $ii->price,
+                            'total'                   => (float) $ii->total,
+                            'discount_amount'         => (float) ($ii->discount_amount ?? 0),
+                            'discount_percent'        => (float) ($ii->discount_percent ?? 0),
+                            'discount_apply_strategy' => $ii->discount_apply_strategy ?? null,
+                            'discount_type'           => ($ii->discount_percent ?? 0) > 0 ? 'percent' : (($ii->discount_amount ?? 0) > 0 ? 'amount' : null),
+                            'tax_rate'                => (float) ($ii->tax_rate ?? 0),
+                            'tax_amount'              => (float) ($ii->tax_amount ?? 0),
+                            'department'              => $ii->department?->name ?? null,
+                            'item_code'               => $ii->item_id,
+                            'item_id'                 => $ii->item_id,
+                            'barcode'                 => $ii->barcode ?? null,
+                        ])->all();
+                        if (empty($entry['has_discounts'])) {
+                            $entry['has_discounts'] = (float) $invoice->discount > 0;
+                        }
+                    }
+
+                    $entry['invoice_details'] = [
+                        'invoice_number' => $invoice->number,
+                        'invoice_status' => $invoice->status,
+                        'invoice_date'   => $invoice->invoice_date?->format('Y-m-d'),
+                        'subtotal'       => (float) $invoice->subtotal,
+                        'discount'       => (float) $invoice->discount,
+                        'total'          => (float) $invoice->total,
+                        'payment_method' => $invoice->payment_method,
+                        'notes'          => $invoice->notes,
+                        'customer_name'  => $invoice->order->customer_name ?? null,
+                        'customer_phone' => $invoice->order->customer_phone ?? null,
+                        'table_number'   => $invoice->order->table_number ?? null,
+                        'cashier_name'   => $invoice->order->cashier->name ?? null,
+                        'branch_name'    => $invoice->order->branch->name ?? null,
+                        'order_number'   => $invoice->order->order_number ?? null,
+                        'order_type'     => $invoice->order->order_type ?? null,
+                        'paid_amount'    => (float) $invoice->payments()->sum('amount'),
+                        'remaining'      => max(0, (float) $invoice->total - (float) $invoice->payments()->sum('amount')),
+                    ];
+
+                    if (!empty($entry['items'])) {
+                        $invoiceItems = $invoice->items ?? collect();
+                        foreach ($entry['items'] as &$item) {
+                            $invItem = $invoiceItems->first(fn($ii) => $ii->item_name === ($item['product_name'] ?? $item['item_name'] ?? ''));
+                            if ($invItem) {
+                                $item['item_code'] = $invItem->item_id;
+                                $item['item_id'] = $invItem->item_id;
+                                $item['discount_name'] = $invItem->discount_id ? ('خصم #' . $invItem->discount_id) : null;
+                                $item['discount_apply_strategy'] = $invItem->discount_apply_strategy;
+                                $item['line_net'] = (float) ($invItem->total ?? $item['total']);
+                            }
+                        }
+                        unset($item);
+                    }
+                } elseif ($orderId && isset($ordersById[$orderId]) && (empty($entry['items']) || count($entry['items']) === 0)) {
+                    $order = $ordersById[$orderId];
+                    $entry['items'] = $order->items
+                        ->filter(fn($i) => $i->status !== 'cancelled')
+                        ->values()
+                        ->map(fn($i) => [
+                            'product_name'            => $i->item_name,
+                            'product_name_ar'         => $i->item_name_ar ?? $i->item_name,
+                            'quantity'                => (float) $i->quantity,
+                            'unit_price'              => (float) $i->price,
+                            'total'                   => (float) $i->total,
+                            'discount_amount'         => (float) ($i->discount_amount ?? 0),
+                            'discount_percent'        => (float) ($i->discount_percent ?? 0),
+                            'discount_apply_strategy' => $i->discount_apply_strategy ?? null,
+                            'tax_rate'                => (float) ($i->tax_rate ?? 0),
+                            'tax_amount'              => (float) ($i->tax_amount ?? 0),
+                            'department'              => $i->department?->name ?? null,
+                            'barcode'                 => $i->barcode ?? null,
+                        ])->all();
+                }
+
+                // NEW: For entries without order_id but with invoice reference in description (advance/salary/loan entries)
+                if (!$orderId && empty($entry['items'])) {
+                    $desc = $entry['description'] ?? '';
+                    if (preg_match('/فاتورة\s*-?\s*(\d{8})-(\d{4})INV/i', $desc, $m)) {
+                        $invNumber = 'INV-' . $m[1] . '-' . $m[2];
+                        if (isset($invoicesByNumber[$invNumber])) {
+                            $invoice = $invoicesByNumber[$invNumber];
+                            $entry['items'] = $invoice->items->map(fn($ii) => [
+                                'product_name'            => $ii->item_name,
+                                'product_name_ar'         => $ii->item_name_ar ?? $ii->item_name,
+                                'quantity'                => (float) $ii->quantity,
+                                'unit_price'              => (float) $ii->price,
+                                'total'                   => (float) $ii->total,
+                                'discount_amount'         => (float) ($ii->discount_amount ?? 0),
+                                'discount_percent'        => (float) ($ii->discount_percent ?? 0),
+                                'discount_apply_strategy' => $ii->discount_apply_strategy ?? null,
+                                'discount_type'           => ($ii->discount_percent ?? 0) > 0 ? 'percent' : (($ii->discount_amount ?? 0) > 0 ? 'amount' : null),
+                                'tax_rate'                => (float) ($ii->tax_rate ?? 0),
+                                'tax_amount'              => (float) ($ii->tax_amount ?? 0),
+                                'department'              => $ii->department?->name ?? null,
+                                'item_code'               => $ii->item_id,
+                                'item_id'                 => $ii->item_id,
+                                'barcode'                 => $ii->barcode ?? null,
+                            ])->all();
+                            $entry['has_discounts'] = (float) $invoice->discount > 0;
+                            $entry['invoice_details'] = [
+                                'invoice_number' => $invoice->number,
+                                'invoice_status' => $invoice->status,
+                                'invoice_date'   => $invoice->invoice_date?->format('Y-m-d'),
+                                'subtotal'       => (float) $invoice->subtotal,
+                                'discount'       => (float) $invoice->discount,
+                                'total'          => (float) $invoice->total,
+                                'payment_method' => $invoice->payment_method,
+                                'notes'          => $invoice->notes,
+                                'customer_name'  => $invoice->order->customer_name ?? null,
+                                'customer_phone' => $invoice->order->customer_phone ?? null,
+                                'table_number'   => $invoice->order->table_number ?? null,
+                                'cashier_name'   => $invoice->order->cashier->name ?? null,
+                                'branch_name'    => $invoice->order->branch->name ?? null,
+                                'order_number'   => $invoice->order->order_number ?? null,
+                                'order_type'     => $invoice->order->order_type ?? null,
+                                'paid_amount'    => (float) $invoice->payments()->sum('amount'),
+                                'remaining'      => max(0, (float) $invoice->total - (float) $invoice->payments()->sum('amount')),
+                            ];
+                        }
+                    }
+                }
+
+                if ($orderId && isset($invoicesByOrderId[$orderId])) {
+                    $invId = $invoicesByOrderId[$orderId]->id;
+                    $entry['payments_data'] = isset($paymentsByInvoiceId[$invId])
+                        ? $paymentsByInvoiceId[$invId]->map(fn($p) => [
+                            'method'           => $p->payment_method ?? $p->method,
+                            'amount'           => (float) $p->amount,
+                            'reference_number' => $p->reference_number,
+                            'paid_at'          => $p->created_at?->format('Y-m-d H:i'),
+                        ])->toArray()
+                        : [];
+                } else {
+                    $entry['payments_data'] = [];
+                }
+
+                if ($orderId && isset($transactionsByOrderId[$orderId])) {
+                    $transaction = $transactionsByOrderId[$orderId];
+                    $entry['journal_entries'] = $transaction->entries->map(fn($e) => [
+                        'account_code' => $e->account?->code,
+                        'account_name' => $e->account?->name,
+                        'debit'        => (float) $e->debit,
+                        'credit'       => (float) $e->credit,
+                        'description'  => $e->description,
+                        'cost_center'  => $e->costCenter?->name,
+                    ])->toArray();
+                    $entry['journal_number'] = $transaction->number;
+                    $entry['journal_status'] = $transaction->status;
+                } else {
+                    $entry['journal_entries'] = [];
+                }
+            }
+            unset($entry);
+        }
+
+        $totals = $data['data']['totals'] ?? ['total_debit' => 0, 'total_credit' => 0, 'opening_balance' => 0, 'closing_balance' => 0];
+        $totalDebit = $totals['total_debit'];
+        $totalCredit = $totals['total_credit'];
+        $closingBalance = $totals['closing_balance'] ?? 0;
+        $openingBalance = $totals['opening_balance'] ?? 0;
+        $openingEntries = [];
+
+        // Define variables for mPDF header/footer (must be in controller scope, not just view)
+        $companyName = 'شركة O2';
+        $companyLocation = 'فلسطين';
+        $currency = 'شيكل';
+        $printedBy = $request->user()->name ?? 'غير معروف';
+        $printedAt = now()->format('Y-m-d H:i:s');
+        $erpName = 'O2 ERP System';
+
+        $html = view('pdf.employee-statement', [
+            'employeeName'       => $data['data']['employee']['name'] ?? $employee->name,
+            'employeeId'         => $data['data']['employee']['id'] ?? $employee->id,
+            'fromDate'           => $from,
+            'toDate'             => $to,
+            'statementTypeLabel' => $statementTypeLabel,
+            'entries'            => $allEntries,
+            'openingEntries'     => $openingEntries,
+            'openingBalance'     => $openingBalance,
+            'closingBalance'     => $closingBalance,
+            'totalDebit'         => $totalDebit,
+            'totalCredit'        => $totalCredit,
+            'pdfStyle'           => $pdfStyle,
+            'companyName'        => $companyName,
+            'companyLocation'    => $companyLocation,
+            'currency'           => $currency,
+            'printedBy'          => $printedBy,
+            'printedAt'          => $printedAt,
+            'erpName'            => $erpName,
+        ])->render();
+
+        $mpdf = new Mpdf([
+            'mode'                => 'ar',
+            'autoLangToFont'      => true,
+            'autoArabic'          => true,
+            'format'              => 'A4',
+            'orientation'         => 'P',
+            'margin_left'         => 15,
+            'margin_right'        => 15,
+            'margin_top'          => 15,
+            'margin_bottom'       => 20,
+            'margin_header'       => 10,
+            'margin_footer'       => 10,
+        ]);
+        $mpdf->autoScriptToLang = true;
+        $mpdf->autoLangToFont = true;
+
+        // Set header and footer
+        $mpdf->SetHTMLHeader('<div style="text-align:center;font-size:7pt;color:#999;border-bottom:0.5px solid #ddd;padding-bottom:3px;">' . ($companyName ?? 'شركة O2') . ' — كشف حساب ' . $statementTypeLabel . '</div>');
+        $mpdf->SetHTMLFooter('<div style="font-size:7pt;color:#999;border-top:0.5px solid #ddd;padding-top:3px;display:flex;justify-content:space-between;"><span>Print Date: ' . ($printedAt ?? now()->format('Y-m-d H:i:s')) . '</span><span>Page {PAGENO} of {nbpg}</span></div>');
+
+        $mpdf->WriteHTML($html);
+        $filename = "كشف_حساب_{$employee->name}_{$from}_$to.pdf";
+        return response($mpdf->Output($filename, 'S'))
+            ->header('Content-Type', 'application/pdf')
+            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
     }
 }

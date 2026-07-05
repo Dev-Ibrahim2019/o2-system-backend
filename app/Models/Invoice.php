@@ -133,7 +133,7 @@ class Invoice extends Model
 
         return Transaction::where('source_type', Order::class)
             ->where('source_id', $this->order_id)
-            ->where('type', 'sales')
+            ->where('type', 'sale')
             ->first();
     }
 

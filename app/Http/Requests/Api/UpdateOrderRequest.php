@@ -21,6 +21,9 @@ class UpdateOrderRequest extends FormRequest
             'note' => 'nullable|string',
             'discount_value' => 'nullable|numeric|min:0',
             'discount_type' => 'nullable|in:amount,percent',
+            'customer_id' => 'nullable|integer|exists:customers,id',
+            'employee_id' => 'nullable|integer|exists:employees,id',
+            'supplier_id' => 'nullable|integer|exists:suppliers,id',
         ];
     }
 }

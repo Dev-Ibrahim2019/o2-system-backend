@@ -38,14 +38,7 @@ return new class extends Migration
             ])->default('draft');
 
             // طريقة الدفع
-            $table->enum('payment_method', [
-                'cash',
-                'card',
-                'bank',
-                'wallet',
-                'account',
-                'mixed'
-            ])->nullable();
+            $table->string('payment_method', 50)->nullable();
 
             // المبالغ
             $table->decimal('subtotal', 15, 2)->default(0);
