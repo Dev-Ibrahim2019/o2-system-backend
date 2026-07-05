@@ -115,6 +115,71 @@ Route::middleware('auth:sanctum')->group(function () {
     });
     Route::apiResource('employees', EmployeeController::class);
 
+    // ── Orders ──
+    Route::post('orders/{order}/void', [OrderController::class, 'void']);
+    Route::apiResource('orders', OrderController::class)->except(['destroy']);
+    Route::post('orders/{order}/items', [OrderController::class, 'addItem']);
+    Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
+    Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
+    Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
+    Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
+    Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
+    Route::post('orders/{order}/cancel', [OrderController::class, 'cancel']);
+
+    Route::get('production-tickets', [ProductionTicketController::class, 'index']);
+    Route::post('production-tickets/{ticket}/start', [ProductionTicketController::class, 'startPreparing']);
+    Route::post('production-tickets/{ticket}/ready', [ProductionTicketController::class, 'markReady']);
+    Route::post('production-tickets/{ticket}/served', [ProductionTicketController::class, 'markServed']);
+
+    Route::post('orders/{order}/invoice', [InvoiceController::class, 'createFromOrder']);
+    Route::post('orders/{order}/close', [InvoiceController::class, 'createFromOrder']); // alias for cashier close action
+    Route::get('invoices', [InvoiceController::class, 'index']);
+    Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment']);
+    Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry']);
+
+    // ── Financial Invoices ──
+    Route::prefix('financial/invoices')->group(function () {
+        Route::get('/', [InvoiceController::class, 'financialIndex']);
+        Route::get('/stats', [InvoiceController::class, 'financialStats']);
+        Route::get('/{invoice}', [InvoiceController::class, 'financialShow']);
+        Route::post('/', [InvoiceController::class, 'financialStore']);
+        Route::put('/{invoice}', [InvoiceController::class, 'financialUpdate']);
+        Route::delete('/{invoice}', [InvoiceController::class, 'financialDestroy']);
+        Route::post('/{invoice}/approve', [InvoiceController::class, 'approve']);
+        Route::post('/{invoice}/void', [InvoiceController::class, 'voidFinancial']);
+    });
+
+    // ── Sales Invoices (Full Module) ──
+    Route::prefix('sales-invoices')->group(function () {
+        // Stats must be before {invoice} to avoid route conflict
+        Route::get('/stats', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'stats']);
+        Route::get('/overdue', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'overdue']);
+        Route::get('/pos-invoices', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'posInvoices']);
+
+        // Excel Import
+        Route::post('/import', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'import']);
+
+        // POS Sync
+        Route::post('/pos-sync/end-of-day', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'posSyncEndOfDay']);
+        Route::post('/pos-sync/batch', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'posSyncBatch']);
+        Route::post('/pos-sync/single/{posInvoiceId}', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'posSyncSingle']);
+
+        // CRUD
+        Route::get('/', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'store']);
+        Route::get('/{invoice}', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'show']);
+        Route::put('/{invoice}', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'update']);
+        Route::delete('/{invoice}', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'destroy']);
+
+        // Workflow
+        Route::post('/{invoice}/approve', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'approve']);
+        Route::post('/{invoice}/cancel', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'cancel']);
+        Route::post('/{invoice}/payments', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'storePayment']);
+        Route::post('/bulk-approve', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'bulkApprove']);
+        Route::post('/bulk-post', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'bulkPost']);
+        Route::get('/group', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'group']);
+    });
+
     Route::prefix('accounting')->group(function () {
         Route::apiResource('accounts', AccountController::class);
         Route::get('accounts/{account}/ledger', [AccountController::class, 'ledger']);
@@ -201,6 +266,7 @@ Route::prefix("customers")->group(function () {
 });
 
 Route::post('pos/activate', [\App\Http\Controllers\Admin\PosRegisterController::class, 'activate']);
+
 Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);
 
 // ── Hospitality Devices (Admin) ──
@@ -232,3 +298,5 @@ Route::middleware('auth:sanctum')->prefix('dining-zones')->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\DiningZoneController::class, 'index']);
     Route::get('/{id}', [\App\Http\Controllers\Api\DiningZoneController::class, 'show']);
 });
+
+Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);

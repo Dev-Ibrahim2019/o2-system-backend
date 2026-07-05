@@ -41,5 +41,11 @@ class AccountingServiceProvider extends ServiceProvider
         $this->app->singleton(\App\Services\Accounting\EmployeeAccountingService::class);
         $this->app->singleton(\App\Services\Accounting\CustomerAccountingService::class);
         $this->app->singleton(\App\Services\Accounting\SupplierAccountingService::class);
+
+        // ── Sales Invoice Services ──
+        $this->app->singleton(\App\Services\SalesInvoice\SalesInvoiceJournalService::class);
+        $this->app->singleton(\App\Services\SalesInvoice\SalesInvoiceService::class);
+        $this->app->singleton(\App\Services\SalesInvoice\SalesInvoiceExcelImportService::class);
+        $this->app->singleton(\App\Services\SalesInvoice\PosSalesSyncService::class);
     }
 }

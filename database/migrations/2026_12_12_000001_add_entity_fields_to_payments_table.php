@@ -6,34 +6,29 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Add entity fields to payments table for subledger support.
-     *
-     * This enables tracking which entity (customer/employee/supplier)
-     * a payment is associated with, so the accounting entry can use
-     * the correct control account instead of cash.
-     */
     public function up(): void
     {
+        if (! Schema::hasTable('payments')) return;
+
         Schema::table('payments', function (Blueprint $table) {
-            $table->string('entity_type')->nullable()->after('method')
-                ->comment('Type of entity: customer, employee, supplier');
-            $table->unsignedBigInteger('entity_id')->nullable()->after('entity_type')
-                ->comment('ID of the entity (customers.id, employees.id, suppliers.id)');
-            $table->string('subledger_type')->nullable()->after('entity_id')
-                ->comment('Subledger type for accounting: customer, employee, supplier');
-            $table->unsignedBigInteger('subledger_id')->nullable()->after('subledger_type')
-                ->comment('Subledger ID for accounting entries');
-            $table->unsignedBigInteger('payment_method_id')->nullable()->after('method')
-                ->comment('FK to payment_methods table');
+            if (! Schema::hasColumn('payments', 'entity_type')) {
+                $table->string('entity_type')->nullable()->after('method');
+                $table->unsignedBigInteger('entity_id')->nullable()->after('entity_type');
+            }
+            if (! Schema::hasColumn('payments', 'subledger_type')) {
+                $table->string('subledger_type')->nullable()->after('entity_id');
+                $table->unsignedBigInteger('subledger_id')->nullable()->after('subledger_type');
+            }
+            if (! Schema::hasColumn('payments', 'payment_method_id')) {
+                $table->unsignedBigInteger('payment_method_id')->nullable()->after('method');
+            }
         });
     }
 
-    /**
-     * Reverse the migration.
-     */
     public function down(): void
     {
+        if (! Schema::hasTable('payments')) return;
+
         Schema::table('payments', function (Blueprint $table) {
             $table->dropColumn([
                 'entity_type',
