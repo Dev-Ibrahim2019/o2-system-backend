@@ -202,3 +202,33 @@ Route::prefix("customers")->group(function () {
 
 Route::post('pos/activate', [\App\Http\Controllers\Admin\PosRegisterController::class, 'activate']);
 Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);
+
+// ── Hospitality Devices (Admin) ──
+Route::middleware('auth:sanctum')->prefix('admin/hospitality-devices')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'index']);
+    Route::post('/', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'store']);
+    Route::post('{id}/generate-token', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'generateActivationToken']);
+    Route::post('{id}/revoke', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'revokeDevice']);
+});
+
+// ── Hospitality Activation (Public) ──
+Route::post('hospitality/activate', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'activate']);
+Route::middleware('auth:sanctum')->post('hospitality/check-status', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'checkStatus']);
+
+// ── Dining Zones (Admin) ──
+Route::middleware('auth:sanctum')->prefix('admin/dining-zones')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\DiningZoneController::class, 'index']);
+    Route::post('/', [\App\Http\Controllers\Admin\DiningZoneController::class, 'store']);
+    Route::get('/{id}', [\App\Http\Controllers\Admin\DiningZoneController::class, 'show']);
+    Route::put('/{id}', [\App\Http\Controllers\Admin\DiningZoneController::class, 'update']);
+    Route::delete('/{id}', [\App\Http\Controllers\Admin\DiningZoneController::class, 'destroy']);
+    Route::post('/{zoneId}/tables', [\App\Http\Controllers\Admin\DiningZoneController::class, 'addTable']);
+    Route::delete('/{zoneId}/tables/{tableId}', [\App\Http\Controllers\Admin\DiningZoneController::class, 'destroyTable']);
+    Route::put('/{zoneId}/tables/{tableId}/status', [\App\Http\Controllers\Admin\DiningZoneController::class, 'updateTableStatus']);
+});
+
+// ── Dining Zones (POS / Hospitality) ──
+Route::middleware('auth:sanctum')->prefix('dining-zones')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\DiningZoneController::class, 'index']);
+    Route::get('/{id}', [\App\Http\Controllers\Api\DiningZoneController::class, 'show']);
+});

@@ -67,6 +67,12 @@ class RolesAndPermissionsSeeder extends Seeder
             // ── نقاط البيع ──
             'manage-pos-registers',
 
+            // ── أجهزة الضيافة ──
+            'manage-hospitality-devices',
+
+            // ── القاعات والطاولات ──
+            'manage-dining-zones',
+
             // ── واجهة الكاشير ──
             'access-pos-interface',
         ];
