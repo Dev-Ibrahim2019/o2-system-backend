@@ -149,6 +149,37 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{invoice}/void', [InvoiceController::class, 'voidFinancial']);
     });
 
+    // ── Sales Invoices (Full Module) ──
+    Route::prefix('sales-invoices')->group(function () {
+        // Stats must be before {invoice} to avoid route conflict
+        Route::get('/stats', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'stats']);
+        Route::get('/overdue', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'overdue']);
+        Route::get('/pos-invoices', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'posInvoices']);
+
+        // Excel Import
+        Route::post('/import', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'import']);
+
+        // POS Sync
+        Route::post('/pos-sync/end-of-day', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'posSyncEndOfDay']);
+        Route::post('/pos-sync/batch', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'posSyncBatch']);
+        Route::post('/pos-sync/single/{posInvoiceId}', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'posSyncSingle']);
+
+        // CRUD
+        Route::get('/', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'store']);
+        Route::get('/{invoice}', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'show']);
+        Route::put('/{invoice}', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'update']);
+        Route::delete('/{invoice}', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'destroy']);
+
+        // Workflow
+        Route::post('/{invoice}/approve', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'approve']);
+        Route::post('/{invoice}/cancel', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'cancel']);
+        Route::post('/{invoice}/payments', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'storePayment']);
+        Route::post('/bulk-approve', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'bulkApprove']);
+        Route::post('/bulk-post', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'bulkPost']);
+        Route::get('/group', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'group']);
+    });
+
     Route::prefix('accounting')->group(function () {
         Route::apiResource('accounts', AccountController::class);
         Route::get('accounts/{account}/ledger', [AccountController::class, 'ledger']);

@@ -8,15 +8,23 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (! Schema::hasTable('payments')) return;
+
         Schema::table('payments', function (Blueprint $table) {
-            $table->string('reference_number')->nullable()->after('method');
+            if (! Schema::hasColumn('payments', 'reference_number')) {
+                $table->string('reference_number')->nullable()->after('method');
+            }
         });
     }
 
     public function down(): void
     {
+        if (! Schema::hasTable('payments')) return;
+
         Schema::table('payments', function (Blueprint $table) {
-            $table->dropColumn('reference_number');
+            if (Schema::hasColumn('payments', 'reference_number')) {
+                $table->dropColumn('reference_number');
+            }
         });
     }
 };

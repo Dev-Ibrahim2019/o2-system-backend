@@ -22,6 +22,7 @@ class Invoice extends Model
         'type',
         'order_id',
         'customer_id',
+        'customer_name',
         'entity_type',
         'entity_id',
         'branch_id',
@@ -39,7 +40,6 @@ class Invoice extends Model
         'delivery_date',
         'expected_payment_date',
         'notes',
-        // ── حقول POS الجديدة ──
         'pos_register_id',
         'pos_code',
         'pos_name',
@@ -47,8 +47,11 @@ class Invoice extends Model
         'opened_at',
         'closed_by',
         'closed_at',
-        'currency',
         'account_number',
+        'approved_by',
+        'approved_at',
+        'supply_date',
+        'reference_number',
     ];
 
     protected $casts = [
@@ -56,17 +59,16 @@ class Invoice extends Model
         'due_date' => 'datetime',
         'delivery_date' => 'datetime',
         'expected_payment_date' => 'datetime',
+        'supply_date' => 'date',
         'subtotal' => 'decimal:2',
         'discount' => 'decimal:2',
         'tax_total' => 'decimal:2',
         'total' => 'decimal:2',
-<<<<<<< HEAD
         'paid_amount' => 'decimal:2',
         'remaining_amount' => 'decimal:2',
-=======
         'opened_at' => 'datetime',
         'closed_at' => 'datetime',
->>>>>>> e7df4442482788a3cbfc287187f6e265b917fc51
+        'approved_at' => 'datetime',
     ];
 
     // ═══════════════════════════════════════════════════════
@@ -93,6 +95,11 @@ class Invoice extends Model
         return $this->belongsTo(Branch::class);
     }
 
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class);
+    }
+
     /** نقطة البيع التي أُنشئت منها الفاتورة */
     public function posRegister(): BelongsTo
     {
@@ -109,6 +116,12 @@ class Invoice extends Model
     public function closedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'closed_by');
+    }
+
+    /** المستخدم الذي عمد الفاتورة */
+    public function approvedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
     /** القيد المحاسبي المرتبط بالطلب التابع لهذه الفاتورة */
@@ -132,6 +145,46 @@ class Invoice extends Model
     public function remainingAmount(): float
     {
         return max(0, (float) $this->total - $this->paidAmount());
+    }
+
+    public function recalculateTotals(): void
+    {
+        $this->subtotal = $this->items()->sum('total_before_tax');
+        $this->discount = $this->items()->sum('discount');
+        $this->tax_total = $this->items()->sum('tax_amount');
+        $this->total = $this->items()->sum('total');
+        $this->paid_amount = $this->payments()->sum('amount');
+        $this->remaining_amount = max(0, $this->total - $this->paid_amount);
+        $this->resolveAutoStatus();
+        $this->save();
+    }
+
+    /**
+     * Auto-resolve status based on payment ratio.
+     *
+     * Rules:
+     *  - cancelled → stays cancelled
+     *  - paid → stays paid (terminal state)
+     *  - draft → returns to awaiting_approval (so user must explicitly approve)
+     *  - awaiting_approval/awaiting_payment/partial:
+     *      • no payments   → awaiting_approval
+     *      • some payments → partial
+     *      • fully paid    → paid
+     */
+    public function resolveAutoStatus(): void
+    {
+        if (in_array($this->status, ['cancelled', 'paid', 'draft'], true)) {
+            return;
+        }
+
+        if ($this->total > 0 && (float) $this->paid_amount >= (float) $this->total) {
+            $this->status = 'paid';
+        } elseif ($this->paid_amount > 0) {
+            $this->status = 'partial';
+        } else {
+            // No payments yet — keep at awaiting_approval (so user must approve)
+            $this->status = 'awaiting_approval';
+        }
     }
 
     public static function generateNumber(): string
