@@ -8,22 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // Fix status enum to include all needed values
         if (Schema::hasTable('invoices')) {
             DB::statement("ALTER TABLE invoices MODIFY COLUMN status ENUM('draft', 'awaiting_approval', 'awaiting_payment', 'partial', 'paid', 'cancelled') DEFAULT 'draft'");
-        }
-
-        // Fix payment_method enum to match frontend values
-        if (Schema::hasTable('invoices')) {
             DB::statement("ALTER TABLE invoices MODIFY COLUMN payment_method ENUM('cash', 'credit_card', 'bank_transfer', 'app', 'account', 'mixed', 'card', 'bank', 'wallet') DEFAULT NULL");
-        }
 
-        // Fix payments method enum to match frontend values
-        if (Schema::hasTable('payments')) {
-            DB::statement("ALTER TABLE payments MODIFY COLUMN method ENUM('cash', 'credit_card', 'bank_transfer', 'app', 'account', 'mixed', 'card', 'bank', 'wallet') DEFAULT 'cash'");
-        }
-
-        if (Schema::hasTable('invoices')) {
             Schema::table('invoices', function ($table) {
                 if (! Schema::hasColumn('invoices', 'type')) {
                     $table->string('type')->nullable()->after('number');
@@ -73,6 +61,8 @@ return new class extends Migration
         }
 
         if (Schema::hasTable('payments')) {
+            DB::statement("ALTER TABLE payments MODIFY COLUMN method ENUM('cash', 'credit_card', 'bank_transfer', 'app', 'account', 'mixed', 'card', 'bank', 'wallet') DEFAULT 'cash'");
+
             Schema::table('payments', function ($table) {
                 if (! Schema::hasColumn('payments', 'reference_number')) {
                     $table->string('reference_number')->nullable()->after('amount');
@@ -92,23 +82,35 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::statement("ALTER TABLE invoices MODIFY COLUMN status ENUM('draft', 'paid', 'partial', 'cancelled') DEFAULT 'draft'");
-        DB::statement("ALTER TABLE invoices MODIFY COLUMN payment_method ENUM('cash', 'card', 'bank', 'wallet', 'account', 'mixed') DEFAULT NULL");
-        DB::statement("ALTER TABLE payments MODIFY COLUMN method ENUM('cash', 'card', 'bank', 'wallet', 'account', 'mixed') DEFAULT 'cash'");
+        if (Schema::hasTable('invoices')) {
+            DB::statement("ALTER TABLE invoices MODIFY COLUMN status ENUM('draft', 'paid', 'partial', 'cancelled') DEFAULT 'draft'");
+            DB::statement("ALTER TABLE invoices MODIFY COLUMN payment_method ENUM('cash', 'card', 'bank', 'wallet', 'account', 'mixed') DEFAULT NULL");
 
-        Schema::table('invoices', function ($table) {
-            $table->dropColumn([
-                'type', 'customer_name', 'tax_total', 'currency',
-                'due_date', 'delivery_date', 'expected_payment_date',
-            ]);
-        });
+            Schema::table('invoices', function ($table) {
+                $table->dropColumn([
+                    'type',
+                    'customer_name',
+                    'tax_total',
+                    'currency',
+                    'due_date',
+                    'delivery_date',
+                    'expected_payment_date',
+                ]);
+            });
+        }
 
-        Schema::table('invoice_items', function ($table) {
-            $table->dropColumn(['description', 'unit_price', 'discount', 'tax_rate', 'tax_amount', 'total_before_tax']);
-        });
+        if (Schema::hasTable('invoice_items')) {
+            Schema::table('invoice_items', function ($table) {
+                $table->dropColumn(['description', 'unit_price', 'discount', 'tax_rate', 'tax_amount', 'total_before_tax']);
+            });
+        }
 
-        Schema::table('payments', function ($table) {
-            $table->dropColumn(['reference_number', 'payment_method_id', 'entity_type', 'entity_id', 'subledger_type', 'subledger_id']);
-        });
+        if (Schema::hasTable('payments')) {
+            DB::statement("ALTER TABLE payments MODIFY COLUMN method ENUM('cash', 'card', 'bank', 'wallet', 'account', 'mixed') DEFAULT 'cash'");
+
+            Schema::table('payments', function ($table) {
+                $table->dropColumn(['reference_number', 'payment_method_id', 'entity_type', 'entity_id', 'subledger_type', 'subledger_id']);
+            });
+        }
     }
 };
