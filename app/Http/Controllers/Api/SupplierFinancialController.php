@@ -6,14 +6,17 @@ use App\Http\Controllers\ApiController;
 use App\Models\Supplier;
 use App\Services\Accounting\SupplierAccountingService;
 use App\Services\Accounting\SubledgerService;
+use App\Services\Accounting\StatementExportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Mpdf\Mpdf;
 
 class SupplierFinancialController extends ApiController
 {
     public function __construct(
         private readonly SupplierAccountingService $supplierService,
         private readonly SubledgerService $subledgerService,
+        private readonly StatementExportService $exportService,
     ) {}
 
     // ──────────────────────────────────────────────────────────
@@ -126,7 +129,7 @@ class SupplierFinancialController extends ApiController
 
         $aging = $this->supplierService->getAging($supplier);
 
-        return $this->success('تفاصيل المورد', [
+        return $this->success('كشف حساب المورد', [
             'supplier' => $supplier,
             'aging'    => $aging,
             'statement_summary' => $this->supplierService->getStatement(
@@ -299,23 +302,188 @@ class SupplierFinancialController extends ApiController
      */
     public function statement(Request $request, Supplier $supplier): JsonResponse
     {
-        $from = $request->input('from', now()->startOfMonth()->toDateString());
-        $to   = $request->input('to', now()->toDateString());
+        $data = $request->validate([
+            'from'      => ['nullable', 'date'],
+            'to'        => ['nullable', 'date', 'after_or_equal:from'],
+            'type'      => ['nullable', 'string'],
+            'mode'      => ['nullable', 'in:simple,detailed'],
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+        ]);
+
+        $from = $data['from'] ?? now()->startOfMonth()->toDateString();
+        $to = $data['to'] ?? now()->toDateString();
 
         $statement = $this->supplierService->getStatement(
             supplier: $supplier,
             from: $from,
             to: $to,
-            branchId: $request->input('branch_id'),
+            branchId: $data['branch_id'] ?? null,
+            type: $data['type'] ?? 'all',
+            mode: $data['mode'] ?? 'simple',
         );
 
-        return $this->success('كشف حساب المورد', [
-            'supplier'   => ['id' => $supplier->id, 'name' => $supplier->name, 'code' => $supplier->code],
-            'balance'    => $supplier->balance,
-            'period'     => ['from' => $from, 'to' => $to],
-            'statement'  => $statement,
+        return $this->success("\u{0643}\u{0634}\u{0641}\u{0020}\u{062D}\u{0633}\u{0627}\u{0628}\u{0020}\u{0627}\u{0644}\u{0645}\u{0648}\u{0631}\u{062F}", [
+            'supplier'  => ['id' => $supplier->id, 'name' => $supplier->name, 'code' => $supplier->code],
+            'balance'   => $supplier->balance,
+            'period'    => ['from' => $from, 'to' => $to],
+            'statement' => $statement,
         ]);
     }
+
+    /**
+     * GET /api/suppliers/{supplier}/statement/export
+     */
+    public function statementExport(Request $request, Supplier $supplier)
+    {
+        $data = $request->validate([
+            'from'      => ['nullable', 'date'],
+            'to'        => ['nullable', 'date', 'after_or_equal:from'],
+            'type'      => ['nullable', 'string'],
+            'mode'      => ['nullable', 'in:simple,detailed'],
+            'format'    => ['nullable', 'in:csv,excel'],
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+        ]);
+
+        $from = $data['from'] ?? now()->startOfMonth()->toDateString();
+        $to = $data['to'] ?? now()->toDateString();
+        $statement = $this->supplierService->getStatement(
+            supplier: $supplier,
+            from: $from,
+            to: $to,
+            branchId: $data['branch_id'] ?? null,
+            type: $data['type'] ?? 'all',
+            mode: $data['mode'] ?? 'detailed',
+        );
+
+        $payload = $this->buildStatementExportPayload($supplier, $statement, $from, $to);
+        $base = "statement_supplier_{$supplier->id}_{$from}_{$to}";
+
+        if (($data['format'] ?? 'csv') === 'excel') {
+            return $this->exportService->exportExcelXml($payload, "{$base}.xls");
+        }
+
+        return $this->exportService->exportCsv($payload, "{$base}.csv");
+    }
+
+    /**
+     * GET /api/suppliers/{supplier}/statement/pdf
+     */
+    public function statementPdf(Request $request, Supplier $supplier)
+    {
+        $data = $request->validate([
+            'from'      => ['nullable', 'date'],
+            'to'        => ['nullable', 'date', 'after_or_equal:from'],
+            'type'      => ['nullable', 'string'],
+            'pdf_style' => ['nullable', 'in:simple,detailed'],
+            'mode'      => ['nullable', 'in:simple,detailed'],
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+        ]);
+
+        $from = $data['from'] ?? now()->startOfMonth()->toDateString();
+        $to = $data['to'] ?? now()->toDateString();
+        $pdfStyle = $data['pdf_style'] ?? ($data['mode'] ?? 'detailed');
+        $statement = $this->supplierService->getStatement(
+            supplier: $supplier,
+            from: $from,
+            to: $to,
+            branchId: $data['branch_id'] ?? null,
+            type: $data['type'] ?? 'all',
+            mode: $pdfStyle,
+        );
+
+        $companyName = "\u{0634}\u{0631}\u{0643}\u{0629}\u{0020}\u{004F}\u{0032}";
+        $companyLocation = "\u{0641}\u{0644}\u{0633}\u{0637}\u{064A}\u{0646}";
+        $printedAt = now()->format('Y-m-d H:i:s');
+        $statementTypeLabel = $this->statementTypeLabel($data['type'] ?? 'all');
+
+        $html = view('pdf.employee-statement', [
+            'entityType' => 'supplier',
+            'entityLabel' => "\u{0627}\u{0644}\u{0645}\u{0648}\u{0631}\u{062F}",
+            'entityName' => $supplier->name,
+            'entityId' => $supplier->id,
+            'entityCode' => $supplier->code,
+            'employeeName' => $supplier->name,
+            'employeeId' => $supplier->id,
+            'fromDate' => $from,
+            'toDate' => $to,
+            'statementTypeLabel' => $statementTypeLabel,
+            'entries' => $statement['lines'] ?? [],
+            'openingEntries' => [],
+            'openingBalance' => $statement['opening_balance'] ?? 0,
+            'closingBalance' => $statement['closing_balance'] ?? 0,
+            'totalDebit' => $statement['total_debit'] ?? 0,
+            'totalCredit' => $statement['total_credit'] ?? 0,
+            'pdfStyle' => $pdfStyle,
+            'companyName' => $companyName,
+            'companyLocation' => $companyLocation,
+            'currency' => $supplier->currency ?? "\u{0634}\u{064A}\u{0643}\u{0644}",
+            'printedBy' => $request->user()->name ?? "\u{063A}\u{064A}\u{0631}\u{0020}\u{0645}\u{0639}\u{0631}\u{0648}\u{0641}",
+            'printedAt' => $printedAt,
+            'erpName' => 'O2 ERP System',
+        ])->render();
+
+        $mpdf = new Mpdf([
+            'mode' => 'ar',
+            'autoLangToFont' => true,
+            'autoArabic' => true,
+            'format' => 'A4',
+            'orientation' => 'P',
+            'margin_left' => 15,
+            'margin_right' => 15,
+            'margin_top' => 15,
+            'margin_bottom' => 20,
+            'margin_header' => 10,
+            'margin_footer' => 10,
+        ]);
+        $mpdf->autoScriptToLang = true;
+        $mpdf->autoLangToFont = true;
+        $mpdf->SetHTMLHeader('<div style="text-align:center;font-size:7pt;color:#999;border-bottom:0.5px solid #ddd;padding-bottom:3px;">' . $companyName . ' - ' . "\u{0643}\u{0634}\u{0641}\u{0020}\u{062D}\u{0633}\u{0627}\u{0628}\u{0020}\u{0627}\u{0644}\u{0645}\u{0648}\u{0631}\u{062F}" . ' ' . $statementTypeLabel . '</div>');
+        $mpdf->SetHTMLFooter('<div style="font-size:7pt;color:#999;border-top:0.5px solid #ddd;padding-top:3px;"><span>Print Date: ' . $printedAt . '</span><span style="float:left">Page {PAGENO} of {nbpg}</span></div>');
+        $mpdf->WriteHTML($html);
+
+        $filename = "statement_supplier_{$supplier->id}_{$from}_{$to}.pdf";
+        return response($mpdf->Output($filename, 'S'))
+            ->header('Content-Type', 'application/pdf')
+            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
+    }
+
+    private function buildStatementExportPayload(Supplier $supplier, array $statement, string $from, string $to): array
+    {
+        return [
+            'employee' => ['id' => $supplier->id, 'name' => $supplier->name, 'code' => $supplier->code],
+            'supplier' => ['id' => $supplier->id, 'name' => $supplier->name, 'code' => $supplier->code],
+            'period' => ['from' => $from, 'to' => $to],
+            'totals' => [
+                'opening_balance' => $statement['opening_balance'] ?? 0,
+                'closing_balance' => $statement['closing_balance'] ?? 0,
+                'total_debit' => $statement['total_debit'] ?? 0,
+                'total_credit' => $statement['total_credit'] ?? 0,
+            ],
+            'all_lines' => $statement['lines'] ?? [],
+        ];
+    }
+
+    private function statementTypeLabel(string $type): string
+    {
+        return [
+            'all' => "\u{0627}\u{0644}\u{0643}\u{0644}",
+            'sales' => "\u{0627}\u{0644}\u{0645}\u{0628}\u{064A}\u{0639}\u{0627}\u{062A}",
+            'purchases' => "\u{0627}\u{0644}\u{0645}\u{0634}\u{062A}\u{0631}\u{064A}\u{0627}\u{062A}",
+            'purchase' => "\u{0627}\u{0644}\u{0645}\u{0634}\u{062A}\u{0631}\u{064A}\u{0627}\u{062A}",
+            'payments' => "\u{0627}\u{0644}\u{062F}\u{0641}\u{0639}\u{0627}\u{062A}",
+            'payment' => "\u{0627}\u{0644}\u{062F}\u{0641}\u{0639}\u{0627}\u{062A}",
+            'receipts' => "\u{0627}\u{0644}\u{062A}\u{062D}\u{0635}\u{064A}\u{0644}\u{0627}\u{062A}",
+            'receipt' => "\u{0627}\u{0644}\u{062A}\u{062D}\u{0635}\u{064A}\u{0644}\u{0627}\u{062A}",
+            'returns' => "\u{0627}\u{0644}\u{0645}\u{0631}\u{062A}\u{062C}\u{0639}\u{0627}\u{062A}",
+            'return' => "\u{0627}\u{0644}\u{0645}\u{0631}\u{062A}\u{062C}\u{0639}\u{0627}\u{062A}",
+            'discounts' => "\u{0627}\u{0644}\u{062E}\u{0635}\u{0648}\u{0645}\u{0627}\u{062A}",
+            'discount' => "\u{0627}\u{0644}\u{062E}\u{0635}\u{0648}\u{0645}\u{0627}\u{062A}",
+            'credit_note' => "\u{0625}\u{0634}\u{0639}\u{0627}\u{0631}\u{0020}\u{062F}\u{0627}\u{0626}\u{0646}",
+            'debit_note' => "\u{0625}\u{0634}\u{0639}\u{0627}\u{0631}\u{0020}\u{0645}\u{062F}\u{064A}\u{0646}",
+            'journal' => "\u{0627}\u{0644}\u{0642}\u{064A}\u{0648}\u{062F}",
+        ][$type] ?? $type;
+    }
+
 
     /**
      * GET /api/suppliers/{supplier}/aging

@@ -272,6 +272,8 @@ class SupplierAccountingService
         string   $from,
         string   $to,
         ?int     $branchId = null,
+        string   $type = 'all',
+        string   $mode = 'simple',
     ): array {
         return $this->subledgerService->getFullStatement(
             type: 'supplier',
@@ -279,6 +281,8 @@ class SupplierAccountingService
             from: $from,
             to: $to,
             branchId: $branchId,
+            mode: $mode,
+            statementType: $type,
         );
     }
 
