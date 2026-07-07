@@ -31,6 +31,8 @@ class InvoiceResource extends JsonResource
                     'value' => (float) $discountItem->discount->value,
                 ];
             }
+        }
+
         $entityName = null;
         if ($this->entity_type && $this->entity_id) {
             $entityModel = match ($this->entity_type) {
