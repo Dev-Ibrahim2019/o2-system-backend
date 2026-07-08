@@ -9,6 +9,7 @@ use App\Http\Requests\Api\UpdateOrderRequest;
 use App\Http\Resources\AccountingResources\TransactionResource;
 use App\Http\Resources\OrderItemResource;
 use App\Http\Resources\OrderResource;
+use App\Models\DiningTable;
 use App\Models\Item;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -44,13 +45,11 @@ class OrderController extends ApiController
         try {
             $authUser = auth()->user();
 
-            // حماية: حقن branch_id تلقائياً من المستخدم المسجل
-            // super-admin (branch_id = null) يمكنه تمرير branch_id يدوياً
-            // إذا كان كل شيء null، نأخذ أول برانش موجود كـ fallback
             $branchId = $authUser->branch_id ?? $data['branch_id'] ?? \App\Models\Branch::value('id');
 
             $order = Order::create([
                 'order_number' => Order::generateOrderNumber(),
+                'dining_table_id' => $data['dining_table_id'] ?? null,
                 'branch_id' => $branchId,
                 'cashier_id' => $data['cashier_id'] ?? null,
                 'order_type' => $data['order_type'],
@@ -69,6 +68,14 @@ class OrderController extends ApiController
                 'engine_discount_amount' => 0,
                 'total' => 0,
             ]);
+
+            // إذا تم تحديد طاولة، قم بتسكينها تلقائياً
+            if ($order->dining_table_id) {
+                $table = DiningTable::find($order->dining_table_id);
+                if ($table && $table->status === 'AVAILABLE') {
+                    $table->setOccupied($order->id);
+                }
+            }
 
             if (! empty($data['items'])) {
                 foreach ($data['items'] as $row) {
@@ -117,9 +124,6 @@ class OrderController extends ApiController
         );
     }
 
-    /**
-     * أجزاء الطلب للطباعة — قسم واحد لكل ticket (بعد confirm)
-     */
     public function printSections(Order $order): JsonResponse
     {
         return $this->success('أجزاء الطلب للطباعة', [
@@ -137,22 +141,47 @@ class OrderController extends ApiController
             return $this->error('لا يمكن تعديل طلب مغلق أو ملغى.', 422);
         }
 
+        DB::beginTransaction();
         try {
-            $order->update($request->validated());
+            $order->update($request->safe()->except('items'));
+
+            // مزامنة الأصناف إذا تم إرسالها
+            if ($request->has('items')) {
+                // مسح الأصناف القديمة التي لم ترسل للمطبخ بعد
+                $order->items()
+                    ->where('status', 'pending')
+                    ->delete();
+
+                foreach ($request->items as $row) {
+                    $this->createOrderItem(
+                        $order,
+                        (int) $row['item_id'],
+                        (float) $row['quantity'],
+                        isset($row['unit_price']) ? (float) $row['unit_price'] : null,
+                        $row['notes'] ?? null
+                    );
+                }
+
+                $this->syncProductionTickets($order);
+            }
+
             $order->recalculateTotals();
+
+            DB::commit();
 
             return $this->success(
                 'تم تحديث الطلب',
                 new OrderResource($order->fresh()->load(['items.department', 'cashier']))
             );
+        } catch (\InvalidArgumentException $e) {
+            DB::rollBack();
+            return $this->error($e->getMessage(), 422);
         } catch (\Throwable $e) {
+            DB::rollBack();
             return $this->error('فشل تحديث الطلب: ' . $e->getMessage(), 500);
         }
     }
 
-    /**
-     * مزامنة سياق التسعير (كيان مالي + خصم يدوي) وإعادة حساب المجاميع — قبل إغلاق الفاتورة.
-     */
     public function syncPricing(UpdateOrderRequest $request, Order $order): JsonResponse
     {
         if (in_array($order->status, ['paid', 'cancelled'], true)) {
@@ -172,9 +201,6 @@ class OrderController extends ApiController
         }
     }
 
-    /**
-     * إضافة صنف — جلب السعر من branch_item وحفظ الاسم والسعر وقت الإضافة
-     */
     public function addItem(AddOrderItemRequest $request, Order $order): JsonResponse
     {
         if ($order->status !== 'pending') {
@@ -210,9 +236,6 @@ class OrderController extends ApiController
         }
     }
 
-    /**
-     * حذف صنف — فقط إذا كان pending
-     */
     public function removeItem(Order $order, OrderItem $orderItem): JsonResponse
     {
         if ($order->status !== 'pending') {
@@ -240,9 +263,6 @@ class OrderController extends ApiController
         }
     }
 
-    /**
-     * إرسال الطلب للمطبخ — تذاكر إنتاج لكل قسم
-     */
     public function confirm(Order $order): JsonResponse
     {
         if ($order->status !== 'pending') {
@@ -255,7 +275,6 @@ class OrderController extends ApiController
 
         DB::beginTransaction();
         try {
-            // تجميع الأصناف حسب القسم
             $itemsByDept = $order->items()->with('department')->get()->groupBy('department_id');
 
             foreach ($itemsByDept as $deptId => $deptItems) {
@@ -304,9 +323,6 @@ class OrderController extends ApiController
         }
     }
 
-    /**
-     * إلغاء الطلب — pending أو confirmed فقط
-     */
     public function cancel(Order $order): JsonResponse
     {
         if (! in_array($order->status, ['pending', 'confirmed'], true)) {
@@ -318,6 +334,14 @@ class OrderController extends ApiController
                 $order->update(['status' => 'cancelled']);
                 $order->tickets()->update(['status' => 'cancelled']);
                 $order->items()->update(['status' => 'cancelled']);
+
+                // تحرير الطاولة إذا كانت مرتبطة
+                if ($order->dining_table_id) {
+                    $table = DiningTable::find($order->dining_table_id);
+                    if ($table && $table->current_order_id == $order->id) {
+                        $table->setAvailable();
+                    }
+                }
             });
 
             return $this->success('تم إلغاء الطلب', new OrderResource($order->fresh()));
@@ -326,9 +350,6 @@ class OrderController extends ApiController
         }
     }
 
-    /**
-     * تسليم الطلب — ready → served + تسليم كل التذاكر
-     */
     public function serve(Order $order): JsonResponse
     {
         if (! in_array($order->status, ['ready', 'in_progress'], true)) {
@@ -357,9 +378,6 @@ class OrderController extends ApiController
         }
     }
 
-    /**
-     * عرض القيد المحاسبي المرتبط بطلب
-     */
     public function journalEntry(Order $order): JsonResponse
     {
         $transaction = Transaction::with(['entries.account', 'entries.costCenter', 'branch', 'user'])
@@ -422,11 +440,6 @@ class OrderController extends ApiController
         }
     }
 
-    /**
-     * إنشاء بند طلب واحد مع السعر من branch_item (أو unit_price المرسل)
-     *
-     * @throws \InvalidArgumentException
-     */
     private function createOrderItem(
         Order $order,
         int $itemId,

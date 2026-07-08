@@ -24,6 +24,11 @@ class UpdateOrderRequest extends FormRequest
             'customer_id' => 'nullable|integer|exists:customers,id',
             'employee_id' => 'nullable|integer|exists:employees,id',
             'supplier_id' => 'nullable|integer|exists:suppliers,id',
+            'items' => 'nullable|array',
+            'items.*.item_id' => 'required|integer|exists:items,id',
+            'items.*.quantity' => 'required|numeric|min:0.01',
+            'items.*.unit_price' => 'nullable|numeric|min:0',
+            'items.*.notes' => 'nullable|string|max:500',
         ];
     }
 }

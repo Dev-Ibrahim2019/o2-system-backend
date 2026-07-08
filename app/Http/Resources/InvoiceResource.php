@@ -31,6 +31,8 @@ class InvoiceResource extends JsonResource
                     'value' => (float) $discountItem->discount->value,
                 ];
             }
+        }
+
         $entityName = null;
         if ($this->entity_type && $this->entity_id) {
             $entityModel = match ($this->entity_type) {
@@ -58,10 +60,11 @@ class InvoiceResource extends JsonResource
             'branch_id' => $this->branch_id,
             'branch_name' => $branchName,
             'customer_id' => $this->customer_id,
+            'customer_name' => $this->customer_name ?? null,
             'status' => $this->status,
-            'currency' => $this->currency ?? 'SAR',
+            'currency' => $this->currency ?? 'ILS',
             'payment_method' => $this->payment_method,
-            'payment_method_display' => $this->payment_method_display,
+            'payment_method_display' => $this->payment_method_display ?? null,
             'subtotal' => (float) $this->subtotal,
             'discount' => (float) $this->discount,
             'tax_total' => (float) ($this->tax_total ?? 0),

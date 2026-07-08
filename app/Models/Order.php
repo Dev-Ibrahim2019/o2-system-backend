@@ -28,6 +28,7 @@ class Order extends Model
 
     protected $fillable = [
         'order_number',
+        'dining_table_id',
         'branch_id',
         'cashier_id',
         'order_type',
@@ -79,6 +80,11 @@ class Order extends Model
     public function productionTickets(): HasMany
     {
         return $this->tickets();
+    }
+
+    public function diningTable()
+    {
+        return $this->belongsTo(DiningTable::class, 'dining_table_id');
     }
 
     public function invoice(): HasOne

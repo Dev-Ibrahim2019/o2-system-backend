@@ -72,6 +72,15 @@ Route::middleware('auth:sanctum')->group(function () {
 
     }); // ← نهاية مسارات POS المحمية بشبكة الفرع
 
+    // ── Tables Management (موحدة للكاشير/الضيافة/المحاسب/المدير) ──
+    Route::get('tables', [\App\Http\Controllers\Api\TableOperationsController::class, 'index']);
+    Route::get('tables/{table}', [\App\Http\Controllers\Api\TableOperationsController::class, 'show']);
+    Route::post('tables/{table}/seat', [\App\Http\Controllers\Api\TableOperationsController::class, 'seat']);
+    Route::put('tables/{table}/status', [\App\Http\Controllers\Api\TableOperationsController::class, 'updateStatus']);
+    Route::post('tables/{table}/free', [\App\Http\Controllers\Api\TableOperationsController::class, 'free']);
+    Route::post('tables/transfer', [\App\Http\Controllers\Api\TableOperationsController::class, 'transfer']);
+    Route::post('tables/merge', [\App\Http\Controllers\Api\TableOperationsController::class, 'merge']);
+
     // ── إدارة المستخدمين ──
     Route::get('users', [UserController::class, 'index'])->middleware('permission:manage-users');
     Route::post('users', [UserController::class, 'store'])->middleware('permission:manage-users');
@@ -155,6 +164,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('timeline', [InvoiceDetailsController::class, 'timeline']);
         Route::get('attachments', [InvoiceDetailsController::class, 'attachments']);
         Route::get('notes', [InvoiceDetailsController::class, 'notes']);
+    });
+
     // ── Financial Invoices ──
     Route::prefix('financial/invoices')->group(function () {
         Route::get('/', [InvoiceController::class, 'financialIndex']);
@@ -324,6 +335,17 @@ Route::middleware('auth:sanctum')->prefix('admin/dining-zones')->group(function 
 Route::middleware('auth:sanctum')->prefix('dining-zones')->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\DiningZoneController::class, 'index']);
     Route::get('/{id}', [\App\Http\Controllers\Api\DiningZoneController::class, 'show']);
+});
+
+// ── Unified Tables API (POS, Hospitality, Accountant, Manager) ──
+Route::middleware('auth:sanctum')->prefix('tables')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\TableOperationsController::class, 'index']);
+    Route::get('/{table}', [\App\Http\Controllers\Api\TableOperationsController::class, 'show']);
+    Route::post('/{table}/seat', [\App\Http\Controllers\Api\TableOperationsController::class, 'seat']);
+    Route::put('/{table}/status', [\App\Http\Controllers\Api\TableOperationsController::class, 'updateStatus']);
+    Route::post('/{table}/free', [\App\Http\Controllers\Api\TableOperationsController::class, 'free']);
+    Route::post('/transfer', [\App\Http\Controllers\Api\TableOperationsController::class, 'transfer']);
+    Route::post('/merge', [\App\Http\Controllers\Api\TableOperationsController::class, 'merge']);
 });
 
 Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);
