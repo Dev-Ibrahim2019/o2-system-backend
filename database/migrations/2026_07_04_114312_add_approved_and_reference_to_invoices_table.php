@@ -11,6 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (! Schema::hasTable('invoices')) {
+            return;
+        }
+
         if (! Schema::hasColumn('invoices', 'approved_by')) {
             Schema::table('invoices', function (Blueprint $table) {
                 $table->unsignedBigInteger('approved_by')->nullable()->after('account_number');
@@ -36,11 +40,16 @@ return new class extends Migration
         }
     }
 
+
     /**
      * Reverse the migrations.
      */
     public function down(): void
     {
+        if (! Schema::hasTable('invoices')) {
+            return;
+        }
+
         Schema::table('invoices', function (Blueprint $table) {
             $table->dropColumn(['approved_by', 'approved_at', 'supply_date', 'reference_number']);
         });

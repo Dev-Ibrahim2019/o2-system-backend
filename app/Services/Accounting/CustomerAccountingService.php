@@ -334,6 +334,8 @@ class CustomerAccountingService
         string   $from,
         string   $to,
         ?int     $branchId = null,
+        string   $type = 'all',
+        string   $mode = 'simple',
     ): array {
         return $this->subledgerService->getFullStatement(
             type: 'customer',
@@ -341,6 +343,8 @@ class CustomerAccountingService
             from: $from,
             to: $to,
             branchId: $branchId,
+            mode: $mode,
+            statementType: $type,
         );
     }
 

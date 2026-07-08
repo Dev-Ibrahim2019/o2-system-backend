@@ -6,6 +6,7 @@ use App\Models\Account;
 use App\Models\Entry;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Throwable;
 
 /**
  * â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
@@ -93,6 +94,7 @@ class SubledgerService
             return [
                 'date'               => $txn->date->format('Y-m-d'),
                 'transaction_number' => $txn->transaction_number,
+                'document_number'    => $txn->reference ?: $txn->transaction_number,
                 'transaction_id'     => $txn->id,
                 'type'               => $txn->type,
                 'reference'          => $txn->reference,
@@ -143,30 +145,34 @@ class SubledgerService
         ?string $from = null,
         ?string $to   = null,
         ?int    $branchId = null,
+        string  $mode = 'simple',
+        string  $statementType = 'all',
     ): array {
         $fromDate = $from ? Carbon::parse($from)->startOfDay() : null;
         $toDate   = $to   ? Carbon::parse($to)->endOfDay()     : null;
+        $mode = in_array($mode, ['simple', 'detailed'], true) ? $mode : 'simple';
+        $statementType = $this->normalizeStatementFilter($statementType);
 
-        // â”€â”€ Opening Balance (all entries before from date) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        $openingQuery = Entry::query()
+        $openingEntries = Entry::query()
             ->forSubledger($type, $id)
             ->with('account:id,code,name,type')
             ->whereHas('transaction', function ($q) use ($fromDate, $branchId) {
                 $q->where('status', 'posted');
                 if ($fromDate) $q->where('date', '<', $fromDate);
                 if ($branchId) $q->where('branch_id', $branchId);
-            });
-
-        $openingEntries = $openingQuery->get();
+            })
+            ->get();
         $openingBalance = $this->computeNetBalance($openingEntries);
 
-        // â”€â”€ Period Entries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         $entries = Entry::query()
             ->forSubledger($type, $id)
             ->with([
                 'account:id,code,name,type',
-                'transaction:id,transaction_number,date,type,description,status,source_type,source_id,branch_id',
+                'transaction:id,transaction_number,date,type,description,status,reference,source_type,source_id,branch_id',
+                'transaction.source',
                 'transaction.branch:id,name',
+                'transaction.entries.account:id,code,name',
+                'transaction.entries.costCenter:id,name',
             ])
             ->whereHas('transaction', function ($q) use ($fromDate, $toDate, $branchId) {
                 $q->where('status', 'posted');
@@ -177,53 +183,71 @@ class SubledgerService
             ->orderBy('id')
             ->get();
 
-        // â”€â”€ Running Balance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         $runningBalance = $openingBalance;
-        $lines = $entries->map(function (Entry $entry) use (&$runningBalance) {
+        $allLines = $entries->map(function (Entry $entry) use (&$runningBalance, $mode) {
             $d = (float) $entry->debit;
             $c = (float) $entry->credit;
             $account = $entry->account;
             $txn = $entry->transaction;
 
-            // Calculate balance effect based on account normal balance type
             if ($account) {
-                $isDebitNormal = in_array($account->type, ['asset', 'expense']);
-                $effect = $isDebitNormal ? ($d - $c) : ($c - $d);
-                $runningBalance += $effect;
+                $isDebitNormal = in_array($account->type, ['asset', 'expense'], true);
+                $runningBalance += $isDebitNormal ? ($d - $c) : ($c - $d);
             } else {
                 $runningBalance += ($c - $d);
             }
 
-            return [
+            $line = [
                 'date'               => $txn->date->format('Y-m-d'),
                 'transaction_number' => $txn->transaction_number,
+                'document_number'    => $txn->reference ?: $txn->transaction_number,
                 'transaction_id'     => $txn->id,
                 'type'               => $txn->type,
+                'reference'          => $txn->reference,
                 'description'        => $entry->description ?? $txn->description,
-                'account_name'       => $account?->name ?? 'â€”',
-                'account_code'       => $account?->code ?? 'â€”',
+                'account_name'       => $account?->name ?? '-',
+                'account_code'       => $account?->code ?? '-',
                 'debit'              => $d,
                 'credit'             => $c,
                 'balance'            => round($runningBalance, 3),
+                'running_balance'    => round($runningBalance, 3),
                 'source_type'        => $txn->source_type,
                 'source_id'          => $txn->source_id,
                 'source_label'       => $txn->source_type ? class_basename($txn->source_type) : null,
                 'branch_id'          => $txn->branch_id,
                 'branch_name'        => $txn->relationLoaded('branch') && $txn->branch ? $txn->branch->name : null,
+                'status'             => $txn->status,
+                'items'              => [],
+                'payments_data'      => [],
+                'journal_entries'    => [],
+                'has_discounts'      => false,
+                'discount_amount'    => 0,
+                'discount_percent'   => 0,
             ];
-        });
 
-        // â”€â”€ Compute totals across all accounts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            $line = StatementClassifier::classifyLine($line);
+            $line = $this->retagSubledgerLine($line);
+
+            return $mode === 'detailed'
+                ? $this->enrichLineDetails($line, $entry)
+                : $line;
+        })->values()->all();
+
+        $lines = array_values(array_filter(
+            $allLines,
+            fn(array $line) => $this->typeMatches($line, $statementType)
+        ));
+
         $totalsByAccount = $entries->groupBy('account_id')->map(function ($group) {
             $account = $group->first()->account;
             return [
                 'account_id'   => $group->first()->account_id,
-                'account_code' => $account?->code ?? 'â€”',
-                'account_name' => $account?->name ?? 'â€”',
+                'account_code' => $account?->code ?? '-',
+                'account_name' => $account?->name ?? '-',
                 'debit'        => round((float) $group->sum('debit'), 3),
                 'credit'       => round((float) $group->sum('credit'), 3),
                 'net'          => round(
-                    $account && in_array($account->type, ['asset', 'expense'])
+                    $account && in_array($account->type, ['asset', 'expense'], true)
                         ? (float) $group->sum('debit') - (float) $group->sum('credit')
                         : (float) $group->sum('credit') - (float) $group->sum('debit'),
                     3
@@ -235,21 +259,16 @@ class SubledgerService
             'subledger'       => ['type' => $type, 'id' => $id],
             'period'          => ['from' => $from, 'to' => $to],
             'opening_balance' => round($openingBalance, 3),
-            'total_debit'     => round((float) $entries->sum('debit'), 3),
-            'total_credit'    => round((float) $entries->sum('credit'), 3),
-            'closing_balance' => round($runningBalance, 3),
+            'total_debit'     => round((float) collect($lines)->sum('debit'), 3),
+            'total_credit'    => round((float) collect($lines)->sum('credit'), 3),
+            'closing_balance' => count($lines) > 0 ? round((float) ($lines[array_key_last($lines)]['running_balance'] ?? $openingBalance), 3) : round($openingBalance, 3),
             'lines'           => $lines,
             'accounts'        => $totalsByAccount,
+            'mode'            => $mode,
+            'type'            => $statementType,
         ];
     }
 
-    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // âœ… NEW: ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظ…ط¯ظپظˆط¹ط§طھ ظ„ظƒظٹط§ظ† ظپظٹ ظپطھط±ط© ظ…ط¹ظٹظ†ط©
-    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-    /**
-     * ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظ…ط¯ظپظˆط¹ط§طھ ط§ظ„ظ…ط¯ظپظˆط¹ط© ظ„ظƒظٹط§ظ† ظپظٹ ظپطھط±ط© ظ…ط¹ظٹظ†ط©
-     */
     public function getPaymentsTotal(
         string  $type,
         int     $id,
@@ -358,6 +377,204 @@ class SubledgerService
     }
 
     // â”€â”€ Private â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+
+    private function normalizeStatementFilter(?string $filter): string
+    {
+        $filter = $filter ?: 'all';
+        $aliases = [
+            'payments' => 'payment',
+            'receipts' => 'receipt',
+            'collections' => 'receipt',
+            'purchases' => 'purchase',
+            'returns' => 'return',
+            'credit_notes' => 'credit_note',
+            'debit_notes' => 'debit_note',
+            'journals' => 'journal',
+            'discounts' => 'discount',
+        ];
+
+        return $aliases[$filter] ?? $filter;
+    }
+
+    private function retagSubledgerLine(array $line): array
+    {
+        $txnType = strtolower((string) ($line['type'] ?? ''));
+        $number = strtoupper((string) ($line['transaction_number'] ?? ''));
+        $reference = strtolower((string) ($line['reference'] ?? ''));
+        $description = strtolower((string) ($line['description'] ?? ''));
+
+        if ($txnType === 'receipt' || str_starts_with($number, 'RCP')) {
+            return $this->tagLine($line, 'receipt', "\u{062A}\u{062D}\u{0635}\u{064A}\u{0644}\u{0627}\u{062A}", "\u{0633}\u{0646}\u{062F}\u{0020}\u{0642}\u{0628}\u{0636}");
+        }
+        if ($txnType === 'payment' || str_starts_with($number, 'PMT')) {
+            return $this->tagLine($line, 'payment', "\u{062F}\u{0641}\u{0639}\u{0627}\u{062A}", "\u{0633}\u{0646}\u{062F}\u{0020}\u{062F}\u{0641}\u{0639}");
+        }
+        if ($txnType === 'sale' || str_starts_with($number, 'INV')) {
+            return $this->tagLine($line, 'sales', "\u{0627}\u{0644}\u{0645}\u{0628}\u{064A}\u{0639}\u{0627}\u{062A}", "\u{0641}\u{0627}\u{062A}\u{0648}\u{0631}\u{0629}\u{0020}\u{0645}\u{0628}\u{064A}\u{0639}\u{0627}\u{062A}");
+        }
+        if ($txnType === 'purchase' || str_starts_with($number, 'BILL')) {
+            return $this->tagLine($line, 'purchase', "\u{0627}\u{0644}\u{0645}\u{0634}\u{062A}\u{0631}\u{064A}\u{0627}\u{062A}", "\u{0641}\u{0627}\u{062A}\u{0648}\u{0631}\u{0629}\u{0020}\u{0634}\u{0631}\u{0627}\u{0621}");
+        }
+        if (str_starts_with($number, 'CN') || str_contains($reference, 'credit') || str_contains($description, 'credit')) {
+            return $this->tagLine($line, 'credit_note', "\u{0625}\u{0634}\u{0639}\u{0627}\u{0631}\u{0020}\u{062F}\u{0627}\u{0626}\u{0646}", "\u{0625}\u{0634}\u{0639}\u{0627}\u{0631}\u{0020}\u{062F}\u{0627}\u{0626}\u{0646}");
+        }
+        if (str_starts_with($number, 'DN') || str_contains($reference, 'debit') || str_contains($description, 'debit')) {
+            return $this->tagLine($line, 'debit_note', "\u{0625}\u{0634}\u{0639}\u{0627}\u{0631}\u{0020}\u{0645}\u{062F}\u{064A}\u{0646}", "\u{0625}\u{0634}\u{0639}\u{0627}\u{0631}\u{0020}\u{0645}\u{062F}\u{064A}\u{0646}");
+        }
+        if ($txnType === 'journal') {
+            return $this->tagLine($line, 'journal', "\u{0627}\u{0644}\u{0642}\u{064A}\u{0648}\u{062F}", "\u{0627}\u{0644}\u{0642}\u{064A}\u{0648}\u{062F}");
+        }
+
+        return $line;
+    }
+
+    private function tagLine(array $line, string $type, string $label, string $documentType): array
+    {
+        $line['movement_type'] = $type;
+        $line['movement_label'] = $label;
+        $line['document_type'] = $documentType;
+        return $line;
+    }
+
+    private function typeMatches(array $line, string $filter): bool
+    {
+        if ($filter === 'all') {
+            return true;
+        }
+
+        $movementType = (string) ($line['movement_type'] ?? '');
+        $groups = [
+            'sales' => ['sales'],
+            'purchase' => ['purchase'],
+            'payment' => ['payment', 'supplier_payment', 'advance_repayment', 'loan_repayment', 'salary_payment'],
+            'receipt' => ['receipt', 'customer_payment'],
+            'credit_note' => ['credit_note', 'discount'],
+            'debit_note' => ['debit_note'],
+            'journal' => ['journal'],
+            'return' => ['return', 'refund'],
+            'discount' => ['discount', 'credit_note'],
+        ];
+
+        return in_array($movementType, $groups[$filter] ?? [$filter], true);
+    }
+
+    private function enrichLineDetails(array $line, Entry $entry): array
+    {
+        $transaction = $entry->transaction;
+        $source = $transaction?->source;
+
+        if ($source) {
+            $items = $this->extractItems($source);
+            if ($items !== []) {
+                $line['items'] = $items;
+                $line['total_items'] = count($items);
+                $line['total_discount_amount'] = round((float) collect($items)->sum('discount_amount'), 3);
+                $line['discount_amount'] = $line['total_discount_amount'];
+                $line['discount_percent'] = round((float) collect($items)->sum('discount_percent'), 3);
+                $line['discount_count'] = collect($items)->filter(fn($item) => (float) ($item['discount_amount'] ?? 0) > 0)->count();
+                $line['has_discounts'] = $line['discount_count'] > 0;
+            }
+
+            $line['invoice_details'] = $this->buildDocumentDetails($source);
+            if (($source->id ?? null) && str_contains(class_basename($source), 'Invoice')) {
+                $line['invoice_id'] = (int) $source->id;
+                $line['document_id'] = (int) $source->id;
+            }
+
+            $payments = $this->extractPayments($source);
+            if ($payments !== []) {
+                $line['payments_data'] = $payments;
+            }
+        }
+
+        if ($transaction && $transaction->relationLoaded('entries')) {
+            $line['journal_entries'] = $transaction->entries->map(fn($journalEntry) => [
+                'account_code' => $journalEntry->account?->code,
+                'account_name' => $journalEntry->account?->name,
+                'debit'        => (float) $journalEntry->debit,
+                'credit'       => (float) $journalEntry->credit,
+                'description'  => $journalEntry->description,
+                'cost_center'  => $journalEntry->costCenter?->name,
+            ])->values()->all();
+            $line['journal_number'] = $transaction->transaction_number;
+            $line['journal_status'] = $transaction->status;
+        }
+
+        return $line;
+    }
+
+    private function extractItems(object $source): array
+    {
+        try {
+            if (method_exists($source, 'items')) {
+                $source->loadMissing('items');
+                return $source->items->map(fn($item) => $this->mapStatementItem($item))->values()->all();
+            }
+        } catch (Throwable) {
+            return [];
+        }
+
+        return [];
+    }
+
+    private function extractPayments(object $source): array
+    {
+        try {
+            if (method_exists($source, 'payments')) {
+                $source->loadMissing('payments');
+                return $source->payments->map(fn($payment) => [
+                    'method'           => $payment->payment_method ?? $payment->method ?? null,
+                    'amount'           => (float) ($payment->amount ?? 0),
+                    'reference_number' => $payment->reference_number ?? $payment->reference ?? null,
+                    'paid_at'          => $payment->created_at?->format('Y-m-d H:i'),
+                ])->values()->all();
+            }
+        } catch (Throwable) {
+            return [];
+        }
+
+        return [];
+    }
+
+    private function mapStatementItem(object $item): array
+    {
+        $quantity = (float) ($item->quantity ?? $item->qty ?? 0);
+        $unitPrice = (float) ($item->unit_price ?? $item->price ?? 0);
+        $total = (float) ($item->total ?? $item->line_total ?? ($quantity * $unitPrice));
+        $discount = (float) ($item->discount_amount ?? $item->discount ?? 0);
+
+        return [
+            'product_name'            => $item->product_name ?? $item->item_name ?? $item->name ?? '-',
+            'product_name_ar'         => $item->product_name_ar ?? $item->item_name_ar ?? $item->product_name ?? $item->item_name ?? null,
+            'quantity'                => $quantity,
+            'unit_price'              => $unitPrice,
+            'total'                   => $total,
+            'discount_amount'         => $discount,
+            'discount_percent'        => (float) ($item->discount_percent ?? 0),
+            'discount_apply_strategy' => $item->discount_apply_strategy ?? null,
+            'tax_rate'                => (float) ($item->tax_rate ?? 0),
+            'tax_amount'              => (float) ($item->tax_amount ?? 0),
+            'department'              => $item->department?->name ?? null,
+            'item_code'               => $item->item_id ?? $item->product_id ?? null,
+            'item_id'                 => $item->item_id ?? $item->product_id ?? null,
+            'barcode'                 => $item->barcode ?? null,
+        ];
+    }
+
+    private function buildDocumentDetails(object $source): array
+    {
+        return [
+            'invoice_number' => $source->number ?? $source->invoice_number ?? $source->order_number ?? null,
+            'invoice_status' => $source->status ?? null,
+            'invoice_date'   => isset($source->invoice_date) && $source->invoice_date ? $source->invoice_date->format('Y-m-d') : ($source->date ?? null),
+            'subtotal'       => (float) ($source->subtotal ?? 0),
+            'discount'       => (float) ($source->discount ?? 0),
+            'total'          => (float) ($source->total ?? $source->amount ?? 0),
+            'payment_method' => $source->payment_method ?? null,
+            'notes'          => $source->notes ?? null,
+        ];
+    }
 
     private function calcBalance(Account $account, float $debit, float $credit): float
     {

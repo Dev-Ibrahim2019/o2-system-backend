@@ -1,5 +1,5 @@
 <?php
-// routes/api.php — النسخة الكاملة
+// routes/api.php â€” ط§ظ„ظ†ط³ط®ط© ط§ظ„ظƒط§ظ…ظ„ط©
 
 use App\Http\Controllers\Api\Accounting\AccountController;
 use App\Http\Controllers\Api\Accounting\CostCenterController;
@@ -25,7 +25,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-// ── Public routes ──
+// â”€â”€ Public routes â”€â”€
 Route::get('branches', [BranchController::class, 'index']);
 Route::post('/login', [AuthController::class, 'login'])->name('login');
 
@@ -34,16 +34,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', fn(Request $r) => response()->json(['user' => $r->user()]));
 
-    // المنيو — محمي ويُفلتر تلقائياً حسب فرع المستخدم
+    // ط§ظ„ظ…ظ†ظٹظˆ â€” ظ…ط­ظ…ظٹ ظˆظٹظڈظپظ„طھط± طھظ„ظ‚ط§ط¦ظٹط§ظ‹ ط­ط³ط¨ ظپط±ط¹ ط§ظ„ظ…ط³طھط®ط¯ظ…
     Route::get('menu', [MenuController::class, 'index']);
 
-    // ══════════════════════════════════════════════════════════
-    //  مسارات الكاشير / POS — محمية بـ CheckPosNetwork
-    //  تمنع استخدام هذه المسارات من خارج شبكة الفرع
-    // ══════════════════════════════════════════════════════════
+    // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
+    //  ظ…ط³ط§ط±ط§طھ ط§ظ„ظƒط§ط´ظٹط± / POS â€” ظ…ط­ظ…ظٹط© ط¨ظ€ CheckPosNetwork
+    //  طھظ…ظ†ط¹ ط§ط³طھط®ط¯ط§ظ… ظ‡ط°ظ‡ ط§ظ„ظ…ط³ط§ط±ط§طھ ظ…ظ† ط®ط§ط±ط¬ ط´ط¨ظƒط© ط§ظ„ظپط±ط¹
+    // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
     Route::middleware('check.pos.network')->group(function () {
 
-        // ── Orders ──
+        // â”€â”€ Orders â”€â”€
         Route::post('orders/{order}/void', [OrderController::class, 'void']);
         Route::apiResource('orders', OrderController::class)->except(['destroy']);
         Route::post('orders/{order}/items', [OrderController::class, 'addItem']);
@@ -65,12 +65,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment']);
         Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry']);
 
-        // ── Settlement & Payment Routing ──
+        // â”€â”€ Settlement & Payment Routing â”€â”€
         Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle']);
         Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
         Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class);
 
-    }); // ← نهاية مسارات POS المحمية بشبكة الفرع
+    }); // â†گ ظ†ظ‡ط§ظٹط© ظ…ط³ط§ط±ط§طھ POS ط§ظ„ظ…ط­ظ…ظٹط© ط¨ط´ط¨ظƒط© ط§ظ„ظپط±ط¹
 
     // ── Tables Management (موحدة للكاشير/الضيافة/المحاسب/المدير) ──
     Route::get('tables', [\App\Http\Controllers\Api\TableOperationsController::class, 'index']);
@@ -89,26 +89,26 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('users/{user}/role', [UserController::class, 'updateRole'])->middleware('permission:manage-users');
     Route::post('users/{user}/toggle-status', [UserController::class, 'toggleStatus'])->middleware('permission:manage-users');
 
-    // ── إدارة الأدوار والصلاحيات ──
+    // â”€â”€ ط¥ط¯ط§ط±ط© ط§ظ„ط£ط¯ظˆط§ط± ظˆط§ظ„طµظ„ط§ط­ظٹط§طھ â”€â”€
     Route::get('roles-list', [RoleController::class, 'index'])->middleware('permission:manage-users');
     Route::get('permissions-list', [RoleController::class, 'getAllPermissions'])->middleware('permission:manage-users');
     Route::post('roles', [RoleController::class, 'store'])->middleware('permission:manage-users');
     Route::delete('roles/{role}', [RoleController::class, 'destroy'])->middleware('permission:manage-users');
     Route::put('roles/{role}/permissions', [RoleController::class, 'updatePermissions'])->middleware('permission:manage-users');
 
-    // ── Branches ──
+    // â”€â”€ Branches â”€â”€
     Route::get('branches/{branch}', [BranchController::class, 'show'])->middleware('permission:manage-branches');
     Route::post('branches', [BranchController::class, 'store'])->middleware('permission:manage-branches');
     Route::put('branches/{branch}', [BranchController::class, 'update'])->middleware('permission:manage-branches');
     Route::delete('branches/{branch}', [BranchController::class, 'destroy'])->middleware('permission:manage-branches');
     Route::get('branches/{branch}/menu', [BranchController::class, 'menu'])->middleware('permission:manage-branches');
 
-    // ── Items ──
+    // â”€â”€ Items â”€â”€
     Route::post('items/upload-image', [ItemController::class, 'uploadImage']);
     Route::apiResource('items', ItemController::class);
     Route::apiResource('job-titles', JobTitleController::class);
 
-    // ── Employees ──
+    // â”€â”€ Employees â”€â”€
     Route::prefix("employees")->group(function () {
         Route::get("/financial-batch", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "financialBatch"]);
         Route::get("/dashboard", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "dashboard"]);
@@ -128,7 +128,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
     Route::apiResource('employees', EmployeeController::class);
 
-    // ── Orders ──
+    // â”€â”€ Orders â”€â”€
     Route::post('orders/batch-invoice-ids', [InvoiceDetailsController::class, 'batchInvoiceIds']); // MUST be before apiResource
     Route::post('orders/{order}/void', [OrderController::class, 'void']);
     Route::apiResource('orders', OrderController::class)->except(['destroy']);
@@ -153,7 +153,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment']);
     Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry']);
 
-    // ── Invoice Details Drawer (lazy-load endpoints) ──
+    // â”€â”€ Invoice Details Drawer (lazy-load endpoints) â”€â”€
     Route::prefix('invoices/{invoice}')->group(function () {
         Route::get('details', [InvoiceDetailsController::class, 'details']);
         Route::get('products', [InvoiceDetailsController::class, 'products']);
@@ -178,7 +178,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{invoice}/void', [InvoiceController::class, 'voidFinancial']);
     });
 
-    // ── Sales Invoices (Full Module) ──
+    // â”€â”€ Sales Invoices (Full Module) â”€â”€
     Route::prefix('sales-invoices')->group(function () {
         // Stats must be before {invoice} to avoid route conflict
         Route::get('/stats', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'stats']);
@@ -220,18 +220,13 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 });
 
-// ── POS Registers (Admin) ──
+// â”€â”€ POS Registers (Admin) â”€â”€
 Route::middleware('auth:sanctum')->prefix('admin/pos-registers')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\PosRegisterController::class, 'index']);
     Route::post('/', [\App\Http\Controllers\Admin\PosRegisterController::class, 'store']);
     Route::post('{id}/generate-token', [\App\Http\Controllers\Admin\PosRegisterController::class, 'generateActivationToken']);
     Route::post('{id}/revoke', [\App\Http\Controllers\Admin\PosRegisterController::class, 'revokeDevice']);
-    // ── Settlement & Payment Routing ──
-    Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle']);
-    Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
-    Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class);
-
-    // ── Discount Management ──
+    // â”€â”€ Discount Management â”€â”€
     // All endpoints accessible to all authenticated users
     Route::prefix('discounts')->group(function () {
         Route::get('/calculate', [\App\Http\Controllers\Api\DiscountController::class, 'calculate']);
@@ -249,10 +244,10 @@ Route::middleware('auth:sanctum')->prefix('admin/pos-registers')->group(function
     });
 });
 
-// ── Job Titles (public) ──
+// â”€â”€ Job Titles (public) â”€â”€
 Route::apiResource('job-titles', \App\Http\Controllers\Api\JobTitleController::class);
 
-// ── Departments ──
+// â”€â”€ Departments â”€â”€
 Route::middleware('auth:sanctum')->prefix('departments')->group(function () {
     Route::get('/', [DepartmentController::class, 'index']);
     Route::get('/tree', [DepartmentController::class, 'tree']);
@@ -262,7 +257,7 @@ Route::middleware('auth:sanctum')->prefix('departments')->group(function () {
     Route::delete('/{department}', [DepartmentController::class, 'destroy']);
 });
 
-// ── Suppliers ──
+// â”€â”€ Suppliers â”€â”€
 Route::prefix("suppliers")->group(function () {
     Route::get("/", [\App\Http\Controllers\Api\SupplierFinancialController::class, "index"]);
     Route::post("/", [\App\Http\Controllers\Api\SupplierFinancialController::class, "store"]);
@@ -282,7 +277,7 @@ Route::prefix("suppliers")->group(function () {
     Route::get("/aging-report", [\App\Http\Controllers\Api\SupplierFinancialController::class, "agingReport"]);
 });
 
-// ── Customers ──
+// â”€â”€ Customers â”€â”€
 Route::prefix("customers")->group(function () {
     Route::get("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "index"]);
     Route::post("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "store"]);
@@ -307,7 +302,7 @@ Route::post('pos/activate', [\App\Http\Controllers\Admin\PosRegisterController::
 
 Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);
 
-// ── Hospitality Devices (Admin) ──
+// â”€â”€ Hospitality Devices (Admin) â”€â”€
 Route::middleware('auth:sanctum')->prefix('admin/hospitality-devices')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'index']);
     Route::post('/', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'store']);
@@ -315,11 +310,11 @@ Route::middleware('auth:sanctum')->prefix('admin/hospitality-devices')->group(fu
     Route::post('{id}/revoke', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'revokeDevice']);
 });
 
-// ── Hospitality Activation (Public) ──
+// â”€â”€ Hospitality Activation (Public) â”€â”€
 Route::post('hospitality/activate', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'activate']);
 Route::middleware('auth:sanctum')->post('hospitality/check-status', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'checkStatus']);
 
-// ── Dining Zones (Admin) ──
+// â”€â”€ Dining Zones (Admin) â”€â”€
 Route::middleware('auth:sanctum')->prefix('admin/dining-zones')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\DiningZoneController::class, 'index']);
     Route::post('/', [\App\Http\Controllers\Admin\DiningZoneController::class, 'store']);
@@ -331,7 +326,7 @@ Route::middleware('auth:sanctum')->prefix('admin/dining-zones')->group(function 
     Route::put('/{zoneId}/tables/{tableId}/status', [\App\Http\Controllers\Admin\DiningZoneController::class, 'updateTableStatus']);
 });
 
-// ── Dining Zones (POS / Hospitality) ──
+// â”€â”€ Dining Zones (POS / Hospitality) â”€â”€
 Route::middleware('auth:sanctum')->prefix('dining-zones')->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\DiningZoneController::class, 'index']);
     Route::get('/{id}', [\App\Http\Controllers\Api\DiningZoneController::class, 'show']);
