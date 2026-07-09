@@ -29,6 +29,15 @@ use Illuminate\Support\Facades\Route;
 Route::get('branches', [BranchController::class, 'index']);
 Route::post('/login', [AuthController::class, 'login'])->name('login');
 
+// ── Customer QR Code Lookup (عام بدون تسجيل دخول) ──
+Route::get('customer/table/{qrCode}', [\App\Http\Controllers\Api\CustomerTableController::class, 'lookupByQrCode']);
+
+// ── Customer Order (عام — الزبون يرسل طلبه للقرصون) ──
+Route::post('customer/orders', [\App\Http\Controllers\Api\CustomerOrderController::class, 'store']);
+
+// ── Customer Active Order (عام — الزبون يجلب فاتورته النشطة) ──
+Route::get('customer/table/{qrCode}/active-order', [\App\Http\Controllers\Api\CustomerOrderController::class, 'activeOrder']);
+
 Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -49,6 +58,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('orders/{order}/items', [OrderController::class, 'addItem']);
         Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
         Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
+        Route::post('orders/{order}/confirm-customer', [\App\Http\Controllers\Api\CustomerOrderController::class, 'confirmOrder']);
         Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
         Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
         Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
