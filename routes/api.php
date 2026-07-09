@@ -35,7 +35,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/auth/me', fn(Request $r) => response()->json(['user' => $r->user()]));
 
     // ط§ظ„ظ…ظ†ظٹظˆ â€” ظ…ط­ظ…ظٹ ظˆظٹظڈظپظ„طھط± طھظ„ظ‚ط§ط¦ظٹط§ظ‹ ط­ط³ط¨ ظپط±ط¹ ط§ظ„ظ…ط³طھط®ط¯ظ…
-    Route::get('menu', [MenuController::class, 'index']);
+    Route::get('menu', [MenuController::class, 'index'])
+        ->middleware('permission:view-menu|access-pos|access-pos-interface|manage-items');
 
     // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
     //  ظ…ط³ط§ط±ط§طھ ط§ظ„ظƒط§ط´ظٹط± / POS â€” ظ…ط­ظ…ظٹط© ط¨ظ€ CheckPosNetwork
@@ -44,31 +45,48 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('check.pos.network')->group(function () {
 
         // â”€â”€ Orders â”€â”€
-        Route::post('orders/{order}/void', [OrderController::class, 'void']);
-        Route::apiResource('orders', OrderController::class)->except(['destroy']);
-        Route::post('orders/{order}/items', [OrderController::class, 'addItem']);
-        Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
-        Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
-        Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
-        Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
+        Route::post('orders/{order}/void', [OrderController::class, 'void'])
+            ->middleware('permission:manage-orders');
+        Route::apiResource('orders', OrderController::class)
+            ->except(['destroy'])
+            ->middleware('permission:view-orders|create-orders|manage-orders');
+        Route::post('orders/{order}/items', [OrderController::class, 'addItem'])
+            ->middleware('permission:create-orders|manage-orders');
+        Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem'])
+            ->middleware('permission:create-orders|manage-orders');
+        Route::post('orders/{order}/confirm', [OrderController::class, 'confirm'])
+            ->middleware('permission:create-orders|manage-orders');
+        Route::post('orders/{order}/serve', [OrderController::class, 'serve'])
+            ->middleware('permission:manage-orders');
+        Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry'])
+            ->middleware('permission:manage-accounting|post-journal');
         Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
-        Route::post('orders/{order}/cancel', [OrderController::class, 'cancel']);
+        Route::post('orders/{order}/cancel', [OrderController::class, 'cancel'])
+            ->middleware('permission:manage-orders');
 
         Route::get('production-tickets', [ProductionTicketController::class, 'index']);
         Route::post('production-tickets/{ticket}/start', [ProductionTicketController::class, 'startPreparing']);
         Route::post('production-tickets/{ticket}/ready', [ProductionTicketController::class, 'markReady']);
         Route::post('production-tickets/{ticket}/served', [ProductionTicketController::class, 'markServed']);
 
-        Route::post('orders/{order}/invoice', [InvoiceController::class, 'createFromOrder']);
-        Route::post('orders/{order}/close', [InvoiceController::class, 'createFromOrder']);
-        Route::get('invoices', [InvoiceController::class, 'index']);
-        Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment']);
-        Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry']);
+        Route::post('orders/{order}/invoice', [InvoiceController::class, 'createFromOrder'])
+            ->middleware('permission:close-invoices|manage-invoices');
+        Route::post('orders/{order}/close', [InvoiceController::class, 'createFromOrder'])
+            ->middleware('permission:close-invoices|manage-invoices');
+        Route::get('invoices', [InvoiceController::class, 'index'])
+            ->middleware('permission:manage-invoices');
+        Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment'])
+            ->middleware('permission:add-payments|manage-payments|manage-invoices');
+        Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry'])
+            ->middleware('permission:manage-accounting|post-journal');
 
         // â”€â”€ Settlement & Payment Routing â”€â”€
-        Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle']);
-        Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
-        Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class);
+        Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle'])
+            ->middleware('permission:add-payments|manage-payments|manage-invoices');
+        Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show'])
+            ->middleware('permission:add-payments|manage-payments|manage-invoices');
+        Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class)
+            ->middleware('permission:manage-payments|manage-invoices');
 
     }); // â†گ ظ†ظ‡ط§ظٹط© ظ…ط³ط§ط±ط§طھ POS ط§ظ„ظ…ط­ظ…ظٹط© ط¨ط´ط¨ظƒط© ط§ظ„ظپط±ط¹
 
@@ -104,32 +122,48 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get("/financial-batch", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "financialBatch"]);
         Route::get("/dashboard", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "dashboard"]);
         Route::get("/analytics", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "analytics"]);
-        Route::post("/{employee}/advance", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordAdvance"]);
-        Route::post("/{employee}/advance-repayment", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordAdvanceRepayment"]);
-        Route::post("/{employee}/salary-accrual", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accrualSalary"]);
-        Route::post("/{employee}/salary-payment", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "paySalary"]);
+        Route::post("/{employee}/advance", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordAdvance"])
+            ->middleware('permission:manage-accounting');
+        Route::post("/{employee}/advance-repayment", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordAdvanceRepayment"])
+            ->middleware('permission:manage-accounting');
+        Route::post("/{employee}/salary-accrual", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accrualSalary"])
+            ->middleware('permission:manage-accounting');
+        Route::post("/{employee}/salary-payment", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "paySalary"])
+            ->middleware('permission:manage-accounting');
         Route::get("/{employee}/financial-summary", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "financialSummary"]);
         Route::get("/{employee}/account-statement", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accountStatement"]);
         Route::get("/{employee}/account-statement/export", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accountStatementExport"]);
         Route::get("/{employee}/account-statement/pdf", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accountStatementPdf"]);
-        Route::post("/{employee}/loan", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordLoan"]);
-        Route::post("/{employee}/loan-repayment", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordLoanRepayment"]);
+        Route::post("/{employee}/loan", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordLoan"])
+            ->middleware('permission:manage-accounting');
+        Route::post("/{employee}/loan-repayment", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordLoanRepayment"])
+            ->middleware('permission:manage-accounting');
         Route::get("/{employee}/loans", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "getLoans"]);
-        Route::post("/{employee}/settlement", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordSettlement"]);
+        Route::post("/{employee}/settlement", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordSettlement"])
+            ->middleware('permission:manage-accounting');
     });
     Route::apiResource('employees', EmployeeController::class);
 
     // â”€â”€ Orders â”€â”€
     Route::post('orders/batch-invoice-ids', [InvoiceDetailsController::class, 'batchInvoiceIds']); // MUST be before apiResource
-    Route::post('orders/{order}/void', [OrderController::class, 'void']);
-    Route::apiResource('orders', OrderController::class)->except(['destroy']);
-    Route::post('orders/{order}/items', [OrderController::class, 'addItem']);
-    Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
-    Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
-    Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
-    Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
+    Route::post('orders/{order}/void', [OrderController::class, 'void'])
+        ->middleware('permission:manage-orders');
+    Route::apiResource('orders', OrderController::class)
+        ->except(['destroy'])
+        ->middleware('permission:view-orders|create-orders|manage-orders');
+    Route::post('orders/{order}/items', [OrderController::class, 'addItem'])
+        ->middleware('permission:create-orders|manage-orders');
+    Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem'])
+        ->middleware('permission:create-orders|manage-orders');
+    Route::post('orders/{order}/confirm', [OrderController::class, 'confirm'])
+        ->middleware('permission:create-orders|manage-orders');
+    Route::post('orders/{order}/serve', [OrderController::class, 'serve'])
+        ->middleware('permission:manage-orders');
+    Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry'])
+        ->middleware('permission:manage-accounting|post-journal');
     Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
-    Route::post('orders/{order}/cancel', [OrderController::class, 'cancel']);
+    Route::post('orders/{order}/cancel', [OrderController::class, 'cancel'])
+        ->middleware('permission:manage-orders');
     Route::post('orders/{order}/sync-pricing', [OrderController::class, 'syncPricing']);
     Route::get('orders/{order}/invoice-id', [InvoiceDetailsController::class, 'getInvoiceIdFromOrder']);
 
@@ -138,11 +172,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('production-tickets/{ticket}/ready', [ProductionTicketController::class, 'markReady']);
     Route::post('production-tickets/{ticket}/served', [ProductionTicketController::class, 'markServed']);
 
-    Route::post('orders/{order}/invoice', [InvoiceController::class, 'createFromOrder']);
-    Route::post('orders/{order}/close', [InvoiceController::class, 'createFromOrder']); // alias for cashier close action
-    Route::get('invoices', [InvoiceController::class, 'index']);
-    Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment']);
-    Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry']);
+    Route::post('orders/{order}/invoice', [InvoiceController::class, 'createFromOrder'])
+        ->middleware('permission:close-invoices|manage-invoices');
+    Route::post('orders/{order}/close', [InvoiceController::class, 'createFromOrder'])
+        ->middleware('permission:close-invoices|manage-invoices'); // alias for cashier close action
+    Route::get('invoices', [InvoiceController::class, 'index'])
+        ->middleware('permission:manage-invoices');
+    Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment'])
+        ->middleware('permission:add-payments|manage-payments|manage-invoices');
+    Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry'])
+        ->middleware('permission:manage-accounting|post-journal');
 
     // â”€â”€ Invoice Details Drawer (lazy-load endpoints) â”€â”€
     Route::prefix('invoices/{invoice}')->group(function () {
@@ -158,7 +197,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // ── Financial Invoices ──
-    Route::prefix('financial/invoices')->group(function () {
+    Route::prefix('financial/invoices')->middleware('permission:manage-invoices')->group(function () {
         Route::get('/', [InvoiceController::class, 'financialIndex']);
         Route::get('/stats', [InvoiceController::class, 'financialStats']);
         Route::get('/{invoice}', [InvoiceController::class, 'financialShow']);
@@ -170,7 +209,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // â”€â”€ Sales Invoices (Full Module) â”€â”€
-    Route::prefix('sales-invoices')->group(function () {
+    Route::prefix('sales-invoices')->middleware('permission:manage-invoices')->group(function () {
         // Stats must be before {invoice} to avoid route conflict
         Route::get('/stats', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'stats']);
         Route::get('/overdue', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'overdue']);
@@ -200,7 +239,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/group', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'group']);
     });
 
-    Route::prefix('accounting')->group(function () {
+    Route::prefix('accounting')->middleware('permission:view-accounting|manage-accounting')->group(function () {
         Route::apiResource('accounts', AccountController::class);
         Route::get('accounts/{account}/ledger', [AccountController::class, 'ledger']);
         Route::get('transactions/by-source', [TransactionController::class, 'bySource']);
@@ -269,24 +308,41 @@ Route::prefix("suppliers")->group(function () {
 });
 
 // â”€â”€ Customers â”€â”€
-Route::prefix("customers")->group(function () {
-    Route::get("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "index"]);
-    Route::post("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "store"]);
-    Route::get("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "show"]);
-    Route::put("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "update"]);
-    Route::delete("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "destroy"]);
-    Route::post("/{customer}/invoice", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordInvoice"]);
-    Route::post("/{customer}/receipt", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordReceipt"]);
-    Route::post("/{customer}/payment", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordReceipt"]);
-    Route::post("/{customer}/credit-note", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordCreditNote"]);
-    Route::post("/{customer}/debit-note", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordDebitNote"]);
-    Route::get("/{customer}/statement", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statement"]);
-    Route::get("/{customer}/statement/export", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statementExport"]);
-    Route::get("/{customer}/statement/pdf", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statementPdf"]);
-    Route::get("/{customer}/aging", [\App\Http\Controllers\Api\CustomerFinancialController::class, "aging"]);
-    Route::get("/{customer}/analytics", [\App\Http\Controllers\Api\CustomerFinancialController::class, "analytics"]);
-    Route::get("/aging-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "agingReport"]);
-    Route::get("/collection-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "collectionReport"]);
+Route::middleware('auth:sanctum')->prefix("customers")->group(function () {
+    Route::get("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "index"])
+        ->middleware('permission:view-customers|create-customers|manage-customers');
+    Route::post("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "store"])
+        ->middleware('permission:create-customers|manage-customers');
+    Route::get("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "show"])
+        ->middleware('permission:view-customers|create-customers|manage-customers');
+    Route::put("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "update"])
+        ->middleware('permission:manage-customers');
+    Route::delete("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "destroy"])
+        ->middleware('permission:manage-customers');
+    Route::post("/{customer}/invoice", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordInvoice"])
+        ->middleware('permission:close-invoices|manage-invoices');
+    Route::post("/{customer}/receipt", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordReceipt"])
+        ->middleware('permission:add-payments|manage-payments|manage-invoices');
+    Route::post("/{customer}/payment", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordReceipt"])
+        ->middleware('permission:add-payments|manage-payments|manage-invoices');
+    Route::post("/{customer}/credit-note", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordCreditNote"])
+        ->middleware('permission:manage-accounting|manage-invoices');
+    Route::post("/{customer}/debit-note", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordDebitNote"])
+        ->middleware('permission:manage-accounting|manage-invoices');
+    Route::get("/{customer}/statement", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statement"])
+        ->middleware('permission:manage-customers|view-accounting|manage-accounting');
+    Route::get("/{customer}/statement/export", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statementExport"])
+        ->middleware('permission:manage-customers|view-accounting|manage-accounting');
+    Route::get("/{customer}/statement/pdf", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statementPdf"])
+        ->middleware('permission:manage-customers|view-accounting|manage-accounting');
+    Route::get("/{customer}/aging", [\App\Http\Controllers\Api\CustomerFinancialController::class, "aging"])
+        ->middleware('permission:manage-customers|view-accounting|manage-accounting');
+    Route::get("/{customer}/analytics", [\App\Http\Controllers\Api\CustomerFinancialController::class, "analytics"])
+        ->middleware('permission:manage-customers|view-accounting|manage-accounting');
+    Route::get("/aging-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "agingReport"])
+        ->middleware('permission:manage-customers|view-accounting|manage-accounting');
+    Route::get("/collection-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "collectionReport"])
+        ->middleware('permission:manage-customers|view-accounting|manage-accounting');
 });
 
 Route::post('pos/activate', [\App\Http\Controllers\Admin\PosRegisterController::class, 'activate']);

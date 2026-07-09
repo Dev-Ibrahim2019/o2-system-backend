@@ -2,7 +2,9 @@
 
 namespace Database\Seeders;
 
+use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
 
@@ -39,6 +41,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'manage-accounting',
 
             // ── الطلبات ──
+            'create-orders',
             'manage-orders',
             'view-orders',
 
@@ -53,6 +56,8 @@ class RolesAndPermissionsSeeder extends Seeder
             'view-archive',
 
             // ── العملاء ──
+            'view-customers',
+            'create-customers',
             'manage-customers',
 
             // ── الموردين ──
@@ -60,6 +65,10 @@ class RolesAndPermissionsSeeder extends Seeder
 
             // ── الفواتير ──
             'manage-invoices',
+            'close-invoices',
+            'add-payments',
+            'manage-payments',
+            'post-journal',
 
             // ── إدارة المستخدمين ──
             'manage-users',
@@ -74,6 +83,8 @@ class RolesAndPermissionsSeeder extends Seeder
             'manage-dining-zones',
 
             // ── واجهة الكاشير ──
+            'access-pos',
+            'view-menu',
             'access-pos-interface',
         ];
 
@@ -121,9 +132,16 @@ class RolesAndPermissionsSeeder extends Seeder
         $cashier = Role::firstOrCreate(['name' => 'cashier']);
         $cashier->givePermissionTo([
             'view-orders',
+            'create-orders',
             'manage-orders',
             'manage-customers',
             'manage-invoices',
+            'close-invoices',
+            'add-payments',
+            'manage-payments',
+            'access-pos',
+            'access-pos-interface',
+            'view-menu',
         ]);
 
         // ── 5. موظف الضيافة (hospitality) ──
@@ -158,5 +176,27 @@ class RolesAndPermissionsSeeder extends Seeder
             $permCount = $role->permissions->count();
             $this->command->info("   • {$role->name} ({$permCount} صلاحية)");
         }
+        $callCenter = Role::firstOrCreate(['name' => 'call-center']);
+        $callCenter->syncPermissions([
+            'access-pos',
+            'access-pos-interface',
+            'view-menu',
+            'create-orders',
+            'view-orders',
+            'view-customers',
+            'create-customers',
+        ]);
+
+        $defaultBranchId = \App\Models\Branch::query()->orderBy('id')->value('id');
+        $callCenterUser = User::withoutGlobalScopes()->updateOrCreate(
+            ['email' => 'callcenter@o2.local'],
+            [
+                'name' => 'Call Center Agent',
+                'username' => 'callcenter',
+                'password' => Hash::make('password'),
+                'branch_id' => $defaultBranchId,
+            ],
+        );
+        $callCenterUser->syncRoles(['call-center']);
     }
 }

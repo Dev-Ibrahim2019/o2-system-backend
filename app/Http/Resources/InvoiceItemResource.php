@@ -17,6 +17,7 @@ class InvoiceItemResource extends JsonResource
             : (float) $this->price;
         $quantity = (float) $this->quantity;
         $lineDiscount = (float) $this->discount_amount * $quantity;
+        $discount = $this->relationLoaded('discount') ? $this->getRelation('discount') : null;
 
         return [
             'id' => $this->id,
@@ -27,26 +28,24 @@ class InvoiceItemResource extends JsonResource
             'total' => (float) $this->total,
             'original_price' => $originalPrice,
             'discount_id' => $this->discount_id,
-            'discount_name' => $this->whenLoaded('discount', fn () => $this->discount?->name),
-            'discount_code' => $this->whenLoaded('discount', fn () => $this->discount?->code),
-            'discount_type' => $this->whenLoaded('discount', fn () => $this->discount?->discount_type),
-            'discount_value' => $this->whenLoaded('discount', fn () => $this->discount ? (float) $this->discount->value : null),
+            'discount_name' => $discount?->name,
+            'discount_code' => $discount?->code,
+            'discount_type' => $discount?->discount_type,
+            'discount_value' => $discount ? (float) $discount->value : null,
             'discount_amount' => (float) $this->discount_amount,
             'discount_percent' => $this->discount_percent ? (float) $this->discount_percent : null,
             'final_price' => $finalPrice,
             'subtotal' => $this->subtotal ? (float) $this->subtotal : round($originalPrice * $quantity, 3),
             'line_discount' => $lineDiscount,
             'savings' => $lineDiscount,
-            'discount' => $this->whenLoaded('discount', function () {
-                return [
-                    'id' => $this->discount->id,
-                    'name' => $this->discount->name,
-                    'name_ar' => $this->discount->name_ar,
-                    'code' => $this->discount->code,
-                    'discount_type' => $this->discount->discount_type,
-                    'value' => (float) $this->discount->value,
-                ];
-            }),
+            'discount' => $discount ? [
+                'id' => $discount->id,
+                'name' => $discount->name,
+                'name_ar' => $discount->name_ar,
+                'code' => $discount->code,
+                'discount_type' => $discount->discount_type,
+                'value' => (float) $discount->value,
+            ] : null,
         ];
     }
 }

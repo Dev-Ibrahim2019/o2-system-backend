@@ -55,16 +55,20 @@ class InvoiceFromOrderService
             $lineGross = $originalPrice * $quantity;
             $grossSubtotal += $lineGross;
 
-            $bestDiscount = $this->discountEngine->getBestDiscount(
-                $originalPrice,
-                $quantity,
-                $customerId,
-                $employeeId,
-                $supplierId,
-                $orderItem->department_id,
-                $orderItem->item_id,
-                $branchId
-            );
+            try {
+                $bestDiscount = $this->discountEngine->getBestDiscount(
+                    $originalPrice,
+                    $quantity,
+                    $customerId,
+                    $employeeId,
+                    $supplierId,
+                    $orderItem->department_id,
+                    $orderItem->item_id,
+                    $branchId
+                );
+            } catch (\Throwable) {
+                $bestDiscount = null;
+            }
 
             $unitDiscount = 0.0;
             $lineDiscount = 0.0;
@@ -74,14 +78,17 @@ class InvoiceFromOrderService
             $discountModel = null;
             $applyStrategy = null;
 
-            if ($bestDiscount && $bestDiscount['discount']) {
-                $lineDiscount = (float) $bestDiscount['discount_amount'];
-                $unitDiscount = $quantity > 0 ? $lineDiscount / $quantity : 0.0;
-                $discountPercent = $bestDiscount['discount_percent'];
-                $discountId = $bestDiscount['discount']->id;
-                $finalUnitPrice = $quantity > 0 ? (float) $bestDiscount['final_price'] / $quantity : $originalPrice;
-                $discountModel = $bestDiscount['discount'];
-                $applyStrategy = $bestDiscount['apply_strategy'] ?? $discountModel->apply_strategy;
+            if ($bestDiscount && !empty($bestDiscount['discount'])) {
+                $discountObj = $bestDiscount['discount'];
+                if (is_object($discountObj) && $discountObj instanceof \App\Models\Discount) {
+                    $lineDiscount = (float) $bestDiscount['discount_amount'];
+                    $unitDiscount = $quantity > 0 ? $lineDiscount / $quantity : 0.0;
+                    $discountPercent = $bestDiscount['discount_percent'];
+                    $discountId = $discountObj->id;
+                    $finalUnitPrice = $quantity > 0 ? (float) $bestDiscount['final_price'] / $quantity : $originalPrice;
+                    $discountModel = $discountObj;
+                    $applyStrategy = $bestDiscount['apply_strategy'] ?? $discountObj->apply_strategy;
+                }
             }
 
             $lineFinal = $finalUnitPrice * $quantity;
@@ -104,28 +111,32 @@ class InvoiceFromOrderService
             ]);
 
             if ($discountModel && $lineDiscount > 0) {
-                $entityType = match (true) {
-                    $customerId !== null => 'customer',
-                    $employeeId !== null => 'employee',
-                    $supplierId !== null => 'supplier',
-                    default => null,
-                };
-                $entityId = $customerId ?? $employeeId ?? $supplierId;
+                try {
+                    $entityType = match (true) {
+                        $customerId !== null => 'customer',
+                        $employeeId !== null => 'employee',
+                        $supplierId !== null => 'supplier',
+                        default => null,
+                    };
+                    $entityId = $customerId ?? $employeeId ?? $supplierId;
 
-                $this->discountEngine->logDiscountUsage(
-                    $discountModel,
-                    $lineGross,
-                    $lineDiscount,
-                    $lineFinal,
-                    $discountPercent,
-                    $invoice->id,
-                    $invoiceItem->id,
-                    $order->id,
-                    $entityType,
-                    $entityId,
-                    $appliedBy,
-                    $branchId
-                );
+                    $this->discountEngine->logDiscountUsage(
+                        $discountModel,
+                        $lineGross,
+                        $lineDiscount,
+                        $lineFinal,
+                        $discountPercent,
+                        $invoice->id,
+                        $invoiceItem->id,
+                        $order->id,
+                        $entityType,
+                        $entityId,
+                        $appliedBy,
+                        $branchId
+                    );
+                } catch (\Throwable) {
+                    // تجاهل أخطاء تسجيل الخصم — لا تمنع إنشاء الفاتورة
+                }
             }
         }
 
