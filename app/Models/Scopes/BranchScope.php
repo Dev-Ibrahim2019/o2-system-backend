@@ -26,7 +26,7 @@ class BranchScope implements Scope
             return;
         }
 
-        $builder->where('branch_id', $user->branch_id);
+        $builder->where($model->getTable().'.branch_id', $user->branch_id);
     }
 
     private function isSuperAdmin($user): bool

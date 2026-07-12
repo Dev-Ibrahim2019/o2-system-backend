@@ -30,11 +30,15 @@ class Employee extends Model
         'branch_id',
         'department_id',
         'jobTitleId',
+        'job_title_id',
         'typeId',
         'managerId',
         'hireDate',
         'salary',
         'role',
+        'operational_role',
+        'vehicle_type',
+        'is_operations_enabled',
         'status',
         'username',
         'password',
@@ -56,6 +60,7 @@ class Employee extends Model
         'hireDate' => 'date',
         'salary' => 'decimal:2',
         'rating' => 'decimal:1',
+        'is_operations_enabled' => 'boolean',
     ];
 
     // ── Relations ─────────────────────────────────────────────────────────────
@@ -70,10 +75,20 @@ class Employee extends Model
         return $this->belongsTo(Department::class);
     }
 
+    public function jobTitle(): BelongsTo
+    {
+        return $this->belongsTo(JobTitle::class, 'job_title_id');
+    }
+
     public function loans(): HasMany
     {
         return $this->hasMany(EmployeeLoan::class);
     }
+
+    public function deliveryOrders(): HasMany { return $this->hasMany(Order::class, 'driver_id'); }
+    public function assemblyOrders(): HasMany { return $this->hasMany(Order::class, 'assembler_id'); }
+    public function completedAssemblyOrders(): HasMany { return $this->hasMany(Order::class, 'assembled_by'); }
+    public function executionEvents(): HasMany { return $this->hasMany(OrderExecutionEvent::class); }
 
     // ── Subledger Financial Accessors ─────────────────────────────────────────
     // هذه الـ Accessors تحسب مباشرة من entries بدون حسابات مستقلة

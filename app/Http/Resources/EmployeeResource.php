@@ -26,11 +26,15 @@ class EmployeeResource extends JsonResource
             'department_id' => $this->department_id,
             'departmentId'  => $this->department_id,
             'jobTitleId'    => $this->jobTitleId,
+            'job_title_id'  => $this->job_title_id,
             'typeId'        => $this->typeId,
             'hireDate'      => $this->hireDate?->format('Y-m-d'),
             'salary'        => $this->salary,
 
             'role'          => $this->role,
+            'operational_role' => $this->operational_role,
+            'vehicle_type'  => $this->vehicle_type,
+            'is_operations_enabled' => (bool) $this->is_operations_enabled,
             'status'        => $this->status,
             'username'      => $this->username,
             'permissions'   => $this->permissions ?? [],
@@ -38,14 +42,23 @@ class EmployeeResource extends JsonResource
             'rating'        => $this->rating,
             'performance'   => $this->performance,
 
-            'branch'        => $this->whenLoaded('branch', fn() => [
+            'branch'        => $this->when($this->relationLoaded('branch') && $this->branch, fn() => [
                 'id'   => $this->branch->id,
                 'name' => $this->branch->name,
             ]),
-            'department'    => $this->whenLoaded('department', fn() => [
+            'department'    => $this->when($this->relationLoaded('department') && $this->department, fn() => [
                 'id'   => $this->department->id,
                 'name' => $this->department->name,
             ]),
+            'job_title'     => $this->when($this->relationLoaded('jobTitle') && $this->jobTitle, fn() => [
+                'id' => $this->jobTitle->id,
+                'name' => $this->jobTitle->name,
+                'name_ar' => $this->jobTitle->name_ar,
+                'name_en' => $this->jobTitle->name_en,
+                'default_operational_role' => $this->jobTitle->default_operational_role,
+                'requires_vehicle' => (bool) $this->jobTitle->requires_vehicle,
+            ]),
+            'jobTitle' => $this->when($this->relationLoaded('jobTitle') && $this->jobTitle, fn() => new JobTitleResource($this->jobTitle)),
         ];
     }
 }

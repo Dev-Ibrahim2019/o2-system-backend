@@ -7,8 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
- * بند الطلب — يحفظ الاسم والسعر وقت الإضافة (مستقل عن تغيّر سعر القائمة لاحقاً).
- * department_id يأتي من items.department_id ويُستخدم عند تقسيم الطلب للأقسام.
+ * ط¨ظ†ط¯ ط§ظ„ط·ظ„ط¨ â€” ظٹط­ظپط¸ ط§ظ„ط§ط³ظ… ظˆط§ظ„ط³ط¹ط± ظˆظ‚طھ ط§ظ„ط¥ط¶ط§ظپط© (ظ…ط³طھظ‚ظ„ ط¹ظ† طھط؛ظٹظ‘ط± ط³ط¹ط± ط§ظ„ظ‚ط§ط¦ظ…ط© ظ„ط§ط­ظ‚ط§ظ‹).
+ * department_id ظٹط£طھظٹ ظ…ظ† items.department_id ظˆظٹظڈط³طھط®ط¯ظ… ط¹ظ†ط¯ طھظ‚ط³ظٹظ… ط§ظ„ط·ظ„ط¨ ظ„ظ„ط£ظ‚ط³ط§ظ….
  */
 class OrderItem extends Model
 {
@@ -34,6 +34,8 @@ class OrderItem extends Model
         'status',
         'notes',
         'sent_to_kitchen_at',
+        'item_prepared_at',
+        'prepared_duration_seconds',
     ];
 
     protected $casts = [
@@ -45,6 +47,8 @@ class OrderItem extends Model
         'tax_rate' => 'decimal:2',
         'tax_amount' => 'decimal:2',
         'sent_to_kitchen_at' => 'datetime',
+        'item_prepared_at' => 'datetime',
+        'prepared_duration_seconds' => 'integer',
     ];
 
     public function order(): BelongsTo
@@ -67,3 +71,5 @@ class OrderItem extends Model
         return $this->hasOne(ProductionTicketItem::class);
     }
 }
+
+

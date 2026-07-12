@@ -86,6 +86,10 @@ class RolesAndPermissionsSeeder extends Seeder
             'access-pos',
             'view-menu',
             'access-pos-interface',
+
+            // ── الكول سنتر ──
+            'access-call-center',
+            'manage-call-center',
         ];
 
         // إنشاء جميع الصلاحيات
@@ -183,8 +187,13 @@ class RolesAndPermissionsSeeder extends Seeder
             'view-menu',
             'create-orders',
             'view-orders',
+            'close-invoices',
+            'add-payments',
             'view-customers',
             'create-customers',
+            'manage-customers',
+            'access-call-center',
+            'manage-call-center',
         ]);
 
         $defaultBranchId = \App\Models\Branch::query()->orderBy('id')->value('id');

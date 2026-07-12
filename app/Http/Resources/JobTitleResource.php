@@ -17,8 +17,14 @@ class JobTitleResource extends JsonResource
         return [
             'id'        => $this->id,
             'name'      => $this->name,
+            'name_ar' => $this->name_ar,
+            'name_en' => $this->name_en,
             'description' => $this->description,
-            'is_active' => $this->is_active
+            'department_id' => $this->department_id,
+            'department' => $this->when($this->relationLoaded('department') && $this->department, fn () => ['id' => $this->department->id, 'name' => $this->department->name]),
+            'default_operational_role' => $this->default_operational_role,
+            'requires_vehicle' => (bool) $this->requires_vehicle,
+            'is_active' => (bool) $this->is_active,
         ];
     }
 }

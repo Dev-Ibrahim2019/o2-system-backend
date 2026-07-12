@@ -1,5 +1,5 @@
 <?php
-// routes/api.php â€” ط§ظ„ظ†ط³ط®ط© ط§ظ„ظƒط§ظ…ظ„ط©
+// routes/api.php أ¢â‚¬â€‌ ط·آ§ط¸â€‍ط¸â€ ط·آ³ط·آ®ط·آ© ط·آ§ط¸â€‍ط¸ئ’ط·آ§ط¸â€¦ط¸â€‍ط·آ©
 
 use App\Http\Controllers\Api\Accounting\AccountController;
 use App\Http\Controllers\Api\Accounting\CostCenterController;
@@ -21,11 +21,12 @@ use App\Http\Controllers\Api\ProductionTicketController;
 use App\Http\Controllers\Api\ShiftController;
 use App\Http\Controllers\Api\TableController;
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\Api\CallCenterController;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-// â”€â”€ Public routes â”€â”€
+// أ¢â€‌â‚¬أ¢â€‌â‚¬ Public routes أ¢â€‌â‚¬أ¢â€‌â‚¬
 Route::get('branches', [BranchController::class, 'index']);
 Route::post('/login', [AuthController::class, 'login'])->name('login');
 
@@ -34,19 +35,23 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', fn(Request $r) => response()->json(['user' => $r->user()]));
 
-    // ط§ظ„ظ…ظ†ظٹظˆ â€” ظ…ط­ظ…ظٹ ظˆظٹظڈظپظ„طھط± طھظ„ظ‚ط§ط¦ظٹط§ظ‹ ط­ط³ط¨ ظپط±ط¹ ط§ظ„ظ…ط³طھط®ط¯ظ…
+    // ط·آ§ط¸â€‍ط¸â€¦ط¸â€ ط¸ظ¹ط¸ث† أ¢â‚¬â€‌ ط¸â€¦ط·آ­ط¸â€¦ط¸ظ¹ ط¸ث†ط¸ظ¹ط¸عˆط¸ظ¾ط¸â€‍ط·ع¾ط·آ± ط·ع¾ط¸â€‍ط¸â€ڑط·آ§ط·آ¦ط¸ظ¹ط·آ§ط¸â€¹ ط·آ­ط·آ³ط·آ¨ ط¸ظ¾ط·آ±ط·آ¹ ط·آ§ط¸â€‍ط¸â€¦ط·آ³ط·ع¾ط·آ®ط·آ¯ط¸â€¦
     Route::get('menu', [MenuController::class, 'index'])
         ->middleware('permission:view-menu|access-pos|access-pos-interface|manage-items');
 
-    // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
-    //  ظ…ط³ط§ط±ط§طھ ط§ظ„ظƒط§ط´ظٹط± / POS â€” ظ…ط­ظ…ظٹط© ط¨ظ€ CheckPosNetwork
-    //  طھظ…ظ†ط¹ ط§ط³طھط®ط¯ط§ظ… ظ‡ط°ظ‡ ط§ظ„ظ…ط³ط§ط±ط§طھ ظ…ظ† ط®ط§ط±ط¬ ط´ط¨ظƒط© ط§ظ„ظپط±ط¹
-    // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
+    // أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯
+    //  ط¸â€¦ط·آ³ط·آ§ط·آ±ط·آ§ط·ع¾ ط·آ§ط¸â€‍ط¸ئ’ط·آ§ط·آ´ط¸ظ¹ط·آ± / POS أ¢â‚¬â€‌ ط¸â€¦ط·آ­ط¸â€¦ط¸ظ¹ط·آ© ط·آ¨ط¸â‚¬ CheckPosNetwork
+    //  ط·ع¾ط¸â€¦ط¸â€ ط·آ¹ ط·آ§ط·آ³ط·ع¾ط·آ®ط·آ¯ط·آ§ط¸â€¦ ط¸â€،ط·آ°ط¸â€، ط·آ§ط¸â€‍ط¸â€¦ط·آ³ط·آ§ط·آ±ط·آ§ط·ع¾ ط¸â€¦ط¸â€  ط·آ®ط·آ§ط·آ±ط·آ¬ ط·آ´ط·آ¨ط¸ئ’ط·آ© ط·آ§ط¸â€‍ط¸ظ¾ط·آ±ط·آ¹
+    // أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯أ¢â€¢ع¯
     Route::middleware('check.pos.network')->group(function () {
 
-        // â”€â”€ Orders â”€â”€
+        // أ¢â€‌â‚¬أ¢â€‌â‚¬ Orders أ¢â€‌â‚¬أ¢â€‌â‚¬
         Route::post('orders/{order}/void', [OrderController::class, 'void'])
             ->middleware('permission:manage-orders');
+        Route::put('orders/{order}/confirm-payment', [OrderController::class, 'confirmPayment'])
+            ->middleware('permission:add-payments|manage-payments|manage-orders');
+        Route::put('orders/{order}/complete', [OrderController::class, 'complete'])
+            ->middleware('permission:access-call-center|manage-call-center|create-orders|manage-orders');
         Route::apiResource('orders', OrderController::class)
             ->except(['destroy'])
             ->middleware('permission:view-orders|create-orders|manage-orders');
@@ -54,6 +59,14 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware('permission:create-orders|manage-orders');
         Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem'])
             ->middleware('permission:create-orders|manage-orders');
+        Route::post('orders/{order}/items/{orderItem}/prepared', [OrderController::class, 'markItemPrepared'])
+            ->middleware('permission:manage-orders');
+        Route::post('orders/{order}/assembled', [OrderController::class, 'markAssembled'])
+            ->middleware('permission:manage-orders');
+        Route::post('orders/{order}/delivered', [OrderController::class, 'markDelivered'])
+            ->middleware('permission:manage-orders');
+        Route::post('orders/offline-deliveries/sync', [OrderController::class, 'syncOfflineDeliveries'])
+            ->middleware('permission:manage-orders');
         Route::post('orders/{order}/confirm', [OrderController::class, 'confirm'])
             ->middleware('permission:create-orders|manage-orders');
         Route::post('orders/{order}/serve', [OrderController::class, 'serve'])
@@ -70,17 +83,17 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('production-tickets/{ticket}/served', [ProductionTicketController::class, 'markServed']);
 
         Route::post('orders/{order}/invoice', [InvoiceController::class, 'createFromOrder'])
-            ->middleware('permission:close-invoices|manage-invoices');
+            ->middleware('permission:access-call-center|manage-call-center|close-invoices|manage-invoices');
         Route::post('orders/{order}/close', [InvoiceController::class, 'createFromOrder'])
-            ->middleware('permission:close-invoices|manage-invoices');
+            ->middleware('permission:access-call-center|manage-call-center|close-invoices|manage-invoices');
         Route::get('invoices', [InvoiceController::class, 'index'])
             ->middleware('permission:manage-invoices');
         Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment'])
-            ->middleware('permission:add-payments|manage-payments|manage-invoices');
+            ->middleware('permission:access-call-center|manage-call-center|add-payments|manage-payments|manage-invoices');
         Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry'])
             ->middleware('permission:manage-accounting|post-journal');
 
-        // â”€â”€ Settlement & Payment Routing â”€â”€
+        // أ¢â€‌â‚¬أ¢â€‌â‚¬ Settlement & Payment Routing أ¢â€‌â‚¬أ¢â€‌â‚¬
         Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle'])
             ->middleware('permission:add-payments|manage-payments|manage-invoices');
         Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show'])
@@ -88,9 +101,43 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class)
             ->middleware('permission:manage-payments|manage-invoices');
 
-    }); // â†گ ظ†ظ‡ط§ظٹط© ظ…ط³ط§ط±ط§طھ POS ط§ظ„ظ…ط­ظ…ظٹط© ط¨ط´ط¨ظƒط© ط§ظ„ظپط±ط¹
+    }); // أ¢â€ ع¯ ط¸â€ ط¸â€،ط·آ§ط¸ظ¹ط·آ© ط¸â€¦ط·آ³ط·آ§ط·آ±ط·آ§ط·ع¾ POS ط·آ§ط¸â€‍ط¸â€¦ط·آ­ط¸â€¦ط¸ظ¹ط·آ© ط·آ¨ط·آ´ط·آ¨ط¸ئ’ط·آ© ط·آ§ط¸â€‍ط¸ظ¾ط·آ±ط·آ¹
 
-    // â”€â”€ ط¥ط¯ط§ط±ط© ط§ظ„ظ…ط³طھط®ط¯ظ…ظٹظ† â”€â”€
+    // أ¢â€‌â‚¬أ¢â€‌â‚¬ Call Center أ¢â€‌â‚¬أ¢â€‌â‚¬
+    Route::prefix('call-center')->middleware('permission:access-call-center|manage-call-center')->group(function () {
+        Route::get('customers/search', [CallCenterController::class, 'searchCustomers']);
+        Route::post('customers', [CallCenterController::class, 'storeCustomer']);
+        Route::get('customers/analytics', [CallCenterController::class, 'analytics']);
+        Route::get('customers/top', [CallCenterController::class, 'topCustomers']);
+        Route::get('customers/{customer}/profile', [CallCenterController::class, 'customerProfile']);
+        Route::get('customers/{customer}/full-profile', [CallCenterController::class, 'customerFullProfile']);
+        Route::get('customers/{customer}/orders', [CallCenterController::class, 'customerOrders']);
+        Route::get('customers/{customer}/favorites', [CallCenterController::class, 'customerFavorites']);
+        Route::post('customers/quick-create', [CallCenterController::class, 'quickCreateCustomer']);
+        Route::get('customers/{customer}/occasions', [CallCenterController::class, 'customerOccasions']);
+        Route::post('customers/{customer}/occasions', [CallCenterController::class, 'storeOccasion']);
+        Route::get('customers/{customer}/notes', [CallCenterController::class, 'customerNotes']);
+        Route::post('customers/{customer}/notes', [CallCenterController::class, 'storeNote']);
+        Route::get('customers/{customer}/important-notes', [CallCenterController::class, 'customerImportantNotes']);
+        Route::post('customers/{customer}/addresses', [CallCenterController::class, 'storeAddress']);
+        Route::patch('customer-addresses/{address}', [CallCenterController::class, 'updateAddress']);
+        Route::post('customer-addresses/{address}/use', [CallCenterController::class, 'markAddressUsed']);
+        Route::patch('customer-occasions/{occasion}', [CallCenterController::class, 'updateOccasion']);
+        Route::delete('customer-occasions/{occasion}', [CallCenterController::class, 'deleteOccasion']);
+        Route::get('occasions', [CallCenterController::class, 'occasionsByRange']);
+        Route::get('customers/{customer}/addresses', [CallCenterController::class, 'customerAddresses']);
+        Route::get('customers/{customer}/complaints', [CallCenterController::class, 'customerComplaints']);
+        Route::get('customers/{customer}/alerts', [CallCenterController::class, 'customerAlerts']);
+        Route::get('orders/{order}', [CallCenterController::class, 'orderDetails']);
+        Route::get('complaints', [CallCenterController::class, 'complaintsIndex']);
+        Route::post('complaints', [CallCenterController::class, 'storeComplaint']);
+        Route::get('complaints/{complaint}', [CallCenterController::class, 'showComplaint']);
+        Route::patch('complaints/{complaint}', [CallCenterController::class, 'updateComplaint']);
+        Route::post('complaints/{complaint}/followups', [CallCenterController::class, 'addFollowup']);
+        Route::get('complaints/{complaint}/timeline', [CallCenterController::class, 'complaintTimeline']);
+    });
+
+    // أ¢â€‌â‚¬أ¢â€‌â‚¬ ط·آ¥ط·آ¯ط·آ§ط·آ±ط·آ© ط·آ§ط¸â€‍ط¸â€¦ط·آ³ط·ع¾ط·آ®ط·آ¯ط¸â€¦ط¸ظ¹ط¸â€  أ¢â€‌â‚¬أ¢â€‌â‚¬
     Route::get('users', [UserController::class, 'index'])->middleware('permission:manage-users');
     Route::post('users', [UserController::class, 'store'])->middleware('permission:manage-users');
     Route::put('users/{user}', [UserController::class, 'update'])->middleware('permission:manage-users');
@@ -98,26 +145,26 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('users/{user}/role', [UserController::class, 'updateRole'])->middleware('permission:manage-users');
     Route::post('users/{user}/toggle-status', [UserController::class, 'toggleStatus'])->middleware('permission:manage-users');
 
-    // â”€â”€ ط¥ط¯ط§ط±ط© ط§ظ„ط£ط¯ظˆط§ط± ظˆط§ظ„طµظ„ط§ط­ظٹط§طھ â”€â”€
+    // أ¢â€‌â‚¬أ¢â€‌â‚¬ ط·آ¥ط·آ¯ط·آ§ط·آ±ط·آ© ط·آ§ط¸â€‍ط·آ£ط·آ¯ط¸ث†ط·آ§ط·آ± ط¸ث†ط·آ§ط¸â€‍ط·آµط¸â€‍ط·آ§ط·آ­ط¸ظ¹ط·آ§ط·ع¾ أ¢â€‌â‚¬أ¢â€‌â‚¬
     Route::get('roles-list', [RoleController::class, 'index'])->middleware('permission:manage-users');
     Route::get('permissions-list', [RoleController::class, 'getAllPermissions'])->middleware('permission:manage-users');
     Route::post('roles', [RoleController::class, 'store'])->middleware('permission:manage-users');
     Route::delete('roles/{role}', [RoleController::class, 'destroy'])->middleware('permission:manage-users');
     Route::put('roles/{role}/permissions', [RoleController::class, 'updatePermissions'])->middleware('permission:manage-users');
 
-    // â”€â”€ Branches â”€â”€
+    // أ¢â€‌â‚¬أ¢â€‌â‚¬ Branches أ¢â€‌â‚¬أ¢â€‌â‚¬
     Route::get('branches/{branch}', [BranchController::class, 'show'])->middleware('permission:manage-branches');
     Route::post('branches', [BranchController::class, 'store'])->middleware('permission:manage-branches');
     Route::put('branches/{branch}', [BranchController::class, 'update'])->middleware('permission:manage-branches');
     Route::delete('branches/{branch}', [BranchController::class, 'destroy'])->middleware('permission:manage-branches');
     Route::get('branches/{branch}/menu', [BranchController::class, 'menu'])->middleware('permission:manage-branches');
 
-    // â”€â”€ Items â”€â”€
+    // أ¢â€‌â‚¬أ¢â€‌â‚¬ Items أ¢â€‌â‚¬أ¢â€‌â‚¬
     Route::post('items/upload-image', [ItemController::class, 'uploadImage']);
     Route::apiResource('items', ItemController::class);
     Route::apiResource('job-titles', JobTitleController::class);
 
-    // â”€â”€ Employees â”€â”€
+    // أ¢â€‌â‚¬أ¢â€‌â‚¬ Employees أ¢â€‌â‚¬أ¢â€‌â‚¬
     Route::prefix("employees")->group(function () {
         Route::get("/financial-batch", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "financialBatch"]);
         Route::get("/dashboard", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "dashboard"]);
@@ -144,7 +191,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
     Route::apiResource('employees', EmployeeController::class);
 
-    // â”€â”€ Orders â”€â”€
+    // أ¢â€‌â‚¬أ¢â€‌â‚¬ Orders أ¢â€‌â‚¬أ¢â€‌â‚¬
     Route::post('orders/batch-invoice-ids', [InvoiceDetailsController::class, 'batchInvoiceIds']); // MUST be before apiResource
     Route::post('orders/{order}/void', [OrderController::class, 'void'])
         ->middleware('permission:manage-orders');
@@ -155,6 +202,21 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:create-orders|manage-orders');
     Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem'])
         ->middleware('permission:create-orders|manage-orders');
+    Route::post('orders/offline-deliveries/sync', [OrderController::class, 'syncOfflineDeliveries'])
+        ->middleware('permission:manage-orders');
+    Route::post('orders/{order}/items/{orderItem}/prepared', [OrderController::class, 'markItemPrepared'])
+        ->middleware('permission:manage-orders');
+    Route::post('orders/{order}/assembled', [OrderController::class, 'markAssembled'])
+        ->middleware('permission:manage-orders');
+    Route::get('operations/delivery/available', [\App\Http\Controllers\Api\DeliveryOperationsController::class, 'available'])->middleware('permission:manage-orders');
+    Route::get('operations/dashboard', [\App\Http\Controllers\Api\DeliveryOperationsController::class, 'dashboard'])->middleware('permission:view-orders|manage-orders');
+    Route::get('operations/assemblers', [\App\Http\Controllers\Api\DeliveryOperationsController::class, 'assemblers'])->middleware('permission:manage-orders');
+    Route::patch('operations/orders/{order}/assembly/start', [\App\Http\Controllers\Api\DeliveryOperationsController::class, 'startAssembly'])->middleware('permission:manage-orders');
+    Route::patch('operations/orders/{order}/assembly/complete', [\App\Http\Controllers\Api\DeliveryOperationsController::class, 'completeAssembly'])->middleware('permission:manage-orders');
+    Route::get('operations/orders/{order}/events', [\App\Http\Controllers\Api\DeliveryOperationsController::class, 'events'])->middleware('permission:view-orders|manage-orders');
+    Route::patch('operations/orders/{order}/assign-delivery', [\App\Http\Controllers\Api\DeliveryOperationsController::class, 'assign'])->middleware('permission:manage-orders');
+    Route::post('orders/{order}/delivered', [OrderController::class, 'markDelivered'])
+        ->middleware('permission:manage-orders');
     Route::post('orders/{order}/confirm', [OrderController::class, 'confirm'])
         ->middleware('permission:create-orders|manage-orders');
     Route::post('orders/{order}/serve', [OrderController::class, 'serve'])
@@ -173,17 +235,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('production-tickets/{ticket}/served', [ProductionTicketController::class, 'markServed']);
 
     Route::post('orders/{order}/invoice', [InvoiceController::class, 'createFromOrder'])
-        ->middleware('permission:close-invoices|manage-invoices');
+        ->middleware('permission:access-call-center|manage-call-center|close-invoices|manage-invoices');
     Route::post('orders/{order}/close', [InvoiceController::class, 'createFromOrder'])
-        ->middleware('permission:close-invoices|manage-invoices'); // alias for cashier close action
+        ->middleware('permission:access-call-center|manage-call-center|close-invoices|manage-invoices'); // alias for cashier close action
     Route::get('invoices', [InvoiceController::class, 'index'])
         ->middleware('permission:manage-invoices');
     Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment'])
-        ->middleware('permission:add-payments|manage-payments|manage-invoices');
+        ->middleware('permission:access-call-center|manage-call-center|add-payments|manage-payments|manage-invoices');
     Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry'])
         ->middleware('permission:manage-accounting|post-journal');
 
-    // â”€â”€ Invoice Details Drawer (lazy-load endpoints) â”€â”€
+    // أ¢â€‌â‚¬أ¢â€‌â‚¬ Invoice Details Drawer (lazy-load endpoints) أ¢â€‌â‚¬أ¢â€‌â‚¬
     Route::prefix('invoices/{invoice}')->group(function () {
         Route::get('details', [InvoiceDetailsController::class, 'details']);
         Route::get('products', [InvoiceDetailsController::class, 'products']);
@@ -196,7 +258,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('notes', [InvoiceDetailsController::class, 'notes']);
     });
 
-    // ── Financial Invoices ──
+    // â”€â”€ Financial Invoices â”€â”€
     Route::prefix('financial/invoices')->middleware('permission:manage-invoices')->group(function () {
         Route::get('/', [InvoiceController::class, 'financialIndex']);
         Route::get('/stats', [InvoiceController::class, 'financialStats']);
@@ -208,7 +270,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{invoice}/void', [InvoiceController::class, 'voidFinancial']);
     });
 
-    // â”€â”€ Sales Invoices (Full Module) â”€â”€
+    // أ¢â€‌â‚¬أ¢â€‌â‚¬ Sales Invoices (Full Module) أ¢â€‌â‚¬أ¢â€‌â‚¬
     Route::prefix('sales-invoices')->middleware('permission:manage-invoices')->group(function () {
         // Stats must be before {invoice} to avoid route conflict
         Route::get('/stats', [\App\Http\Controllers\Api\SalesInvoiceController::class, 'stats']);
@@ -250,13 +312,13 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 });
 
-// â”€â”€ POS Registers (Admin) â”€â”€
+// أ¢â€‌â‚¬أ¢â€‌â‚¬ POS Registers (Admin) أ¢â€‌â‚¬أ¢â€‌â‚¬
 Route::middleware('auth:sanctum')->prefix('admin/pos-registers')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\PosRegisterController::class, 'index']);
     Route::post('/', [\App\Http\Controllers\Admin\PosRegisterController::class, 'store']);
     Route::post('{id}/generate-token', [\App\Http\Controllers\Admin\PosRegisterController::class, 'generateActivationToken']);
     Route::post('{id}/revoke', [\App\Http\Controllers\Admin\PosRegisterController::class, 'revokeDevice']);
-    // â”€â”€ Discount Management â”€â”€
+    // أ¢â€‌â‚¬أ¢â€‌â‚¬ Discount Management أ¢â€‌â‚¬أ¢â€‌â‚¬
     // All endpoints accessible to all authenticated users
     Route::prefix('discounts')->group(function () {
         Route::get('/calculate', [\App\Http\Controllers\Api\DiscountController::class, 'calculate']);
@@ -274,10 +336,9 @@ Route::middleware('auth:sanctum')->prefix('admin/pos-registers')->group(function
     });
 });
 
-// â”€â”€ Job Titles (public) â”€â”€
-Route::apiResource('job-titles', \App\Http\Controllers\Api\JobTitleController::class);
+Route::middleware('auth:sanctum')->apiResource('job-titles', \App\Http\Controllers\Api\JobTitleController::class);
 
-// â”€â”€ Departments â”€â”€
+// أ¢â€‌â‚¬أ¢â€‌â‚¬ Departments أ¢â€‌â‚¬أ¢â€‌â‚¬
 Route::middleware('auth:sanctum')->prefix('departments')->group(function () {
     Route::get('/', [DepartmentController::class, 'index']);
     Route::get('/tree', [DepartmentController::class, 'tree']);
@@ -287,7 +348,7 @@ Route::middleware('auth:sanctum')->prefix('departments')->group(function () {
     Route::delete('/{department}', [DepartmentController::class, 'destroy']);
 });
 
-// â”€â”€ Suppliers â”€â”€
+// أ¢â€‌â‚¬أ¢â€‌â‚¬ Suppliers أ¢â€‌â‚¬أ¢â€‌â‚¬
 Route::prefix("suppliers")->group(function () {
     Route::get("/", [\App\Http\Controllers\Api\SupplierFinancialController::class, "index"]);
     Route::post("/", [\App\Http\Controllers\Api\SupplierFinancialController::class, "store"]);
@@ -307,7 +368,7 @@ Route::prefix("suppliers")->group(function () {
     Route::get("/aging-report", [\App\Http\Controllers\Api\SupplierFinancialController::class, "agingReport"]);
 });
 
-// â”€â”€ Customers â”€â”€
+// أ¢â€‌â‚¬أ¢â€‌â‚¬ Customers أ¢â€‌â‚¬أ¢â€‌â‚¬
 Route::middleware('auth:sanctum')->prefix("customers")->group(function () {
     Route::get("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "index"])
         ->middleware('permission:view-customers|create-customers|manage-customers');
@@ -349,7 +410,7 @@ Route::post('pos/activate', [\App\Http\Controllers\Admin\PosRegisterController::
 
 Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);
 
-// â”€â”€ Hospitality Devices (Admin) â”€â”€
+// أ¢â€‌â‚¬أ¢â€‌â‚¬ Hospitality Devices (Admin) أ¢â€‌â‚¬أ¢â€‌â‚¬
 Route::middleware('auth:sanctum')->prefix('admin/hospitality-devices')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'index']);
     Route::post('/', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'store']);
@@ -357,11 +418,11 @@ Route::middleware('auth:sanctum')->prefix('admin/hospitality-devices')->group(fu
     Route::post('{id}/revoke', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'revokeDevice']);
 });
 
-// â”€â”€ Hospitality Activation (Public) â”€â”€
+// أ¢â€‌â‚¬أ¢â€‌â‚¬ Hospitality Activation (Public) أ¢â€‌â‚¬أ¢â€‌â‚¬
 Route::post('hospitality/activate', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'activate']);
 Route::middleware('auth:sanctum')->post('hospitality/check-status', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'checkStatus']);
 
-// â”€â”€ Dining Zones (Admin) â”€â”€
+// أ¢â€‌â‚¬أ¢â€‌â‚¬ Dining Zones (Admin) أ¢â€‌â‚¬أ¢â€‌â‚¬
 Route::middleware('auth:sanctum')->prefix('admin/dining-zones')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\DiningZoneController::class, 'index']);
     Route::post('/', [\App\Http\Controllers\Admin\DiningZoneController::class, 'store']);
@@ -373,7 +434,7 @@ Route::middleware('auth:sanctum')->prefix('admin/dining-zones')->group(function 
     Route::put('/{zoneId}/tables/{tableId}/status', [\App\Http\Controllers\Admin\DiningZoneController::class, 'updateTableStatus']);
 });
 
-// â”€â”€ Dining Zones (POS / Hospitality) â”€â”€
+// أ¢â€‌â‚¬أ¢â€‌â‚¬ Dining Zones (POS / Hospitality) أ¢â€‌â‚¬أ¢â€‌â‚¬
 Route::middleware('auth:sanctum')->prefix('dining-zones')->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\DiningZoneController::class, 'index']);
     Route::get('/{id}', [\App\Http\Controllers\Api\DiningZoneController::class, 'show']);

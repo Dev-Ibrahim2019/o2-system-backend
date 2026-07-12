@@ -21,6 +21,8 @@ class OrderItemResource extends JsonResource
             'status' => $this->status,
             'notes' => $this->notes,
             'sent_to_kitchen_at' => $this->sent_to_kitchen_at?->toIso8601String(),
+            'item_prepared_at' => $this->item_prepared_at?->toIso8601String(),
+            'prepared_duration_seconds' => $this->prepared_duration_seconds,
             'department' => $this->whenLoaded('department', fn () => [
                 'id' => $this->department->id,
                 'name' => $this->department->name,
@@ -30,3 +32,5 @@ class OrderItemResource extends JsonResource
         ];
     }
 }
+
+
