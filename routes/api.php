@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\CustomerController;
+use App\Http\Controllers\Api\CustomerPortalController;
 use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\FinancialTransactionController;
@@ -29,14 +30,13 @@ use Illuminate\Support\Facades\Route;
 Route::get('branches', [BranchController::class, 'index']);
 Route::post('/login', [AuthController::class, 'login'])->name('login');
 
-// ── Customer QR Code Lookup (عام بدون تسجيل دخول) ──
-Route::get('customer/table/{qrCode}', [\App\Http\Controllers\Api\CustomerTableController::class, 'lookupByQrCode']);
-
-// ── Customer Order (عام — الزبون يرسل طلبه للقرصون) ──
-Route::post('customer/orders', [\App\Http\Controllers\Api\CustomerOrderController::class, 'store']);
-
-// ── Customer Active Order (عام — الزبون يجلب فاتورته النشطة) ──
-Route::get('customer/table/{qrCode}/active-order', [\App\Http\Controllers\Api\CustomerOrderController::class, 'activeOrder']);
+Route::prefix('customer')->group(function () {
+    Route::get('table-gate/{tableQrCode}', [CustomerPortalController::class, 'tableGate']);
+    Route::get('menu/{branchId}', [CustomerPortalController::class, 'menu']);
+    Route::post('add-sub-order', [CustomerPortalController::class, 'addSubOrder']);
+    Route::post('call-waiter', [CustomerPortalController::class, 'callWaiter']);
+    Route::post('request-bill', [CustomerPortalController::class, 'requestBill']);
+});
 
 Route::middleware('auth:sanctum')->group(function () {
 
@@ -58,10 +58,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('orders/{order}/items', [OrderController::class, 'addItem']);
         Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
         Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
-        Route::post('orders/{order}/confirm-customer', [\App\Http\Controllers\Api\CustomerOrderController::class, 'confirmOrder']);
         Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
         Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
         Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
+        Route::post('orders/{order}/print-invoice', [OrderController::class, 'printInvoice']);
         Route::post('orders/{order}/cancel', [OrderController::class, 'cancel']);
 
         Route::get('production-tickets', [ProductionTicketController::class, 'index']);
@@ -148,6 +148,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
     Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
     Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
+    Route::post('orders/{order}/print-invoice', [OrderController::class, 'printInvoice']);
     Route::post('orders/{order}/cancel', [OrderController::class, 'cancel']);
     Route::post('orders/{order}/sync-pricing', [OrderController::class, 'syncPricing']);
     Route::get('orders/{order}/invoice-id', [InvoiceDetailsController::class, 'getInvoiceIdFromOrder']);
@@ -311,6 +312,25 @@ Route::prefix("customers")->group(function () {
 Route::post('pos/activate', [\App\Http\Controllers\Admin\PosRegisterController::class, 'activate']);
 
 Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);
+
+// ── Printers & Print Routes (Admin) ──
+Route::middleware('auth:sanctum')->prefix('admin/printers')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\PrinterController::class, 'index']);
+    Route::post('/', [\App\Http\Controllers\Api\PrinterController::class, 'store']);
+    Route::get('/{id}', [\App\Http\Controllers\Api\PrinterController::class, 'show']);
+    Route::put('/{id}', [\App\Http\Controllers\Api\PrinterController::class, 'update']);
+    Route::delete('/{id}', [\App\Http\Controllers\Api\PrinterController::class, 'destroy']);
+    Route::post('/{id}/test-connection', [\App\Http\Controllers\Api\PrinterController::class, 'testConnection']);
+    Route::post('/{id}/test-print', [\App\Http\Controllers\Api\PrinterController::class, 'testPrint']);
+    Route::get('/{id}/routes', [\App\Http\Controllers\Api\PrinterController::class, 'routes']);
+});
+
+Route::middleware('auth:sanctum')->prefix('admin/print-routes')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\PrintRouteController::class, 'index']);
+    Route::post('/', [\App\Http\Controllers\Api\PrintRouteController::class, 'store']);
+    Route::put('/{printRoute}', [\App\Http\Controllers\Api\PrintRouteController::class, 'update']);
+    Route::delete('/{printRoute}', [\App\Http\Controllers\Api\PrintRouteController::class, 'destroy']);
+});
 
 // â”€â”€ Hospitality Devices (Admin) â”€â”€
 Route::middleware('auth:sanctum')->prefix('admin/hospitality-devices')->group(function () {

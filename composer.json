@@ -7,11 +7,14 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "khaled.alshamaa/ar-php": "*",
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10.1",
-        "mpdf/mpdf": "*",
         "maatwebsite/excel": "*",
+        "mike42/escpos-php": "^5.0",
+        "mpdf/mpdf": "*",
+        "spatie/browsershot": "^5.4",
         "spatie/laravel-permission": "^6.25"
     },
     "require-dev": {

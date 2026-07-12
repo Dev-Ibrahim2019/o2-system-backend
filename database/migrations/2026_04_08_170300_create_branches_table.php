@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('branches', function (Blueprint $table) {
             $table->id('id');
             $table->string('name');
+            $table->string('static_ip')->nullable();
             $table->string('address')->nullable();
             $table->string('phone')->nullable();
             $table->boolean('is_active')->default(true);

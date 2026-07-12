@@ -27,6 +27,11 @@ return new class extends Migration
                 ->nullable()
                 ->constrained('departments')
                 ->cascadeOnDelete();
+            $table->string('start_code')->nullable()->default('100');
+            $table->string('code', 20)->nullable()->unique();
+            $table->string('nameAr', 255)->nullable();
+            $table->enum('status', ['ACTIVE', 'BUSY', 'INACTIVE'])->default('ACTIVE');
+            $table->string('location', 255)->nullable();
             $table->timestamps();
             $table->softDeletes();
         });

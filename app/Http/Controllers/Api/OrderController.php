@@ -19,6 +19,7 @@ use App\Models\Transaction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\Printing\OrderPrintingService;
 
 class OrderController extends ApiController
 {
@@ -473,5 +474,25 @@ class OrderController extends ApiController
             'status' => 'pending',
             'notes' => $notes,
         ]);
+    }
+
+    /**
+     * طباعة فاتورة الطلب
+     */
+    public function printInvoice(Order $order, OrderPrintingService $printingService): JsonResponse
+    {
+        $printerId = request('printer_id');
+
+        if ($printerId) {
+            $result = $printingService->printInvoiceById($order, (int) $printerId);
+        } else {
+            $result = $printingService->printInvoiceToCashier($order);
+        }
+
+        if ($result['success']) {
+            return $this->success($result['message']);
+        }
+
+        return $this->error($result['message'], 500);
     }
 }

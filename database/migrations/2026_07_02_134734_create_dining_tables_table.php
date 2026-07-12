@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -18,11 +19,15 @@ return new class extends Migration
             $table->string('qr_code', 100)->unique(); // Unique QR code
             $table->string('qr_url', 500); // URL for QR code
             $table->integer('capacity')->default(4);
-            $table->enum('status', ['AVAILABLE', 'OCCUPIED', 'PAYMENT_PENDING', 'PAID', 'RESERVED', 'CLEANING'])->default('AVAILABLE');
+            $table->unsignedBigInteger('current_order_id')->nullable();
+            $table->string('status', 30)->default('AVAILABLE');
             $table->timestamps();
 
             $table->unique(['dining_zone_id', 'table_number']);
         });
+
+        // CHECK constraint for status - PostgreSQL compatible (VARCHAR + CHECK)
+        DB::statement("ALTER TABLE dining_tables ADD CONSTRAINT dining_tables_status_check CHECK (status IN ('AVAILABLE', 'OCCUPIED', 'PAYMENT_PENDING', 'PAID', 'RESERVED', 'CLEANING', 'HAS_ORDER', 'PENDING_CONFIRMATION'));");
     }
 
     /**
@@ -30,6 +35,7 @@ return new class extends Migration
      */
     public function down(): void
     {
+        DB::statement("ALTER TABLE dining_tables DROP CONSTRAINT IF EXISTS dining_tables_status_check;");
         Schema::dropIfExists('dining_tables');
     }
 };

@@ -12,6 +12,7 @@ class DiningTable extends Model
     protected $fillable = [
         'dining_zone_id',
         'branch_id',
+        'code',
         'table_number',
         'qr_code',
         'qr_url',

@@ -14,9 +14,19 @@ return new class extends Migration {
             $table->string('code')->unique();
             $table->string('tax_number')->nullable();
             $table->string('phone')->nullable();
+            $table->string('mobile')->nullable();
             $table->string('email')->nullable();
             $table->text('address')->nullable();
+            $table->string('city')->nullable();
+            $table->string('gps_link')->nullable();
             $table->enum('status', ['active', 'inactive', 'blocked'])->default('active');
+            $table->string('category')->nullable()->comment('local | international | service');
+            $table->string('currency', 3)->default('ILS');
+            $table->decimal('credit_limit', 15, 3)->default(0);
+            $table->string('payment_terms')->nullable()->comment('immediate | net15 | net30 | net60 | net90');
+            $table->decimal('opening_balance', 15, 3)->default(0);
+            $table->boolean('is_opening_balance_posted')->default(false);
+            $table->text('notes')->nullable();
 
             // الحساب المحاسبي (2110-xxx)
             $table->foreignId('account_id')

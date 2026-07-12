@@ -15,6 +15,7 @@ return new class extends Migration
             // رقم الطلب المعروض للكاشير (تسلسلي يومي)
             $table->string('order_number')->unique();
 
+            $table->foreignId('dining_table_id')->nullable()->constrained('dining_tables')->nullOnDelete();
             $table->foreignId('branch_id')->constrained()->cascadeOnDelete();
             $table->foreignId('cashier_id')
                 ->nullable()
