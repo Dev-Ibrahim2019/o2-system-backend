@@ -6,6 +6,8 @@ use App\Http\Controllers\ApiController;
 use App\Models\DiningTable;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\ProductionTicket;
+use App\Models\ProductionTicketItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -285,8 +287,38 @@ class CustomerOrderController extends ApiController
 
         DB::beginTransaction();
         try {
-            // تأكيد الطلب
-            $order->update(['status' => 'pending']);
+            // إنشاء تذاكر الإنتاج (إرسال للأقسام)
+            $itemsByDept = $order->items()->with('department')->get()->groupBy('department_id');
+
+            foreach ($itemsByDept as $deptId => $deptItems) {
+                if (! $deptId) {
+                    continue;
+                }
+
+                $ticket = ProductionTicket::create([
+                    'order_id' => $order->id,
+                    'department_id' => $deptId,
+                    'ticket_number' => ProductionTicket::generateTicketNumber((int) $deptId),
+                    'status' => 'pending',
+                    'sent_at' => now(),
+                    'notes' => $order->note,
+                ]);
+
+                foreach ($deptItems as $orderItem) {
+                    ProductionTicketItem::create([
+                        'production_ticket_id' => $ticket->id,
+                        'order_item_id' => $orderItem->id,
+                        'quantity' => (int) ceil((float) $orderItem->quantity),
+                        'notes' => $orderItem->notes,
+                        'status' => 'pending',
+                    ]);
+
+                    $orderItem->update(['sent_to_kitchen_at' => now()]);
+                }
+            }
+
+            // تأكيد الطلب وإرساله للأقسام
+            $order->update(['status' => 'confirmed']);
 
             // تحديث حالة الطاولة إلى HAS_ORDER
             if ($order->dining_table_id) {
@@ -300,7 +332,7 @@ class CustomerOrderController extends ApiController
 
             return response()->json([
                 'success' => true,
-                'message' => 'تم تأكيد الطلب',
+                'message' => 'تم تأكيد الطلب وإرساله للأقسام',
                 'data' => [
                     'order_id'   => $order->id,
                     'status'     => $order->status,

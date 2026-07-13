@@ -8,7 +8,6 @@ use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\CustomerController;
-use App\Http\Controllers\Api\CustomerPortalController;
 use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\FinancialTransactionController;
@@ -31,11 +30,13 @@ Route::get('branches', [BranchController::class, 'index']);
 Route::post('/login', [AuthController::class, 'login'])->name('login');
 
 Route::prefix('customer')->group(function () {
-    Route::get('table-gate/{tableQrCode}', [CustomerPortalController::class, 'tableGate']);
-    Route::get('menu/{branchId}', [CustomerPortalController::class, 'menu']);
-    Route::post('add-sub-order', [CustomerPortalController::class, 'addSubOrder']);
-    Route::post('call-waiter', [CustomerPortalController::class, 'callWaiter']);
-    Route::post('request-bill', [CustomerPortalController::class, 'requestBill']);
+    Route::get('table/{qrCode}', [\App\Http\Controllers\Api\CustomerPortalController::class, 'lookupByQrCode']);
+    Route::get('table/{qrCode}/active-order', [\App\Http\Controllers\Api\CustomerPortalController::class, 'activeOrder']);
+    Route::get('menu/{branchId}', [\App\Http\Controllers\Api\CustomerPortalController::class, 'menu']);
+    Route::post('orders', [\App\Http\Controllers\Api\CustomerPortalController::class, 'addSubOrder']);
+    Route::post('add-sub-order', [\App\Http\Controllers\Api\CustomerPortalController::class, 'addSubOrder']);
+    Route::post('call-waiter', [\App\Http\Controllers\Api\CustomerPortalController::class, 'callWaiter']);
+    Route::post('request-bill', [\App\Http\Controllers\Api\CustomerPortalController::class, 'requestBill']);
 });
 
 Route::middleware('auth:sanctum')->group(function () {

@@ -105,4 +105,13 @@ class DiningTable extends Model
     {
         $this->update(['status' => 'RESERVED']);
     }
+
+    public function setPendingConfirmation(): void
+    {
+        $this->update([
+            'status' => 'PENDING_CONFIRMATION',
+            'seated_at' => $this->seated_at ?? now(),
+            'customer_count' => max($this->customer_count, 1),
+        ]);
+    }
 }

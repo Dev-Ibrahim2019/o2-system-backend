@@ -98,7 +98,6 @@ class ReceiptImageBuilder
             $browsershot = Browsershot::html($html)
                 ->windowSize(550, 850)
                 ->deviceScaleFactor(2)
-                ->hideBackground()
                 ->waitUntilNetworkIdle()
                 ->noSandbox();
 
@@ -124,15 +123,15 @@ class ReceiptImageBuilder
 
             $browsershot->save($rawPath);
 
-            // ── Resize to printer width ──────────────────────────────────
-            // The raw image is ~1100px wide (550×2). We must resize it to
-            // exactly $targetWidth (e.g. 576) so the ESC/POS bitImage
-            // raster data rows match the printer's physical head width.
-            $resizedPath = $this->resizeToPrinterWidth($rawPath, $targetWidth);
+            // ── Resize + Crop to content ────────────────────────────────
+            // The raw image is ~1100px wide (550×2). We resize to
+            // $targetWidth (e.g. 576) then crop empty space from the
+            // bottom so the paper length matches the actual order content.
+            $processedPath = $this->resizeAndCrop($rawPath, $targetWidth);
 
-            if ($resizedPath) {
+            if ($processedPath) {
                 @unlink($rawPath);
-                $actualPath = $resizedPath;
+                $actualPath = $processedPath;
             } else {
                 $actualPath = $rawPath;
             }
@@ -155,13 +154,14 @@ class ReceiptImageBuilder
     }
 
     /**
-     * Resize a PNG image to the exact printer dot width, maintaining aspect ratio.
+     * Resize a PNG to the printer width, then crop empty whitespace from the bottom.
+     * This ensures the paper length matches the actual order content.
      *
      * @param  string $sourcePath  Path to the source PNG.
      * @param  int    $targetWidth Target width in pixels (e.g. 576 for 80mm).
-     * @return string|null         Path to resized file, or null on failure.
+     * @return string|null         Path to processed file, or null on failure.
      */
-    private function resizeToPrinterWidth(string $sourcePath, int $targetWidth): ?string
+    private function resizeAndCrop(string $sourcePath, int $targetWidth): ?string
     {
         if (!function_exists('imagecreatefrompng')) {
             return null;
@@ -175,11 +175,12 @@ class ReceiptImageBuilder
         $origWidth  = imagesx($image);
         $origHeight = imagesy($image);
 
-        if ($origWidth <= 0 || $origHeight <= 0 || $origWidth === $targetWidth) {
+        if ($origWidth <= 0 || $origHeight <= 0) {
             imagedestroy($image);
-            return $origWidth === $targetWidth ? $sourcePath : null;
+            return null;
         }
 
+        // ── Step 1: Resize to printer width ────────────────────────────
         $targetHeight = (int) round($origHeight * ($targetWidth / $origWidth));
 
         $resized = imagecreatetruecolor($targetWidth, $targetHeight);
@@ -194,11 +195,54 @@ class ReceiptImageBuilder
             $targetWidth, $targetHeight,
             $origWidth, $origHeight
         );
+        imagedestroy($image);
+
+        // ── Step 2: Scan from bottom to find last non-white row ────────
+        // White = background. We crop everything below the last row that
+        // has any visible content (text, borders, lines).
+        $cropRow = 0; // will hold the Y of the last content row
+
+        for ($y = $targetHeight - 1; $y >= 0; $y--) {
+            $foundContent = false;
+            for ($x = 0; $x < $targetWidth; $x++) {
+                $rgb = imagecolorat($resized, $x, $y);
+                $r = ($rgb >> 16) & 0xFF;
+                $g = ($rgb >> 8) & 0xFF;
+                $b = $rgb & 0xFF;
+
+                // Anything darker than near-white is content.
+                if ($r < 245 || $g < 245 || $b < 245) {
+                    $foundContent = true;
+                    break;
+                }
+            }
+            if ($foundContent) {
+                $cropRow = $y;
+                break;
+            }
+        }
+
+        // Add padding (5px) below the last content row.
+        $finalHeight = min($cropRow + 5, $targetHeight);
+
+        // ── Step 3: Crop ───────────────────────────────────────────────
+        $finalHeight = $cropRow + 1;
+
+        // Only crop if there's meaningful whitespace to remove (>10 rows).
+        if ($targetHeight - $finalHeight > 10) {
+            $cropped = imagecreatetruecolor($targetWidth, $finalHeight);
+            imagealphablending($cropped, false);
+            imagesavealpha($cropped, true);
+            $bg = imagecolorallocate($cropped, 255, 255, 255);
+            imagefilledrectangle($cropped, 0, 0, $targetWidth, $finalHeight, $bg);
+
+            imagecopy($cropped, $resized, 0, 0, 0, 0, $targetWidth, $finalHeight);
+            imagedestroy($resized);
+            $resized = $cropped;
+        }
 
         $destPath = storage_path('app/receipt_' . uniqid('', true) . '.png');
         $ok = imagepng($resized, $destPath, 6);
-
-        imagedestroy($image);
         imagedestroy($resized);
 
         return $ok ? $destPath : null;
