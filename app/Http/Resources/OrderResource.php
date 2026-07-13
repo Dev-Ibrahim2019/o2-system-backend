@@ -43,6 +43,8 @@ class OrderResource extends JsonResource
                 'name' => $this->cashier->name,
             ]),
 
+            'has_unsent_items' => $this->hasUnsentItems(),
+
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];

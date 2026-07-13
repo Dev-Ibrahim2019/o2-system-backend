@@ -196,4 +196,38 @@ class Order extends Model
     {
         app(\App\Services\Order\OrderPricingService::class)->recalculateAndSave($this);
     }
+
+    // ── Helper Methods for Unsent Items Flow ──────────────────────────
+
+    /**
+     * هل يوجد عناصر جديدة لم تُرسل للمطبخ بعد؟
+     */
+    public function hasUnsentItems(): bool
+    {
+        return $this->items()->where('status', 'pending')->exists();
+    }
+
+    /**
+     * جلب العناصر غير المرحّلة فقط (لم يُرسل لها production ticket)
+     */
+    public function unsentItems()
+    {
+        return $this->items()->where('status', 'pending');
+    }
+
+    /**
+     * هل الطلب في حالة تسمح بإضافة عناصر جديدة؟
+     */
+    public function canAddItems(): bool
+    {
+        return in_array($this->status, ['pending', 'pending_confirmation', 'confirmed', 'in_progress']);
+    }
+
+    /**
+     * هل الطلب في حالة تسمح بالترحيل؟
+     */
+    public function canBeConfirmed(): bool
+    {
+        return in_array($this->status, ['pending', 'pending_confirmation']);
+    }
 }

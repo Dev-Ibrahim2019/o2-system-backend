@@ -114,4 +114,12 @@ class DiningTable extends Model
             'customer_count' => max($this->customer_count, 1),
         ]);
     }
+
+    public function setHasOrder(?int $orderId = null): void
+    {
+        $this->update([
+            'status' => 'HAS_ORDER',
+            'current_order_id' => $orderId ?? $this->current_order_id,
+        ]);
+    }
 }

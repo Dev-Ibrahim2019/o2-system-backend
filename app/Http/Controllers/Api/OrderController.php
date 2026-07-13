@@ -70,7 +70,7 @@ class OrderController extends ApiController
                 'total' => 0,
             ]);
 
-            // إذا تم تحديد طاولة، قم بتسكينها تلقائياً
+            // إذا تم تحديد طاولة، قم بتسكينها (OCCUPIED — مشغولة بدون طلب)
             if ($order->dining_table_id) {
                 $table = DiningTable::find($order->dining_table_id);
                 if ($table && $table->status === 'AVAILABLE') {
@@ -89,7 +89,7 @@ class OrderController extends ApiController
                     );
                 }
                 $order->recalculateTotals();
-                $this->syncProductionTickets($order);
+                // لا نرسل تلقائياً — ينتظر تأكيد النادل عبر confirm()
             }
 
             DB::commit();
@@ -204,8 +204,9 @@ class OrderController extends ApiController
 
     public function addItem(AddOrderItemRequest $request, Order $order): JsonResponse
     {
-        if ($order->status !== 'pending') {
-            return $this->error('لا يمكن إضافة أصناف لطلب مؤكد.', 422);
+        // يسمح الإضافة على: pending, pending_confirmation, confirmed, in_progress
+        if (in_array($order->status, ['paid', 'cancelled', 'served', 'ready'])) {
+            return $this->error('لا يمكن إضافة أصناف لهذا الطلب.', 422);
         }
 
         $data = $request->validated();
@@ -220,7 +221,10 @@ class OrderController extends ApiController
             );
 
             $order->recalculateTotals();
-            $this->syncProductionTickets($order);
+
+            // إذا الطلب مؤكد مسبقاً (confirmed/in_progress) وأضفنا عناصر جديدة
+            // نحتاج النادل يضغط "ترحيل" مرة ثانية للعناصر الجديدة فقط
+            // لا نغير حالة الطلب — نتركها كما هي
 
             return $this->success(
                 'تمت إضافة الصنف',
@@ -239,8 +243,8 @@ class OrderController extends ApiController
 
     public function removeItem(Order $order, OrderItem $orderItem): JsonResponse
     {
-        if ($order->status !== 'pending') {
-            return $this->error('لا يمكن حذف أصناف من طلب مؤكد.', 422);
+        if (in_array($order->status, ['paid', 'cancelled', 'served'])) {
+            return $this->error('لا يمكن حذف أصناف من هذا الطلب.', 422);
         }
 
         if ($orderItem->order_id !== $order->id) {
@@ -264,35 +268,55 @@ class OrderController extends ApiController
         }
     }
 
+    /**
+     * ترحيل الأصناف غير المرحّلة للمطبخ.
+     * يدعم: pending → confirmed و pending_confirmation → confirmed
+     * يرسل فقط العناصر بحالة pending (الجديدة) — لا يعيد إرسال القديمة.
+     */
     public function confirm(Order $order): JsonResponse
     {
-        if ($order->status !== 'pending') {
-            return $this->error('الطلب مؤكد مسبقاً.', 422);
+        if (! in_array($order->status, ['pending', 'pending_confirmation'], true)) {
+            return $this->error('لا يمكن تأكيد هذا الطلب في حالته الحالية.', 422);
         }
 
-        if ($order->items()->count() === 0) {
-            return $this->error('لا يمكن تأكيد طلب بدون أصناف.', 422);
+        $unsentItems = $order->items()->where('status', 'pending')->get();
+
+        if ($unsentItems->isEmpty()) {
+            return $this->error('لا توجد عناصر جديدة لإرسالها.', 422);
         }
 
         DB::beginTransaction();
         try {
-            $itemsByDept = $order->items()->with('department')->get()->groupBy('department_id');
+            $itemsByDept = $unsentItems->with('department')->groupBy('department_id');
 
             foreach ($itemsByDept as $deptId => $deptItems) {
                 if (! $deptId) {
                     continue;
                 }
 
-                $ticket = ProductionTicket::create([
-                    'order_id' => $order->id,
-                    'department_id' => $deptId,
-                    'ticket_number' => ProductionTicket::generateTicketNumber((int) $deptId),
-                    'status' => 'pending',
-                    'sent_at' => now(),
-                    'notes' => $order->note,
-                ]);
+                // البحث عن تذكرة نشطة موجودة للقسم نفسه في نفس الطلب
+                $ticket = $order->tickets()
+                    ->where('department_id', $deptId)
+                    ->whereIn('status', ['pending', 'preparing'])
+                    ->first();
+
+                if (! $ticket) {
+                    $ticket = ProductionTicket::create([
+                        'order_id' => $order->id,
+                        'department_id' => $deptId,
+                        'ticket_number' => ProductionTicket::generateTicketNumber((int) $deptId),
+                        'status' => 'pending',
+                        'sent_at' => now(),
+                        'notes' => $order->note,
+                    ]);
+                }
 
                 foreach ($deptItems as $orderItem) {
+                    // تجنب التكرار — لا تُضاف إذا لها ticketItem مسبقاً
+                    if ($orderItem->ticketItem) {
+                        continue;
+                    }
+
                     ProductionTicketItem::create([
                         'production_ticket_id' => $ticket->id,
                         'order_item_id' => $orderItem->id,
@@ -306,6 +330,14 @@ class OrderController extends ApiController
             }
 
             $order->update(['status' => 'confirmed']);
+
+            // تحديث الطاولة إلى HAS_ORDER (عليها طلب)
+            if ($order->dining_table_id) {
+                $table = DiningTable::find($order->dining_table_id);
+                if ($table) {
+                    $table->update(['status' => 'HAS_ORDER']);
+                }
+            }
 
             DB::commit();
 
@@ -326,7 +358,7 @@ class OrderController extends ApiController
 
     public function cancel(Order $order): JsonResponse
     {
-        if (! in_array($order->status, ['pending', 'confirmed'], true)) {
+        if (! in_array($order->status, ['pending', 'pending_confirmation', 'confirmed'], true)) {
             return $this->error('لا يمكن إلغاء هذا الطلب في حالته الحالية.', 422);
         }
 
@@ -394,34 +426,49 @@ class OrderController extends ApiController
         return $this->success('القيد المحاسبي', new TransactionResource($transaction));
     }
 
+    /**
+     * مزامنة تذاكر الإنتاج — يرسل فقط العناصر pending التي لا تملك ticketItem.
+     * يُعيد استخدام التذاكر النشطة للقسم نفسه بدلاً من إنشاء تذاكر مكررة.
+     */
     private function syncProductionTickets(Order $order): void
     {
-        if (in_array($order->status, ['cancelled', 'paid'], true)) {
+        if (in_array($order->status, ['cancelled', 'paid', 'served'], true)) {
             return;
         }
 
-        $itemsByDept = $order->items()
+        // فلترة العناصر غير المرحّلة فقط
+        $unsentItems = $order->items()
+            ->where('status', 'pending')
             ->whereDoesntHave('ticketItem')
-            ->get()
-            ->groupBy('department_id');
+            ->get();
 
-        if ($itemsByDept->isEmpty()) {
+        if ($unsentItems->isEmpty()) {
             return;
         }
+
+        $itemsByDept = $unsentItems->groupBy('department_id');
 
         foreach ($itemsByDept as $deptId => $orderItems) {
             if (! $deptId) {
                 continue;
             }
 
-            $ticket = ProductionTicket::create([
-                'order_id' => $order->id,
-                'department_id' => $deptId,
-                'ticket_number' => ProductionTicket::generateTicketNumber((int) $deptId),
-                'status' => 'pending',
-                'sent_at' => now(),
-                'notes' => $order->note,
-            ]);
+            // البحث عن تذكرة نشطة للقسم
+            $ticket = $order->tickets()
+                ->where('department_id', $deptId)
+                ->whereIn('status', ['pending', 'preparing'])
+                ->first();
+
+            if (! $ticket) {
+                $ticket = ProductionTicket::create([
+                    'order_id' => $order->id,
+                    'department_id' => $deptId,
+                    'ticket_number' => ProductionTicket::generateTicketNumber((int) $deptId),
+                    'status' => 'pending',
+                    'sent_at' => now(),
+                    'notes' => $order->note,
+                ]);
+            }
 
             foreach ($orderItems as $orderItem) {
                 ProductionTicketItem::create([
@@ -436,6 +483,7 @@ class OrderController extends ApiController
             }
         }
 
+        // تحديث حالة الطلب إذا لم تكن في مرحلة متقدمة
         if (! in_array($order->status, ['confirmed', 'in_progress', 'ready', 'served'], true)) {
             $order->update(['status' => 'confirmed']);
         }

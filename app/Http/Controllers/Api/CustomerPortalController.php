@@ -248,31 +248,84 @@ class CustomerPortalController extends Controller
             ], 422);
         }
 
+        $branchId = $table->zone?->branch_id;
+
         try {
-            // البحث عن طلب نشط أو إنشاء واحد جديد
+            // البحث عن طلب نشط يمكن الإضافة عليه
             $order = Order::where('dining_table_id', $table->id)
-                ->whereNotIn('status', ['paid', 'cancelled', 'served'])
+                ->whereIn('status', ['pending_confirmation', 'pending', 'confirmed', 'in_progress'])
                 ->latest()
                 ->first();
 
-            if (!$order) {
-                $order = Order::create([
-                    'dining_table_id' => $table->id,
-                    'branch_id' => $table->zone?->branch_id,
-                    'order_number' => 'ORD-' . strtoupper(uniqid()),
-                    'order_type' => 'dine_in',
-                    'status' => 'pending',
-                    'subtotal' => 0,
-                    'total' => 0,
-                    'customer_name' => $request->input('customer_name', 'زبون'),
-                    'table_number' => $table->table_number,
+            if ($order) {
+                // ── إضافة أصناف على الطلب الموجود ──
+                foreach ($request->items as $itemData) {
+                    $item = Item::findOrFail($itemData['item_id']);
+                    $qty = (int) $itemData['quantity'];
+                    $price = (float) ($branchId ? ($item->priceForBranch($branchId) ?? 0) : 0);
+
+                    // هل الصنف موجود مسبقاً بحالة pending؟
+                    $existingItem = $order->items()
+                        ->where('item_id', $item->id)
+                        ->where('status', 'pending')
+                        ->first();
+
+                    if ($existingItem) {
+                        $existingItem->increment('quantity', $qty);
+                        $existingItem->update([
+                            'total' => $existingItem->price * $existingItem->quantity,
+                        ]);
+                    } else {
+                        OrderItem::create([
+                            'order_id'      => $order->id,
+                            'item_id'       => $item->id,
+                            'item_name'     => $item->name,
+                            'item_name_ar'  => $item->name_ar ?? $item->name,
+                            'quantity'      => $qty,
+                            'price'         => $price,
+                            'total'         => $price * $qty,
+                            'notes'         => $itemData['notes'] ?? null,
+                            'department_id' => $item->department_id,
+                            'status'        => 'pending',
+                        ]);
+                    }
+                }
+
+                // نعيد الطلب و حالة الطاولة لـ pending_confirmation
+                // لأن فيه عناصر جديدة تحتاج مراجعة النادل
+                $order->update(['status' => 'pending_confirmation']);
+                $order->recalculateTotals();
+
+                $table->update([
+                    'status' => 'PENDING_CONFIRMATION',
                 ]);
 
-                $table->setPendingConfirmation();
+                LogFacade::info('Items added to existing order', ['order_id' => $order->id]);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'تم إضافة الأصناف للطلب بنجاح',
+                    'data' => [
+                        'order_id' => $order->id,
+                        'order_number' => $order->order_number,
+                    ]
+                ], 200);
             }
 
-            $subtotal = (float) $order->subtotal;
-            $branchId = $table->zone?->branch_id;
+            // ── إنشاء طلب جديد ──
+            $order = Order::create([
+                'dining_table_id' => $table->id,
+                'branch_id' => $branchId,
+                'order_number' => Order::generateOrderNumber(),
+                'order_type' => 'dine_in',
+                'status' => 'pending_confirmation',
+                'customer_name' => $request->input('customer_name', 'زبون'),
+                'table_number' => $table->table_number,
+                'subtotal' => 0,
+                'total' => 0,
+            ]);
+
+            $subtotal = 0;
 
             foreach ($request->items as $itemData) {
                 $item = Item::findOrFail($itemData['item_id']);
@@ -281,13 +334,16 @@ class CustomerPortalController extends Controller
                 $total = $price * $qty;
 
                 OrderItem::create([
-                    'order_id' => $order->id,
-                    'item_id' => $item->id,
-                    'item_name' => $item->name,
-                    'quantity' => $qty,
-                    'price' => $price,
-                    'total' => $total,
-                    'notes' => $itemData['notes'] ?? null,
+                    'order_id'      => $order->id,
+                    'item_id'       => $item->id,
+                    'item_name'     => $item->name,
+                    'item_name_ar'  => $item->name_ar ?? $item->name,
+                    'quantity'      => $qty,
+                    'price'         => $price,
+                    'total'         => $total,
+                    'notes'         => $itemData['notes'] ?? null,
+                    'department_id' => $item->department_id,
+                    'status'        => 'pending',
                 ]);
 
                 $subtotal += $total;
@@ -298,11 +354,19 @@ class CustomerPortalController extends Controller
                 'total' => $subtotal - ($order->discount_amount ?? 0),
             ]);
 
+            // تحديث حالة الطاولة
+            $table->update([
+                'status'           => 'PENDING_CONFIRMATION',
+                'current_order_id' => $order->id,
+                'seated_at'        => $table->seated_at ?? now(),
+                'customer_count'   => max($table->customer_count, 1),
+            ]);
+
             LogFacade::info('Order created successfully', ['order_id' => $order->id]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'تم إضافة الطلب بنجاح',
+                'message' => 'تم إرسال الطلب بنجاح',
                 'data' => [
                     'order_id' => $order->id,
                     'order_number' => $order->order_number,
