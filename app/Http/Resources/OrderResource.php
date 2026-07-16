@@ -30,6 +30,9 @@ class OrderResource extends JsonResource
             'call_notes'       => $this->call_notes,
             'needs_attention'  => (bool) $this->needs_attention,
             'customer_service_flag' => (bool) $this->customer_service_flag,
+            'is_urgent'        => (bool) $this->is_urgent,
+            'priority'         => $this->priority,
+            'expedited_at'     => $this->expedited_at?->toIso8601String(),
             'note'             => $this->note,
 
             'subtotal'         => (float) $this->subtotal,

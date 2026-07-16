@@ -63,6 +63,10 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware('permission:manage-orders');
         Route::post('orders/{order}/assembled', [OrderController::class, 'markAssembled'])
             ->middleware('permission:manage-orders');
+        Route::post('orders/{order}/expedite', [OrderController::class, 'expedite'])
+            ->middleware('permission:access-call-center|manage-call-center|manage-orders');
+        Route::post('orders/{order}/customer-experience', [OrderController::class, 'storeCustomerExperience'])
+            ->middleware('permission:access-call-center|manage-call-center|manage-orders');
         Route::post('orders/{order}/delivered', [OrderController::class, 'markDelivered'])
             ->middleware('permission:manage-orders');
         Route::post('orders/offline-deliveries/sync', [OrderController::class, 'syncOfflineDeliveries'])
@@ -105,6 +109,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // أ¢â€‌â‚¬أ¢â€‌â‚¬ Call Center أ¢â€‌â‚¬أ¢â€‌â‚¬
     Route::prefix('call-center')->middleware('permission:access-call-center|manage-call-center')->group(function () {
+        Route::put('orders/{order}/complete', [OrderController::class, 'complete']);
+        Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle']);
+        Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
+        Route::get('payment-methods', [\App\Http\Controllers\Api\PaymentMethodController::class, 'index']);
         Route::get('customers/search', [CallCenterController::class, 'searchCustomers']);
         Route::post('customers', [CallCenterController::class, 'storeCustomer']);
         Route::get('customers/analytics', [CallCenterController::class, 'analytics']);
@@ -208,6 +216,10 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:manage-orders');
     Route::post('orders/{order}/assembled', [OrderController::class, 'markAssembled'])
         ->middleware('permission:manage-orders');
+    Route::post('orders/{order}/expedite', [OrderController::class, 'expedite'])
+        ->middleware('permission:access-call-center|manage-call-center|manage-orders');
+    Route::post('orders/{order}/customer-experience', [OrderController::class, 'storeCustomerExperience'])
+        ->middleware('permission:access-call-center|manage-call-center|manage-orders');
     Route::get('operations/delivery/available', [\App\Http\Controllers\Api\DeliveryOperationsController::class, 'available'])->middleware('permission:manage-orders');
     Route::get('operations/dashboard', [\App\Http\Controllers\Api\DeliveryOperationsController::class, 'dashboard'])->middleware('permission:view-orders|manage-orders');
     Route::get('operations/assemblers', [\App\Http\Controllers\Api\DeliveryOperationsController::class, 'assemblers'])->middleware('permission:manage-orders');

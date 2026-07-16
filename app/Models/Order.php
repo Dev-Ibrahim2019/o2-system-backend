@@ -77,6 +77,10 @@ class Order extends Model
         'delivery_duration_seconds',
         'cancellation_reason',
         'cancelled_at',
+        'is_urgent',
+        'priority',
+        'expedited_at',
+        'expedited_by',
     ];
 
     protected $casts = [
@@ -96,6 +100,8 @@ class Order extends Model
         'delivered_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'delivery_duration_seconds' => 'integer',
+        'is_urgent' => 'boolean',
+        'expedited_at' => 'datetime',
     ];
 
     public function branch(): BelongsTo
@@ -112,6 +118,7 @@ class Order extends Model
     public function assembler(): BelongsTo { return $this->belongsTo(Employee::class, 'assembler_id'); }
     public function assembledByEmployee(): BelongsTo { return $this->belongsTo(Employee::class, 'assembled_by'); }
     public function executionEvents(): HasMany { return $this->hasMany(OrderExecutionEvent::class)->orderBy('occurred_at'); }
+    public function customerExperience(): HasOne { return $this->hasOne(OrderCustomerExperience::class); }
 
     public function items(): HasMany
     {

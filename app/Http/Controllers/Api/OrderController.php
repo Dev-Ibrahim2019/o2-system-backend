@@ -11,6 +11,7 @@ use App\Http\Resources\OrderItemResource;
 use App\Http\Resources\OrderResource;
 use App\Models\Item;
 use App\Models\Order;
+use App\Models\OrderCustomerExperience;
 use App\Models\OrderItem;
 use App\Models\ProductionTicket;
 use App\Models\ProductionTicketItem;
@@ -24,7 +25,7 @@ class OrderController extends ApiController
 {
     public function index(Request $request): JsonResponse
     {
-        $orders = Order::with(['items.department', 'tickets.department', 'cashier'])
+        $orders = Order::with(['items.department', 'tickets.department', 'cashier', 'assembler', 'deliveryDriver'])
             ->when($request->branch_id, fn($q) => $q->where('branch_id', $request->branch_id))
             ->when($request->status, fn($q) => $q->where('status', $request->status))
             ->when($request->date, fn($q) => $q->whereDate('created_at', $request->date))
@@ -512,7 +513,7 @@ class OrderController extends ApiController
 
     public function markDelivered(Request $request, Order $order): JsonResponse
     {
-        if ($order->status !== 'OUT_FOR_DELIVERY') {
+        if (! in_array($order->status, ['OUT_FOR_DELIVERY', 'ready'], true)) {
             return $this->error('هذا الطلب مغلق أو ملغي مسبقا.', 422);
         }
 
@@ -539,7 +540,14 @@ class OrderController extends ApiController
                     'served_at' => $deliveredAt,
                 ]);
                 $order->items()->whereNotIn('status', ['cancelled'])->update(['status' => 'served']);
-                app(\App\Services\Operations\OrderExecutionService::class)->recordEvent($order, 'delivered', $order->driver_id ? \App\Models\Employee::find($order->driver_id) : null, auth()->user(), null, ['to_status'=>Order::STATUS_DELIVERED], $deliveredAt);
+                $driver = $order->driver_id ? \App\Models\Employee::find($order->driver_id) : null;
+                app(\App\Services\Operations\OrderExecutionService::class)->recordEvent($order, 'delivered', $driver, auth()->user(), null, [
+                    'to_status'=>Order::STATUS_DELIVERED,
+                    'delivery_duration_seconds'=>max(0, $startedAt->diffInSeconds($deliveredAt, false)),
+                    'driver_id'=>$order->driver_id,
+                    'driver_name'=>$driver?->name ?? $order->delivery_employee_name,
+                    'source'=>'operations_dashboard',
+                ], $deliveredAt);
             });
 
             return $this->success(
@@ -554,6 +562,66 @@ class OrderController extends ApiController
     public function complete(Request $request, Order $order): JsonResponse
     {
         return $this->markDelivered($request, $order);
+    }
+
+    public function expedite(Request $request, Order $order): JsonResponse
+    {
+        if (! in_array($order->status, ['PREPARATION', 'confirmed', 'in_progress'], true)) {
+            return $this->error('يمكن استعجال الطلبات قيد التحضير فقط.', 422);
+        }
+
+        $validated = $request->validate(['notes' => ['nullable', 'string', 'max:1000']]);
+        $expeditedAt = now();
+
+        DB::transaction(function () use ($order, $request, $validated, $expeditedAt) {
+            $order->update([
+                'is_urgent' => true,
+                'priority' => 'urgent',
+                'expedited_at' => $expeditedAt,
+                'expedited_by' => $request->user()?->id,
+            ]);
+
+            app(\App\Services\Operations\OrderExecutionService::class)->recordEvent(
+                $order,
+                'expedited',
+                $order->assembler_id ? \App\Models\Employee::find($order->assembler_id) : null,
+                $request->user(),
+                $validated['notes'] ?? null,
+                ['priority' => 'urgent', 'source' => 'active_orders'],
+                $expeditedAt
+            );
+        });
+
+        return $this->success(
+            'تم إرسال إشارة الاستعجال إلى مجمّع الطلبات والأقسام الإنتاجية.',
+            new OrderResource($order->fresh()->load(['items.department', 'tickets.department', 'assembler', 'deliveryDriver']))
+        );
+    }
+
+    public function storeCustomerExperience(Request $request, Order $order): JsonResponse
+    {
+        if (! in_array($order->status, ['DELIVERED', 'served', 'paid'], true)) {
+            return $this->error('يمكن تقييم تجربة العميل بعد تسليم الطلب فقط.', 422);
+        }
+
+        $validated = $request->validate([
+            'food_rating' => ['required', 'integer', 'between:1,5'],
+            'delivery_rating' => ['required', 'integer', 'between:1,5'],
+            'speed_rating' => ['required', 'integer', 'between:1,5'],
+            'contacted' => ['required', 'boolean'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $experience = OrderCustomerExperience::updateOrCreate(
+            ['order_id' => $order->id],
+            [
+                ...$validated,
+                'customer_id' => $order->customer_id,
+                'recorded_by' => $request->user()?->id,
+            ]
+        );
+
+        return $this->success('تم حفظ تقييم تجربة العميل.', $experience->fresh());
     }
 
     public function syncOfflineDeliveries(Request $request): JsonResponse
@@ -677,4 +745,3 @@ class OrderController extends ApiController
         ]);
     }
 }
-
