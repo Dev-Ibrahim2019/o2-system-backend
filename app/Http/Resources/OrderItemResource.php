@@ -21,6 +21,8 @@ class OrderItemResource extends JsonResource
             'status' => $this->status,
             'notes' => $this->notes,
             'sent_to_kitchen_at' => $this->sent_to_kitchen_at?->toIso8601String(),
+            'is_printed_direct' => (bool) $this->is_printed_direct,
+            'is_takeaway' => (bool) $this->is_takeaway,
             'department' => $this->whenLoaded('department', fn () => [
                 'id' => $this->department->id,
                 'name' => $this->department->name,

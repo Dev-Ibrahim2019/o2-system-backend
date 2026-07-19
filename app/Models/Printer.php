@@ -15,11 +15,14 @@ class Printer extends Model
         'ip_address',
         'port',
         'type',
+        'linked_pos_register_id',
+        'print_on_direct',
         'is_active',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'print_on_direct' => 'boolean',
     ];
 
     // ── Relationships ────────────────────────────────────────
@@ -32,6 +35,21 @@ class Printer extends Model
     public function routes()
     {
         return $this->hasMany(PrintRoute::class);
+    }
+
+    public function linkedPosRegister()
+    {
+        return $this->belongsTo(PosRegister::class, 'linked_pos_register_id');
+    }
+
+    public function departments()
+    {
+        return $this->belongsToMany(Department::class, 'printer_department');
+    }
+
+    public function items()
+    {
+        return $this->belongsToMany(Item::class, 'printer_item');
     }
 
     // ── Scopes ───────────────────────────────────────────────

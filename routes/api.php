@@ -63,6 +63,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
         Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
         Route::post('orders/{order}/print-invoice', [OrderController::class, 'printInvoice']);
+        Route::post('orders/{order}/print-tickets', [OrderController::class, 'printTickets']);
+        Route::post('orders/{order}/print-order', [OrderController::class, 'printOrder']);
+        Route::post('orders/{order}/direct-print', [OrderController::class, 'directPrint']);
         Route::post('orders/{order}/cancel', [OrderController::class, 'cancel']);
 
         Route::get('production-tickets', [ProductionTicketController::class, 'index']);
@@ -150,6 +153,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
     Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
     Route::post('orders/{order}/print-invoice', [OrderController::class, 'printInvoice']);
+    Route::post('orders/{order}/print-tickets', [OrderController::class, 'printTickets']);
+    Route::post('orders/{order}/direct-print', [OrderController::class, 'directPrint']);
     Route::post('orders/{order}/cancel', [OrderController::class, 'cancel']);
     Route::post('orders/{order}/sync-pricing', [OrderController::class, 'syncPricing']);
     Route::get('orders/{order}/invoice-id', [InvoiceDetailsController::class, 'getInvoiceIdFromOrder']);

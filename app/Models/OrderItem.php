@@ -34,6 +34,8 @@ class OrderItem extends Model
         'status',
         'notes',
         'sent_to_kitchen_at',
+        'is_printed_direct',
+        'is_takeaway',
     ];
 
     protected $casts = [
@@ -45,6 +47,8 @@ class OrderItem extends Model
         'tax_rate' => 'decimal:2',
         'tax_amount' => 'decimal:2',
         'sent_to_kitchen_at' => 'datetime',
+        'is_printed_direct' => 'boolean',
+        'is_takeaway' => 'boolean',
     ];
 
     public function order(): BelongsTo

@@ -31,6 +31,47 @@ class ReceiptImageBuilder
     }
 
     /**
+     * Render a filtered invoice receipt — only specific items for a cashier printer.
+     *
+     * @param  Order  $order       The order model.
+     * @param  string $printerName Name of the destination printer.
+     * @param  array  $items       Filtered items: ['item_id','name','quantity','price','total','notes']
+     * @return string              Absolute path to the generated PNG image.
+     */
+    public function buildFilteredInvoiceReceipt(Order $order, string $printerName, array $items): string
+    {
+        // Convert items to objects so the Blade template can use -> property access
+        $filteredItems = array_map(function ($item) {
+            if (is_object($item)) {
+                return $item;
+            }
+            return (object) [
+                'item_id'     => $item['item_id'] ?? 0,
+                'item_name'   => $item['name'] ?? $item['item_name'] ?? 'صنف',
+                'item_name_ar'=> $item['name_ar'] ?? $item['item_name_ar'] ?? $item['name'] ?? 'صنف',
+                'quantity'    => $item['quantity'] ?? 1,
+                'price'       => $item['price'] ?? 0,
+                'total'       => $item['total'] ?? ($item['price'] ?? 0) * ($item['quantity'] ?? 1),
+                'notes'       => $item['notes'] ?? null,
+            ];
+        }, $items);
+
+        // Calculate filtered total
+        $filteredTotal = array_sum(array_map(fn($i) => $i->total, $filteredItems));
+
+        $viewData = [
+            'order'          => $order,
+            'filteredItems'  => $filteredItems,
+            'filteredTotal'  => $filteredTotal,
+            'printerName'    => $printerName,
+        ];
+
+        $html = view('receipts.invoice', $viewData)->render();
+
+        return $this->renderHtmlToImage($html);
+    }
+
+    /**
      * Render a kitchen order ticket (KOT) from the kot.blade.php template.
      *
      * @param  Order     $order         The order model.
@@ -268,6 +309,59 @@ class ReceiptImageBuilder
                 @unlink($file);
             }
         }
+    }
+
+    /**
+     * Render a department production ticket from ticket.blade.php.
+     *
+     * @param  Order     $order  The order model.
+     * @param  object    $ticket The ProductionTicket model with department and ticketItems loaded.
+     * @return string            Absolute path to the generated PNG image.
+     */
+    public function buildTicketReceipt(Order $order, object $ticket): string
+    {
+        $html = view('receipts.ticket', compact('order', 'ticket'))->render();
+
+        return $this->renderHtmlToImage($html);
+    }
+
+    /**
+     * Build a compact department ticket for cashier printer sections.
+     * Uses department-ticket.blade.php — a small, compressed ticket
+     * showing section name + filtered items.
+     *
+     * @param  Order  $order       The order model.
+     * @param  string $sectionName The department/section name (e.g., "مطبخ الشاورما").
+     * @param  array  $sectionItems Array of formatted items (name, quantity, notes, etc.).
+     * @return string              Absolute path to the generated PNG image.
+     */
+    public function buildDepartmentTicketReceipt(
+        Order $order,
+        string $sectionName,
+        array $sectionItems
+    ): string {
+        // Convert arrays to stdClass so template property access works
+        $items = array_map(function ($item) {
+            if (is_object($item)) {
+                return $item;
+            }
+            return (object) [
+                'item_name_ar' => $item['item_name_ar'] ?? $item['item_name'] ?? $item['name'] ?? '—',
+                'item_name'    => $item['item_name'] ?? $item['name'] ?? '',
+                'quantity'     => (int) ($item['quantity'] ?? 1),
+                'notes'        => $item['notes'] ?? '',
+                'price'        => (float) ($item['price'] ?? 0),
+                'total'        => (float) ($item['total'] ?? 0),
+            ];
+        }, $sectionItems);
+
+        $html = view('receipts.department-ticket', [
+            'order'        => $order,
+            'sectionName'  => $sectionName,
+            'sectionItems' => $items,
+        ])->render();
+
+        return $this->renderHtmlToImage($html);
     }
 
     /**

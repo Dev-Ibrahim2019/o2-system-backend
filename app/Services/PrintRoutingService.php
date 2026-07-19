@@ -4,40 +4,71 @@ namespace App\Services;
 
 use App\Models\Printer;
 use App\Models\PrintRoute;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 /**
  * خدمة التوجيه الذكي للطباعة
  * ─────────────────────────────
  * الخوارزمية: عند استلام فاتورة/أمر تشغيل:
- * 1. Loop على كل صنف في الطلب
- * 2. فحص item_id مباشرة (أعلى أولوية)
- * 3. إذا لم يجد → فحص category_id
- * 4. إذا لم يجد → استخدام الطابعة الافتراضية
- * 5. تجميع الأصناف الموجهة لنفس الطابعة في مصفوفة
- * 6. إرسال كل مجموعة عبر TCP Socket
+ * 1. جلب القوانين النشطة للفرع (مع مراعاة الجهاز المرسل)
+ * 2. Loop على كل صنف في الطلب
+ * 3. فحص item_id مباشرة (أعلى أولوية)
+ * 4. إذا لم يجد → فحص category_id
+ * 5. إذا لم يجد → استخدام الطابعة الافتراضية (KITCHEN)
+ * 6. تجميع الأصناف الموجهة لنفس الطابعة في مصفوفة
+ * 7. إرجاع المجموعات جاهزة للرندرة والطباعة
  */
 class PrintRoutingService
 {
     /**
-     * معالجة طباعة فاتورة/أمر تشغيل
+     * توجيه أصناف الطلب إلى الطابعات المناسبة.
+     *
+     * الخوارزمية الجديدة (تعتمد على pivot tables الطابعة):
+     * 1. Level 1: بحث في printer_item pivot (صنف محدد لطابعة)
+     * 2. Level 2: بحث في printer_department pivot (قسم مرتبط بطابعة)
+     * 3. Level 3: fallback → طابعة KITCHEN الافتراضية
+     *
+     * @param  int       $branchId   ID الفرع
+     * @param  array     $items      أصناف الطلب — كل صنف: ['item_id', 'category_id', ...]
+     * @param  ?int      $userId     ID المستخدم المرسل (غير مستخدم حالياً)
+     * @param  ?string   $deviceType 'POS' | 'WAITER_APP' | null
+     * @param  ?int      $deviceId   ID الجهاز المحدد
+     * @return array     ['printer' => Printer, 'items' => array, 'count' => int][]
      */
-    public function routeOrder(int $branchId, array $items, ?int $userId = null): array
-    {
-        $routes = $this->getActiveRoutes($branchId);
+    public function routeOrder(
+        int $branchId,
+        array $items,
+        ?int $userId = null,
+        ?string $deviceType = null,
+        ?int $deviceId = null
+    ): array {
+        // جلب الطابعات النشطة للفرع مع العلاقات
+        $printers = Printer::where('branch_id', $branchId)
+            ->where('is_active', true)
+            ->with(['departments', 'items'])
+            ->get();
+
+        // فلترة حسب نوع الجهاز (CASHIER = linked_pos_register_id)
+        $cashierPrinters = $printers->where('type', 'CASHIER');
+        $kitchenPrinters = $printers->whereIn('type', ['KITCHEN', 'BAR', 'OTHER']);
+
         $printerGroups = [];
 
         foreach ($items as $item) {
-            $printerId = $this->resolvePrinterForItem($item, $routes, $userId, $branchId);
+            $printerId = $this->resolvePrinterForItem(
+                $item,
+                $printers,
+                $cashierPrinters,
+                $kitchenPrinters,
+                $userId,
+                $branchId,
+                $deviceType,
+                $deviceId
+            );
 
             if ($printerId === null) {
                 Log::warning("No print route for item {$item['item_id']} in branch {$branchId}");
                 continue;
-            }
-
-            if (!isset($printerGroups[$printerId])) {
-                $printerGroups[$printerId] = [];
             }
 
             $printerGroups[$printerId][] = $item;
@@ -45,8 +76,8 @@ class PrintRoutingService
 
         $result = [];
         foreach ($printerGroups as $printerId => $groupItems) {
-            $printer = Printer::find($printerId);
-            if ($printer && $printer->is_active) {
+            $printer = $printers->firstWhere('id', $printerId);
+            if ($printer) {
                 $result[] = [
                     'printer' => $printer,
                     'items'   => $groupItems,
@@ -60,67 +91,78 @@ class PrintRoutingService
 
     /**
      * تحديد الطابعة المناسبة لصنف معين
-     * الأولوية: ITEM → CATEGORY → default
+     * الأولوية: printer_item → printer_department → default KITCHEN
      */
     private function resolvePrinterForItem(
         array $item,
-        Collection $routes,
+        $allPrinters,
+        $cashierPrinters,
+        $kitchenPrinters,
         ?int $userId,
-        int $branchId
+        int $branchId,
+        ?string $deviceType,
+        ?int $deviceId
     ): ?int {
         $itemId = $item['item_id'];
         $categoryId = $item['category_id'] ?? null;
 
-        // المستوى 1: بحث دقيق عن الصنف
-        $itemRoute = $routes->first(function ($route) use ($itemId, $userId) {
-            return $route->item_id != null
-                && $route->item_id == $itemId
-                && $this->matchesUser($route, $userId);
-        });
-
-        if ($itemRoute) {
-            return $itemRoute->printer_id;
-        }
-
-        // المستوى 2: بحث بالقسم
-        if ($categoryId) {
-            $categoryRoute = $routes->first(function ($route) use ($categoryId, $userId) {
-                return $route->category_id != null
-                    && $route->category_id == $categoryId
-                    && $this->matchesUser($route, $userId);
-            });
-
-            if ($categoryRoute) {
-                return $categoryRoute->printer_id;
+        // المستوى 1: بحث في printer_item pivot (أعلى أولوية)
+        foreach ($allPrinters as $printer) {
+            if ($printer->items->contains('id', $itemId)) {
+                // إذا كانت طابعة كاشير، تحقق من تطابق الجهاز
+                if ($printer->type === 'CASHIER') {
+                    if ($this->matchesDevice($printer, $deviceType, $deviceId)) {
+                        return $printer->id;
+                    }
+                } else {
+                    return $printer->id;
+                }
             }
         }
 
-        // المستوى 3: الطابعة الافتراضية
-        $defaultPrinter = Printer::where('branch_id', $branchId)
-            ->where('is_active', true)
-            ->where('type', 'KITCHEN')
-            ->first();
+        // المستوى 2: بحث في printer_department pivot
+        if ($categoryId) {
+            foreach ($allPrinters as $printer) {
+                if ($printer->departments->contains('id', $categoryId)) {
+                    if ($printer->type === 'CASHIER') {
+                        if ($this->matchesDevice($printer, $deviceType, $deviceId)) {
+                            return $printer->id;
+                        }
+                    } else {
+                        return $printer->id;
+                    }
+                }
+            }
+        }
 
+        // المستوى 3: الطابعة الافتراضية (KITCHEN)
+        $defaultPrinter = $kitchenPrinters->first();
         return $defaultPrinter?->id;
     }
 
-    private function matchesUser(PrintRoute $route, ?int $userId): bool
+    /**
+     * فحص تطابق الجهاز مع الطابعة
+     */
+    private function matchesDevice(Printer $printer, ?string $deviceType, ?int $deviceId): bool
     {
-        if ($route->user_id === null) {
+        // إذا لم يحدد جهاز → مطابقة عامة
+        if ($deviceType === null || $deviceId === null) {
             return true;
         }
-        return $userId !== null && $route->user_id == $userId;
-    }
 
-    private function getActiveRoutes(int $branchId): Collection
-    {
-        return PrintRoute::where('branch_id', $branchId)
-            ->where('is_active', true)
-            ->get();
+        // طابعة الكاشير مرتبطة بجهاز POS محدد
+        if ($printer->type === 'CASHIER' && $printer->linked_pos_register_id !== null) {
+            if ($deviceType === 'POS' && $printer->linked_pos_register_id == $deviceId) {
+                return true;
+            }
+            return false;
+        }
+
+        return true;
     }
 
     /**
-     * إرسال أمر طباعة لطابعة SNBC عبر TCP Socket
+     * إرسال أمر طباعة لطابعة عبر TCP Socket (legacy text mode)
      */
     public function sendToPrinter(Printer $printer, array $items): array
     {

@@ -21,7 +21,9 @@ class PrinterController extends Controller
     {
         $branchId = $this->resolveBranchId($request);
 
-        $query = Printer::orderByDesc('is_active')->orderBy('name');
+        $query = Printer::with(['linkedPosRegister', 'departments', 'items'])
+            ->orderByDesc('is_active')
+            ->orderBy('name');
 
         if ($branchId !== null) {
             $query->where('branch_id', $branchId);
@@ -41,11 +43,17 @@ class PrinterController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'name'       => 'required|string|max:255',
-            'ip_address' => 'required|string|max:45',
-            'port'       => 'nullable|string|max:10',
-            'type'       => 'required|in:CASHIER,KITCHEN,BAR,OTHER',
-            'branch_id'  => 'nullable|integer|exists:branches,id',
+            'name'                   => 'required|string|max:255',
+            'ip_address'             => 'required|string|max:45',
+            'port'                   => 'nullable|string|max:10',
+            'type'                   => 'required|in:CASHIER,KITCHEN,BAR,OTHER',
+            'branch_id'              => 'nullable|integer|exists:branches,id',
+            'linked_pos_register_id' => 'nullable|integer|exists:pos_registers,id',
+            'print_on_direct'             => 'nullable|boolean',
+            'department_ids'         => 'nullable|array',
+            'department_ids.*'       => 'integer|exists:departments,id',
+            'item_ids'               => 'nullable|array',
+            'item_ids.*'             => 'integer|exists:items,id',
         ]);
 
         $branchId = $validated['branch_id'] ?? $this->resolveBranchId($request);
@@ -68,14 +76,47 @@ class PrinterController extends Controller
             ]);
         }
 
+        // التحقق من الحقول حسب النوع
+        if ($validated['type'] === 'CASHIER') {
+            if (empty($validated['linked_pos_register_id'])) {
+                throw ValidationException::withMessages([
+                    'linked_pos_register_id' => 'يجب تحديد جهاز كاشير (POS) لطابعة الكاشير',
+                ]);
+            }
+            // التأكد من أن الجهاز تابعة للفرع
+            \App\Models\PosRegister::where('branch_id', $branchId)
+                ->where('id', $validated['linked_pos_register_id'])
+                ->firstOrFail();
+        } else {
+            if (empty($validated['department_ids'])) {
+                throw ValidationException::withMessages([
+                    'department_ids' => 'يجب تحديد قسم واحد على الأقل لطابعة الأقسام',
+                ]);
+            }
+        }
+
         $printer = Printer::create([
-            'name'       => $validated['name'],
-            'ip_address' => $validated['ip_address'],
-            'port'       => $validated['port'] ?? '9100',
-            'type'       => $validated['type'],
-            'branch_id'  => $branchId,
-            'is_active'  => true,
+            'name'                   => $validated['name'],
+            'ip_address'             => $validated['ip_address'],
+            'port'                   => $validated['port'] ?? '9100',
+            'type'                   => $validated['type'],
+            'branch_id'              => $branchId,
+            'linked_pos_register_id' => $validated['linked_pos_register_id'] ?? null,
+            'print_on_direct'             => $validated['print_on_direct'] ?? false,
+            'is_active'              => true,
         ]);
+
+        // حفظ الأقسام والأصناف (لغير الكاشير)
+        if ($validated['type'] !== 'CASHIER') {
+            if (!empty($validated['department_ids'])) {
+                $printer->departments()->sync($validated['department_ids']);
+            }
+            if (!empty($validated['item_ids'])) {
+                $printer->items()->sync($validated['item_ids']);
+            }
+        }
+
+        $printer->load(['linkedPosRegister', 'departments', 'items']);
 
         return response()->json([
             'success' => true,
@@ -94,7 +135,7 @@ class PrinterController extends Controller
         $printer = Printer::where('branch_id', $branchId)
             ->with(['routes' => function ($q) {
                 $q->with(['user', 'category', 'item']);
-            }])
+            }, 'linkedPosRegister', 'departments', 'items'])
             ->findOrFail($id);
 
         return response()->json([
@@ -113,11 +154,17 @@ class PrinterController extends Controller
         $printer = Printer::where('branch_id', $branchId)->findOrFail($id);
 
         $validated = $request->validate([
-            'name'       => 'sometimes|string|max:255',
-            'ip_address' => 'sometimes|string|max:45',
-            'port'       => 'nullable|string|max:10',
-            'type'       => 'sometimes|in:CASHIER,KITCHEN,BAR,OTHER',
-            'is_active'  => 'sometimes|boolean',
+            'name'                   => 'sometimes|string|max:255',
+            'ip_address'             => 'sometimes|string|max:45',
+            'port'                   => 'nullable|string|max:10',
+            'type'                   => 'sometimes|in:CASHIER,KITCHEN,BAR,OTHER',
+            'is_active'              => 'sometimes|boolean',
+            'print_on_direct'             => 'sometimes|boolean',
+            'linked_pos_register_id' => 'nullable|integer|exists:pos_registers,id',
+            'department_ids'         => 'nullable|array',
+            'department_ids.*'       => 'integer|exists:departments,id',
+            'item_ids'               => 'nullable|array',
+            'item_ids.*'             => 'integer|exists:items,id',
         ]);
 
         // فحص عدم التكرار عند تغيير IP
@@ -134,12 +181,44 @@ class PrinterController extends Controller
             }
         }
 
-        $printer->update($validated);
+        $printerType = $validated['type'] ?? $printer->type;
+
+        // التحقق من الحقول حسب النوع
+        if ($printerType === 'CASHIER') {
+            if (isset($validated['linked_pos_register_id']) && $validated['linked_pos_register_id'] !== null) {
+                \App\Models\PosRegister::where('branch_id', $branchId)
+                    ->where('id', $validated['linked_pos_register_id'])
+                    ->firstOrFail();
+            }
+            // إزالة الأقسام والأصناف عند التحويل لكاشير
+            $printer->departments()->detach();
+            $printer->items()->detach();
+            $validated['linked_pos_register_id'] = $validated['linked_pos_register_id'] ?? $printer->linked_pos_register_id;
+        } else {
+            // إزالة linked_pos_register_id عند التحويل لأقسام
+            $validated['linked_pos_register_id'] = null;
+        }
+
+        $printer->update(collect($validated)->only([
+            'name', 'ip_address', 'port', 'type', 'is_active', 'print_on_direct', 'linked_pos_register_id',
+        ])->toArray());
+
+        // تحديث الأقسام والأصناف (لغير الكاشير)
+        if ($printerType !== 'CASHIER') {
+            if (array_key_exists('department_ids', $validated)) {
+                $printer->departments()->sync($validated['department_ids'] ?? []);
+            }
+            if (array_key_exists('item_ids', $validated)) {
+                $printer->items()->sync($validated['item_ids'] ?? []);
+            }
+        }
+
+        $printer->load(['linkedPosRegister', 'departments', 'items']);
 
         return response()->json([
             'success' => true,
             'message' => 'تم تحديث الطابعة',
-            'data'    => $printer->fresh(),
+            'data'    => $printer->fresh(['linkedPosRegister', 'departments', 'items']),
         ]);
     }
 

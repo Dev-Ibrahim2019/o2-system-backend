@@ -148,9 +148,10 @@ class OrderController extends ApiController
 
             // مزامنة الأصناف إذا تم إرسالها
             if ($request->has('items')) {
-                // مسح الأصناف القديمة التي لم ترسل للمطبخ بعد
+                // مسح الأصناف غير المطبوعة فقط (المحفوظة بـ is_printed_direct=true لا تُحذف)
                 $order->items()
                     ->where('status', 'pending')
+                    ->where('is_printed_direct', false)
                     ->delete();
 
                 foreach ($request->items as $row) {
@@ -279,7 +280,11 @@ class OrderController extends ApiController
             return $this->error('لا يمكن تأكيد هذا الطلب في حالته الحالية.', 422);
         }
 
-        $unsentItems = $order->items()->where('status', 'pending')->get();
+        // تعديل: جلب العلاقة هنا مع الاستعلام الأساسي لتجنب مشكلة الـ with اللاحقة
+        $unsentItems = $order->items()
+            ->with('department')
+            ->where('status', 'pending')
+            ->get();
 
         if ($unsentItems->isEmpty()) {
             return $this->error('لا توجد عناصر جديدة لإرسالها.', 422);
@@ -287,7 +292,8 @@ class OrderController extends ApiController
 
         DB::beginTransaction();
         try {
-            $itemsByDept = $unsentItems->with('department')->groupBy('department_id');
+            // تعديل: التجميع مباشرة الآن بعد أن جلبنا العلاقات بالأعلى
+            $itemsByDept = $unsentItems->groupBy('department_id');
 
             foreach ($itemsByDept as $deptId => $deptItems) {
                 if (! $deptId) {
@@ -351,6 +357,12 @@ class OrderController extends ApiController
             );
         } catch (\Throwable $e) {
             DB::rollBack();
+            \Log::error('فشل تأكيد الطلب #' . $order->id, [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
 
             return $this->error('فشل تأكيد الطلب: ' . $e->getMessage(), 500);
         }
@@ -543,4 +555,114 @@ class OrderController extends ApiController
 
         return $this->error($result['message'], 500);
     }
+
+    /**
+     * طباعة تذاكر أقسام الإنتاج (ticket.blade.php) — كل قسم على طابعته.
+     */
+    public function printTickets(Order $order, OrderPrintingService $printingService): JsonResponse
+    {
+        $results = $printingService->printTickets($order);
+
+        if (empty($results)) {
+            return $this->error('لا توجد تذاكر أقسام للطباعة', 404);
+        }
+
+        $hasFailure = collect($results)->contains('success', false);
+        $allMessage = $hasFailure
+            ? 'تمت الطباعة جزئياً — بعض الأقسام لم تُطبع'
+            : 'تمت طباعة جميع تذاكر الأقسام بنجاح';
+
+        return $this->success($allMessage, $results);
+    }
+
+    /**
+     * طباعة الطلب بالكامل — ذكية وديناميكية.
+     *
+     * تحدد تلقائياً:
+     * - أصناف المطبخ → بون مطبخ (KOT)
+     * - أصناف الكاشير → فاتورة كاشير
+     *
+     * تستقبل من الفرونت:
+     * - device_type: 'POS' | 'WAITER_APP' | null (الكل)
+     * - device_id: ID الجهاز | null (الكل)
+     */
+    public function printOrder(Order $order, OrderPrintingService $printingService): JsonResponse
+    {
+        $deviceType = request('device_type'); // 'POS' | 'WAITER_APP' | null
+        $deviceId   = request('device_id');   // int | null
+        $userId     = auth()->id();
+
+        $results = $printingService->printOrder(
+            $order,
+            $userId,
+            $deviceType,
+            $deviceId ? (int) $deviceId : null
+        );
+
+        if (empty($results)) {
+            return $this->error('لا توجد طابعات مخصصة لهذا الطلب', 404);
+        }
+
+        $hasFailure = collect($results)->contains('success', false);
+        $allMessage = $hasFailure
+            ? 'تمت الطباعة جزئياً — بعض الطابعات لم تستجب'
+            : 'تمت الطباعة بنجاح على جميع الطابعات';
+
+        return $this->success($allMessage, $results);
+    }
+
+    /**
+     * طباعة فورية وتنفيذ — معالجة الطلب الفورية وطباعته للطابعات المفعلة
+     */
+    public function directPrint(Request $request, Order $order): JsonResponse
+    {
+        $request->validate([
+            'cashier_device_id' => 'required|integer|exists:pos_registers,id',
+            'items' => 'nullable|array',
+            'items.*.order_item_id' => 'required|integer|exists:order_items,id',
+            'items.*.is_takeaway' => 'required|boolean',
+        ]);
+
+        try {
+            // حفظ حالة TW لكل صنف إذا تم تمريرها
+            if ($request->has('items')) {
+                foreach ($request->items as $itemData) {
+                    \App\Models\OrderItem::where('id', $itemData['order_item_id'])
+                        ->update(['is_takeaway' => $itemData['is_takeaway']]);
+                }
+            }
+
+            $service = app(\App\Services\DirectPrintRoutingService::class);
+            $result = $service->execute(
+                $order->id,
+                $request->cashier_device_id
+            );
+
+            if (!$result['success']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $result['message'],
+                ], 400);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => $result['message'],
+                'print_jobs' => $result['print_jobs'],
+                'printed_items_count' => $result['printed_items_count'],
+            ]);
+        } catch (\Throwable $e) {
+            \Log::error('فشل في الطباعة الفورية للطلب #' . $order->id, [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'حدث خطأ أثناء الطباعة الفورية',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
 }
