@@ -9,14 +9,26 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (!Schema::hasTable('orders')) return;
+
         // حذف القيد القديم وإعادة إنشائه مع pending_confirmation
-        DB::statement("ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check");
+        try {
+            DB::statement("ALTER TABLE orders DROP CHECK orders_status_check");
+        } catch (\Throwable $e) {
+            // Constraint may not exist
+        }
         DB::statement("ALTER TABLE orders ADD CONSTRAINT orders_status_check CHECK (status IN ('pending', 'pending_confirmation', 'confirmed', 'in_progress', 'ready', 'served', 'paid', 'cancelled'))");
     }
 
     public function down(): void
     {
-        DB::statement("ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check");
+        if (!Schema::hasTable('orders')) return;
+
+        try {
+            DB::statement("ALTER TABLE orders DROP CHECK orders_status_check");
+        } catch (\Throwable $e) {
+            // Constraint may not exist
+        }
         DB::statement("ALTER TABLE orders ADD CONSTRAINT orders_status_check CHECK (status IN ('pending', 'confirmed', 'in_progress', 'ready', 'served', 'paid', 'cancelled'))");
     }
 };

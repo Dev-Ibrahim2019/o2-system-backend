@@ -434,3 +434,4 @@ Route::middleware('auth:sanctum')->prefix('tables')->group(function () {
 });
 
 Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);
+});
