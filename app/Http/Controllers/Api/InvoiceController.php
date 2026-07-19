@@ -164,7 +164,7 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
                 'تم تسجيل الدفعة',
                 [
                     'payment' => new PaymentResource($payment),
-                    'invoice' => new InvoiceResource($invoice->fresh()->load(['items.discount', 'payments', 'order'])),
+                    'invoice' => new InvoiceResource($invoice->fresh()->load(['items.discountDetail', 'payments', 'order'])),
                     'journal_entry' => $journalEntry,
                 ],
                 201
@@ -203,7 +203,7 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Invoice::with(['items.discount', 'payments', 'order', 'branch']);
+        $query = Invoice::with(['items.discountDetail', 'payments', 'order', 'branch']);
 
         if ($request->has('branch_id') && $request->branch_id !== '') {
             $query->where('branch_id', $request->branch_id);

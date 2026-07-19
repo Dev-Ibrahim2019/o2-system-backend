@@ -31,24 +31,26 @@ class InvoiceItemResource extends JsonResource
             'total' => (float) $this->total,
             'original_price' => $originalPrice,
             'discount_id' => $this->discount_id,
-            'discount_name' => $discountModel?->name,
-            'discount_code' => $discountModel?->code,
-            'discount_type' => $discountModel?->discount_type,
-            'discount_value' => $discountModel ? (float) $discountModel->value : null,
+            'discount_name' => $this->whenLoaded('discountDetail', fn () => $this->discountDetail?->name),
+            'discount_code' => $this->whenLoaded('discountDetail', fn () => $this->discountDetail?->code),
+            'discount_type' => $this->whenLoaded('discountDetail', fn () => $this->discountDetail?->discount_type),
+            'discount_value' => $this->whenLoaded('discountDetail', fn () => $this->discountDetail ? (float) $this->discountDetail->value : null),
             'discount_amount' => (float) $this->discount_amount,
             'discount_percent' => $this->discount_percent ? (float) $this->discount_percent : null,
             'final_price' => $finalPrice,
             'subtotal' => $this->subtotal ? (float) $this->subtotal : round($originalPrice * $quantity, 3),
             'line_discount' => $lineDiscount,
             'savings' => $lineDiscount,
-            'discount' => $discountModel ? [
-                'id' => $discountModel->id,
-                'name' => $discountModel->name,
-                'name_ar' => $discountModel->name_ar,
-                'code' => $discountModel->code,
-                'discount_type' => $discountModel->discount_type,
-                'value' => (float) $discountModel->value,
-            ] : null,
+            'discount' => $this->whenLoaded('discountDetail', function () {
+                return [
+                    'id' => $this->discountDetail->id,
+                    'name' => $this->discountDetail->name,
+                    'name_ar' => $this->discountDetail->name_ar,
+                    'code' => $this->discountDetail->code,
+                    'discount_type' => $this->discountDetail->discount_type,
+                    'value' => (float) $this->discountDetail->value,
+                ];
+            }),
         ];
     }
 }

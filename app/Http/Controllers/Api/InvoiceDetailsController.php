@@ -65,7 +65,7 @@ class InvoiceDetailsController extends ApiController
      */
     public function products(Invoice $invoice): JsonResponse
     {
-        $invoice->loadMissing(['items.discount']);
+        $invoice->loadMissing(['items.discountDetail']);
         $items = $invoice->items->map(fn($item) => [
             'id'                => $item->id,
             'item_id'           => $item->item_id,
@@ -80,7 +80,7 @@ class InvoiceDetailsController extends ApiController
             'discount_percent'  => (float) ($item->discount_percent ?? 0),
             'discount_id'       => $item->discount_id,
             'discount_apply_strategy' => $item->discount_apply_strategy,
-            'discount_name'     => $item->relationLoaded('discount') && $item->discount ? $item->discount->name : null,
+            'discount_name'     => $item->relationLoaded('discountDetail') && $item->discountDetail ? $item->discountDetail->name : null,
             'tax_rate'          => (float) ($item->tax_rate ?? 0),
             'tax_amount'        => (float) ($item->tax_amount ?? 0),
             'notes'             => null,
@@ -174,7 +174,7 @@ class InvoiceDetailsController extends ApiController
      */
     public function discounts(Invoice $invoice): JsonResponse
     {
-        $invoice->loadMissing(['items' => fn($q) => $q->where('discount_amount', '>', 0)->orWhere('discount_percent', '>', 0), 'items.discount']);
+        $invoice->loadMissing(['items' => fn($q) => $q->where('discount_amount', '>', 0)->orWhere('discount_percent', '>', 0), 'items.discountDetail']);
 
         $discounts = $invoice->items->map(fn($item) => [
             'item_name'              => $item->item_name,
@@ -187,7 +187,7 @@ class InvoiceDetailsController extends ApiController
             'discount_amount'        => (float) ($item->discount_amount ?? 0),
             'discount_percent'       => (float) ($item->discount_percent ?? 0),
             'discount_apply_strategy'=> $item->discount_apply_strategy,
-            'discount_name'          => $item->relationLoaded('discount') && $item->discount ? $item->discount->name : null,
+            'discount_name'          => $item->relationLoaded('discountDetail') && $item->discountDetail ? $item->discountDetail->name : null,
             'discount_id'            => $item->discount_id,
         ])->filter(fn($d) => $d['discount_amount'] > 0 || $d['discount_percent'] > 0)->values();
 

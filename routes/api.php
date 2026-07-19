@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Accounting\AccountController;
 use App\Http\Controllers\Api\Accounting\CostCenterController;
 use App\Http\Controllers\Api\Accounting\TransactionController;
 use App\Http\Controllers\Api\BranchController;
+use App\Http\Controllers\Api\FreepbxController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\CustomerController;
@@ -28,6 +29,7 @@ use Illuminate\Support\Facades\Route;
 // â”€â”€ Public routes â”€â”€
 Route::get('branches', [BranchController::class, 'index']);
 Route::post('/login', [AuthController::class, 'login'])->name('login');
+Route::get('/freepbx/test', [FreepbxController::class, 'test']);
 
 Route::prefix('customer')->group(function () {
     Route::get('table/{qrCode}', [\App\Http\Controllers\Api\CustomerPortalController::class, 'lookupByQrCode']);
@@ -368,6 +370,63 @@ Route::middleware('auth:sanctum')->prefix('dining-zones')->group(function () {
     Route::get('/{id}', [\App\Http\Controllers\Api\DiningZoneController::class, 'show']);
 });
 
+// ── Quotes (عروض الأسعار) ──
+Route::middleware('auth:sanctum')->prefix('quotes')->group(function () {
+    Route::get('/stats', [\App\Http\Controllers\Api\QuoteController::class, 'stats']);
+    Route::get('/', [\App\Http\Controllers\Api\QuoteController::class, 'index']);
+    Route::post('/', [\App\Http\Controllers\Api\QuoteController::class, 'store']);
+    Route::get('/{id}', [\App\Http\Controllers\Api\QuoteController::class, 'show']);
+    Route::put('/{id}', [\App\Http\Controllers\Api\QuoteController::class, 'update']);
+    Route::delete('/{id}', [\App\Http\Controllers\Api\QuoteController::class, 'destroy']);
+    Route::post('/{id}/send', [\App\Http\Controllers\Api\QuoteController::class, 'send']);
+    Route::post('/{id}/accept', [\App\Http\Controllers\Api\QuoteController::class, 'accept']);
+    Route::post('/{id}/reject', [\App\Http\Controllers\Api\QuoteController::class, 'reject']);
+    Route::post('/{id}/duplicate', [\App\Http\Controllers\Api\QuoteController::class, 'duplicate']);
+    Route::post('/{id}/convert', [\App\Http\Controllers\Api\QuoteController::class, 'convertToInvoice']);
+});
+
+// ── Vouchers (سندات القبض والصرف) ──
+Route::middleware('auth:sanctum')->prefix('vouchers')->group(function () {
+    Route::get('/stats', [\App\Http\Controllers\Api\VoucherController::class, 'stats']);
+    Route::get('/entity-invoices', [\App\Http\Controllers\Api\VoucherController::class, 'getEntityInvoices']);
+    Route::get('/', [\App\Http\Controllers\Api\VoucherController::class, 'index']);
+    Route::post('/', [\App\Http\Controllers\Api\VoucherController::class, 'store']);
+    Route::get('/{id}', [\App\Http\Controllers\Api\VoucherController::class, 'show']);
+    Route::put('/{id}', [\App\Http\Controllers\Api\VoucherController::class, 'update']);
+    Route::delete('/{id}', [\App\Http\Controllers\Api\VoucherController::class, 'destroy']);
+    Route::post('/{id}/activate', [\App\Http\Controllers\Api\VoucherController::class, 'activate']);
+    Route::post('/{id}/cancel', [\App\Http\Controllers\Api\VoucherController::class, 'cancel']);
+    Route::post('/{id}/approve', [\App\Http\Controllers\Api\VoucherController::class, 'approve']);
+    Route::get('/{id}/entity-invoices', [\App\Http\Controllers\Api\VoucherController::class, 'entityInvoices']);
+});
+
+// ── Purchase Bills (فواتير المشتريات) ──
+Route::middleware('auth:sanctum')->prefix('purchase-bills')->group(function () {
+    Route::get('/stats', [\App\Http\Controllers\Api\PurchaseBillController::class, 'stats']);
+    Route::post('/mark-overdue', [\App\Http\Controllers\Api\PurchaseBillController::class, 'markOverdue']);
+    Route::get('/', [\App\Http\Controllers\Api\PurchaseBillController::class, 'index']);
+    Route::post('/', [\App\Http\Controllers\Api\PurchaseBillController::class, 'store']);
+    Route::get('/{purchaseBill}', [\App\Http\Controllers\Api\PurchaseBillController::class, 'show']);
+    Route::put('/{purchaseBill}', [\App\Http\Controllers\Api\PurchaseBillController::class, 'update']);
+    Route::delete('/{purchaseBill}', [\App\Http\Controllers\Api\PurchaseBillController::class, 'destroy']);
+    Route::post('/{purchaseBill}/approve', [\App\Http\Controllers\Api\PurchaseBillController::class, 'approve']);
+    Route::post('/{purchaseBill}/cancel', [\App\Http\Controllers\Api\PurchaseBillController::class, 'cancel']);
+    Route::post('/{purchaseBill}/payments', [\App\Http\Controllers\Api\PurchaseBillController::class, 'recordPayment']);
+});
+
+// ── System Diagnostics ──
+Route::middleware('auth:sanctum')->prefix('system')->group(function () {
+    Route::get('/extensions', [\App\Http\Controllers\Api\SystemController::class, 'extensions']);
+});
+
+// ── PBX Extensions ──
+Route::middleware('auth:sanctum')->prefix('pbx')->group(function () {
+    Route::get('/extensions', [\App\Http\Controllers\Api\PbxExtensionController::class, 'index']);
+    Route::get('/extensions/{extension}', [\App\Http\Controllers\Api\PbxExtensionController::class, 'testExtension']);
+    Route::get('/recordings', [\App\Http\Controllers\Api\PbxRecordingController::class, 'index']);
+    Route::get('/recordings/stats', [\App\Http\Controllers\Api\PbxRecordingController::class, 'stats']);
+    Route::get('/recordings/play', [\App\Http\Controllers\Api\PbxRecordingController::class, 'play']);
+    Route::get('/recordings/download', [\App\Http\Controllers\Api\PbxRecordingController::class, 'download']);
 // ── Unified Tables API (POS, Hospitality, Accountant, Manager) ──
 Route::middleware('auth:sanctum')->prefix('tables')->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\TableOperationsController::class, 'index']);
@@ -380,3 +439,4 @@ Route::middleware('auth:sanctum')->prefix('tables')->group(function () {
 });
 
 Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);
+});
