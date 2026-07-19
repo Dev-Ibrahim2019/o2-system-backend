@@ -18,10 +18,7 @@ return new class extends Migration
             $table->string('number')->unique();
 
             // الطلب المرتبط
-            $table->foreignId('order_id')
-                ->nullable()
-                ->constrained()
-                ->nullOnDelete();
+            $table->unsignedBigInteger('order_id')->nullable();
 
             // الزبون
             $table->foreignId('customer_id')->nullable();

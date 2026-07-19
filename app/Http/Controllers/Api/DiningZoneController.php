@@ -35,7 +35,7 @@ class DiningZoneController extends Controller
         }
 
         $zones = DiningZone::with(['tables' => function ($query) {
-            $query->orderByRaw("CAST(SUBSTRING(table_number FROM '[0-9]+$') AS INTEGER)");
+            $query->orderByRaw("CAST(SUBSTRING(table_number FROM '[0-9]+$') AS SIGNED)");
         }])
         ->where('branch_id', $branchId)
         ->where('status', 'ACTIVE')
@@ -55,7 +55,7 @@ class DiningZoneController extends Controller
     public function show($id)
     {
         $zone = DiningZone::with(['tables' => function ($query) {
-            $query->orderByRaw("CAST(SUBSTRING(table_number FROM '[0-9]+$') AS INTEGER)");
+            $query->orderByRaw("CAST(SUBSTRING(table_number FROM '[0-9]+$') AS SIGNED)");
         }])->findOrFail($id);
 
         return response()->json([

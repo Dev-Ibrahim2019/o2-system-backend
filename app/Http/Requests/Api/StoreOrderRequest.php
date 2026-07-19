@@ -19,9 +19,9 @@ class StoreOrderRequest extends FormRequest
         return [
             'branch_id' => [
                 'nullable',
-                'exists:branches,id',
+                'integer',
             ],
-            'cashier_id' => 'nullable|exists:employees,id',
+            'cashier_id' => 'nullable|integer',
             'order_type' => 'required|in:dine_in,takeaway,delivery',
             'table_number' => 'nullable|string|max:50',
             'customer_name' => 'nullable|string|max:255',
@@ -29,9 +29,9 @@ class StoreOrderRequest extends FormRequest
             'note' => 'nullable|string',
             'discount_value' => 'nullable|numeric|min:0',
             'discount_type' => 'nullable|in:amount,percent',
-            'customer_id' => 'nullable|integer|exists:customers,id',
-            'employee_id' => 'nullable|integer|exists:employees,id',
-            'supplier_id' => 'nullable|integer|exists:suppliers,id',
+            'customer_id' => 'nullable|integer',
+            'employee_id' => 'nullable|integer',
+            'supplier_id' => 'nullable|integer',
 
             // اختياري: إرسال الأصناف مع إنشاء الطلب (نفس تنسيق الواجهة القديمة)
             'items' => 'sometimes|array|min:1',

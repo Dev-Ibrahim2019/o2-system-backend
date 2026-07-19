@@ -21,14 +21,14 @@ class InvoiceResource extends JsonResource
             $discountItem = $this->items->first(function ($item) {
                 return $item->discount_id !== null;
             });
-            if ($discountItem && $discountItem->relationLoaded('discount') && $discountItem->discount) {
+            if ($discountItem && $discountItem->relationLoaded('discountDetail') && $discountItem->discountDetail) {
                 $appliedDiscount = [
-                    'id' => $discountItem->discount->id,
-                    'name' => $discountItem->discount->name,
-                    'name_ar' => $discountItem->discount->name_ar,
-                    'code' => $discountItem->discount->code,
-                    'discount_type' => $discountItem->discount->discount_type,
-                    'value' => (float) $discountItem->discount->value,
+                    'id' => $discountItem->discountDetail->id,
+                    'name' => $discountItem->discountDetail->name,
+                    'name_ar' => $discountItem->discountDetail->name_ar,
+                    'code' => $discountItem->discountDetail->code,
+                    'discount_type' => $discountItem->discountDetail->discount_type,
+                    'value' => (float) $discountItem->discountDetail->value,
                 ];
             }
         }

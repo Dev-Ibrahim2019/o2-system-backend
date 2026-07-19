@@ -150,6 +150,6 @@ class InvoiceFromOrderService
             'total' => $netTotal,
         ]);
 
-        return $invoice->fresh(['items.discount', 'payments', 'order']);
+        return $invoice->fresh(['items.discountDetail', 'payments', 'order']);
     }
 }
