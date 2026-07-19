@@ -119,6 +119,7 @@ class CallCenterService
             'available_credit' => $customer->available_credit,
             'is_over_limit' => $customer->is_over_limit,
             'total_orders' => $stats['total_orders'],
+            'monthly_orders_count' => $stats['monthly_orders_count'],
             'total_spent' => $stats['total_spent'],
             'avg_order_value' => $stats['avg_order_value'],
             'first_order_at' => $stats['first_order_at'],
@@ -180,6 +181,7 @@ class CallCenterService
                 'id' => $o->id,
                 'order_number' => $o->order_number,
                 'status' => $o->status,
+                'order_type' => $o->order_type,
                 'total' => (float) $o->total,
                 'subtotal' => (float) $o->subtotal,
                 'discount_amount' => (float) $o->discount_amount,
@@ -212,6 +214,7 @@ class CallCenterService
             'id' => $order->id,
             'order_number' => $order->order_number,
             'status' => $order->status,
+            'order_type' => $order->order_type,
             'subtotal' => (float) $order->subtotal,
             'discount_value' => (float) $order->discount_value,
             'discount_type' => $order->discount_type,
@@ -734,6 +737,7 @@ class CallCenterService
             ->selectRaw('MIN(created_at) as first_order_at')
             ->selectRaw('MAX(created_at) as last_order_at')
             ->selectRaw('SUM(CASE WHEN status = "cancelled" THEN 1 ELSE 0 END) as cancelled_orders_count')
+            ->selectRaw('SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as monthly_orders_count', [now()->startOfMonth()])
             ->first();
 
         return [
@@ -743,6 +747,7 @@ class CallCenterService
             'first_order_at' => $stats->first_order_at,
             'last_order_at' => $stats->last_order_at,
             'cancelled_orders_count' => (int) ($stats->cancelled_orders_count ?? 0),
+            'monthly_orders_count' => (int) ($stats->monthly_orders_count ?? 0),
         ];
     }
 

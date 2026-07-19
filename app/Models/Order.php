@@ -22,8 +22,12 @@ class Order extends Model
 
     public const STATUS_PENDING_PAYMENT = 'PENDING_PAYMENT';
     public const STATUS_PREPARATION = 'PREPARATION';
+    public const STATUS_ASSEMBLING = 'ASSEMBLING';
+    public const STATUS_READY_FOR_DELIVERY = 'READY_FOR_DELIVERY';
     public const STATUS_OUT_FOR_DELIVERY = 'OUT_FOR_DELIVERY';
+    public const STATUS_CANCELLATION_REQUESTED = 'CANCELLATION_REQUESTED';
     public const STATUS_DELIVERED = 'DELIVERED';
+    public const STATUS_FAILED_DELIVERY = 'FAILED_DELIVERY';
     public const STATUS_CANCELLED = 'CANCELLED';
 
     // طھط·ط¨ظٹظ‚ BranchScope ط¹ظ„ظ‰ ط¬ظ…ظٹط¹ ط§ط³طھط¹ظ„ط§ظ…ط§طھ ط§ظ„ط·ظ„ط¨ط§طھ
@@ -46,6 +50,8 @@ class Order extends Model
         'customer_mobile',
         'customer_id',
         'customer_address_id',
+        'delivery_zone_id',
+        'delivery_fee',
         'delivery_address_snapshot',
         'employee_id',
         'supplier_id',
@@ -81,6 +87,7 @@ class Order extends Model
         'priority',
         'expedited_at',
         'expedited_by',
+        'manual_adjustment','adjustment_reason','adjusted_by','adjusted_at',
     ];
 
     protected $casts = [
@@ -89,6 +96,7 @@ class Order extends Model
         'discount_amount' => 'decimal:3',
         'engine_discount_amount' => 'decimal:3',
         'total' => 'decimal:3',
+        'delivery_fee' => 'decimal:3',
         'delivery_address_snapshot' => 'array',
         'needs_attention' => 'boolean',
         'customer_service_flag' => 'boolean',
@@ -102,6 +110,8 @@ class Order extends Model
         'delivery_duration_seconds' => 'integer',
         'is_urgent' => 'boolean',
         'expedited_at' => 'datetime',
+        'manual_adjustment' => 'decimal:3',
+        'adjusted_at' => 'datetime',
     ];
 
     public function branch(): BelongsTo
@@ -115,6 +125,8 @@ class Order extends Model
     }
 
     public function deliveryDriver(): BelongsTo { return $this->belongsTo(Employee::class, 'driver_id'); }
+    public function deliveryZone(): BelongsTo { return $this->belongsTo(DeliveryZone::class); }
+    public function deliveryTripStops(): HasMany { return $this->hasMany(DeliveryTripStop::class); }
     public function assembler(): BelongsTo { return $this->belongsTo(Employee::class, 'assembler_id'); }
     public function assembledByEmployee(): BelongsTo { return $this->belongsTo(Employee::class, 'assembled_by'); }
     public function executionEvents(): HasMany { return $this->hasMany(OrderExecutionEvent::class)->orderBy('occurred_at'); }

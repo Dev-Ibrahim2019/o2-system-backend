@@ -8,6 +8,7 @@ use App\Models\CustomerComplaint;
 use App\Services\CallCenter\CallCenterService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class CallCenterController extends ApiController
 {
@@ -20,14 +21,32 @@ class CallCenterController extends ApiController
      */
     public function storeCustomer(Request $request): JsonResponse
     {
+        $normalize = static function (?string $phone): ?string {
+            if (! $phone) return null;
+            $digits = preg_replace('/\D+/', '', $phone);
+            if (str_starts_with($digits, '00970')) $digits = substr($digits, 5);
+            elseif (str_starts_with($digits, '970')) $digits = substr($digits, 3);
+            if (str_starts_with($digits, '0')) $digits = substr($digits, 1);
+            return $digits;
+        };
+        $request->merge(['phone'=>$normalize($request->input('phone')),'mobile'=>$normalize($request->input('mobile'))]);
         $data = $request->validate([
             'name' => 'required|string|max:255',
-            'phone' => 'nullable|string|max:30',
-            'mobile' => 'nullable|string|max:30',
+            'phone' => ['required','string','max:30',Rule::unique('customers','phone')->whereNull('deleted_at')],
+            'mobile' => ['nullable','string','max:30',Rule::unique('customers','mobile')->whereNull('deleted_at')],
+            'email' => 'nullable|email|max:255',
             'address' => 'nullable|string|max:500',
             'city' => 'nullable|string|max:100',
+            'area' => 'nullable|string|max:100',
+            'category' => 'nullable|string|in:regular,important,vip,new,inactive,follow_up,complaints',
+            'notes' => 'nullable|string|max:2000',
             'branch_id' => 'nullable|integer|exists:branches,id',
         ]);
+
+        $phones=array_values(array_filter([$data['phone']??null,$data['mobile']??null]));
+        if (Customer::query()->where(fn($q)=>$q->whereIn('phone',$phones)->orWhereIn('mobile',$phones))->exists()) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['phone'=>'رقم الهاتف مسجل لعميل آخر.']);
+        }
 
         $customer = $this->callCenterService->createCustomer($data);
 
@@ -49,6 +68,23 @@ class CallCenterController extends ApiController
         return $this->success('نتائج البحث', $customers);
     }
 
+    public function customerDirectory(Request $request): JsonResponse
+    {
+        $data=$request->validate(['q'=>'nullable|string|max:100','category'=>'nullable|string|max:50','status'=>'nullable|in:active,inactive,blocked','city'=>'nullable|string|max:100','area'=>'nullable|string|max:100','open_complaints'=>'nullable|boolean','nearby_occasion'=>'nullable|boolean','has_financial_profile'=>'nullable|boolean','loyalty_min'=>'nullable|integer|min:0','loyalty_max'=>'nullable|integer|min:0','last_order_from'=>'nullable|date','last_order_to'=>'nullable|date','source'=>'nullable|string|max:50','branch_id'=>'nullable|integer|exists:branches,id','sort'=>'nullable|in:name,created_at,loyalty_points,last_order_at,orders_count,open_complaints_count','direction'=>'nullable|in:asc,desc','per_page'=>'nullable|integer|min:10|max:100']);
+        $user=$request->user();$branch=$user?->hasRole('super-admin')?($data['branch_id']??null):$user?->branch_id;
+        $q=Customer::query()->with(['branch:id,name','address'])->withCount(['orders','complaints as open_complaints_count'=>fn($x)=>$x->whereNotIn('status',['resolved','closed'])])->withMax('orders','created_at')
+            ->when($data['q']??null,fn($x,$v)=>$x->where(fn($y)=>$y->where('name','like',"%$v%")->orWhere('phone','like',"%$v%")->orWhere('mobile','like',"%$v%")->orWhere('code','like',"%$v%")))
+            ->when($data['category']??null,fn($x,$v)=>$x->where('category',$v))->when($data['status']??null,fn($x,$v)=>$x->where('status',$v))->when($data['city']??null,fn($x,$v)=>$x->where(fn($y)=>$y->where('city','like',"%$v%")->orWhereHas('addresses',fn($a)=>$a->where('city','like',"%$v%"))))
+            ->when($data['area']??null,fn($x,$v)=>$x->whereHas('addresses',fn($a)=>$a->where('area','like',"%$v%")))->when($request->boolean('open_complaints'),fn($x)=>$x->whereHas('complaints',fn($c)=>$c->whereNotIn('status',['resolved','closed'])))
+            ->when($request->boolean('nearby_occasion'),fn($x)=>$x->whereHas('occasions',fn($o)=>$o->where('is_active',true)->whereRaw("DATE_FORMAT(date, '%m-%d') between DATE_FORMAT(CURDATE(), '%m-%d') and DATE_FORMAT(DATE_ADD(CURDATE(), INTERVAL 30 DAY), '%m-%d')")))
+            ->when($request->boolean('has_financial_profile'),fn($x)=>$x->where(fn($y)=>$y->where('credit_limit','>',0)->orWhere('opening_balance','!=',0)))
+            ->when(isset($data['loyalty_min']),fn($x)=>$x->where('loyalty_points','>=',$data['loyalty_min']))->when(isset($data['loyalty_max']),fn($x)=>$x->where('loyalty_points','<=',$data['loyalty_max']))
+            ->when($data['last_order_from']??null,fn($x,$v)=>$x->whereRaw('(select max(o.created_at) from orders o where o.customer_id = customers.id and o.deleted_at is null) >= ?',[$v.' 00:00:00']))->when($data['last_order_to']??null,fn($x,$v)=>$x->whereRaw('(select max(o.created_at) from orders o where o.customer_id = customers.id and o.deleted_at is null) <= ?',[$v.' 23:59:59']))
+            ->when($data['source']??null,fn($x,$v)=>$x->whereHas('orders',fn($o)=>$o->where('source',$v)))->when($branch,fn($x,$v)=>$x->where(fn($y)=>$y->where('branch_id',$v)->orWhereHas('orders',fn($o)=>$o->where('branch_id',$v))));
+        $sort=$data['sort']??'created_at';$column=$sort==='last_order_at'?'orders_max_created_at':$sort;
+        return $this->success('CRM customer directory',$q->orderBy($column,$data['direction']??'desc')->paginate($data['per_page']??25)->withQueryString());
+    }
+
     /**
      * GET /api/call-center/customers/{customer}/profile
      */
@@ -57,6 +93,21 @@ class CallCenterController extends ApiController
         $profile = $this->callCenterService->getCustomerProfile($customer->id);
 
         return $this->success('ملف العميل', $profile);
+    }
+
+    /** Update the stored (manual) call-center classification. */
+    public function updateCustomerClassification(Request $request, Customer $customer): JsonResponse
+    {
+        $data = $request->validate([
+            'category' => 'required|string|in:regular,important,vip,new,inactive,follow_up,complaints',
+        ]);
+
+        $customer->update(['category' => $data['category']]);
+
+        return $this->success('تم تحديث تصنيف العميل', [
+            'id' => $customer->id,
+            'category' => $customer->category,
+        ]);
     }
 
     /**

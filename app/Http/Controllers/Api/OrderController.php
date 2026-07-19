@@ -65,6 +65,9 @@ class OrderController extends ApiController
                 'customer_mobile' => $data['customer_mobile'] ?? null,
                 'customer_id' => $data['customer_id'] ?? null,
                 'customer_address_id' => $data['customer_address_id'] ?? null,
+                'delivery_zone_id' => $data['order_type'] === 'delivery' ? ($data['delivery_zone_id'] ?? null) : null,
+                // The server snapshots the fee during the first pricing calculation; never trust a client amount.
+                'delivery_fee' => $data['order_type'] === 'delivery' && ! empty($data['delivery_zone_id']) ? null : 0,
                 'delivery_address_snapshot' => $data['delivery_address_snapshot'] ?? null,
                 'customer_notes' => $data['customer_notes'] ?? null,
                 'delivery_notes' => $data['delivery_notes'] ?? null,
@@ -150,7 +153,19 @@ class OrderController extends ApiController
         }
 
         try {
-            $order->update($request->validated());
+            $data = $request->validated();
+            $requestedType = $data['order_type'] ?? $order->order_type;
+            $requestedZone = $data['delivery_zone_id'] ?? $order->delivery_zone_id;
+            if ($requestedType !== 'delivery') {
+                $data['delivery_zone_id'] = null;
+                $data['delivery_fee'] = 0;
+            } else {
+                // Never accept a client-supplied fee. Requote only when the zone changes.
+                $data['delivery_fee'] = (int) $requestedZone === (int) $order->delivery_zone_id
+                    ? $order->delivery_fee
+                    : null;
+            }
+            $order->update($data);
             $order->recalculateTotals();
 
             return $this->success(
@@ -172,7 +187,18 @@ class OrderController extends ApiController
         }
 
         try {
-            $order->update($request->validated());
+            $data = $request->validated();
+            $requestedType = $data['order_type'] ?? $order->order_type;
+            $requestedZone = $data['delivery_zone_id'] ?? $order->delivery_zone_id;
+            if ($requestedType !== 'delivery') {
+                $data['delivery_zone_id'] = null;
+                $data['delivery_fee'] = 0;
+            } else {
+                $data['delivery_fee'] = (int) $requestedZone === (int) $order->delivery_zone_id
+                    ? $order->delivery_fee
+                    : null;
+            }
+            $order->update($data);
             $order->recalculateTotals();
 
             return $this->success(

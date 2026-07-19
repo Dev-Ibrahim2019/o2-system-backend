@@ -90,6 +90,15 @@ class RolesAndPermissionsSeeder extends Seeder
             // ── الكول سنتر ──
             'access-call-center',
             'manage-call-center',
+            'view-call-ticket-customer-profile',
+            'view-sensitive-customer-finance',
+            'manage-delivery-trips',
+            'assign-delivery-drivers',
+            'complete-delivery-stops',
+            'request-delivery-order-cancellation',
+            'review-order-cancellation',
+            'adjust-order-total',
+            'view-operations-dashboard',
         ];
 
         // إنشاء جميع الصلاحيات

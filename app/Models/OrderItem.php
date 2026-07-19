@@ -30,6 +30,7 @@ class OrderItem extends Model
         'tax_rate',
         'tax_amount',
         'quantity',
+        'weight_grams',
         'total',
         'status',
         'notes',
@@ -41,6 +42,7 @@ class OrderItem extends Model
     protected $casts = [
         'price' => 'decimal:2',
         'quantity' => 'decimal:2',
+        'weight_grams' => 'integer',
         'total' => 'decimal:2',
         'discount_amount' => 'decimal:2',
         'discount_percent' => 'decimal:2',

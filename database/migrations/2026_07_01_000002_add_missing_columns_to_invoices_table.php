@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         if (Schema::hasTable('invoices')) {
-            DB::statement("ALTER TABLE invoices MODIFY COLUMN status ENUM('draft', 'awaiting_approval', 'awaiting_payment', 'partial', 'paid', 'cancelled') DEFAULT 'draft'");
+            if (DB::getDriverName() === 'mysql') DB::statement("ALTER TABLE invoices MODIFY COLUMN status ENUM('draft', 'awaiting_approval', 'awaiting_payment', 'partial', 'paid', 'cancelled') DEFAULT 'draft'");
             DB::statement("ALTER TABLE invoices MODIFY COLUMN payment_method ENUM('cash', 'credit_card', 'bank_transfer', 'app', 'account', 'mixed', 'card', 'bank', 'wallet') DEFAULT NULL");
 
             Schema::table('invoices', function ($table) {
@@ -83,7 +83,7 @@ return new class extends Migration
     public function down(): void
     {
         if (Schema::hasTable('invoices')) {
-            DB::statement("ALTER TABLE invoices MODIFY COLUMN status ENUM('draft', 'paid', 'partial', 'cancelled') DEFAULT 'draft'");
+            if (DB::getDriverName() === 'mysql') DB::statement("ALTER TABLE invoices MODIFY COLUMN status ENUM('draft', 'paid', 'partial', 'cancelled') DEFAULT 'draft'");
             DB::statement("ALTER TABLE invoices MODIFY COLUMN payment_method ENUM('cash', 'card', 'bank', 'wallet', 'account', 'mixed') DEFAULT NULL");
 
             Schema::table('invoices', function ($table) {

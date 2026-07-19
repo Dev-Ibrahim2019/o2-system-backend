@@ -114,10 +114,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
         Route::get('payment-methods', [\App\Http\Controllers\Api\PaymentMethodController::class, 'index']);
         Route::get('customers/search', [CallCenterController::class, 'searchCustomers']);
+        Route::get('customers/directory', [CallCenterController::class, 'customerDirectory']);
         Route::post('customers', [CallCenterController::class, 'storeCustomer']);
         Route::get('customers/analytics', [CallCenterController::class, 'analytics']);
         Route::get('customers/top', [CallCenterController::class, 'topCustomers']);
         Route::get('customers/{customer}/profile', [CallCenterController::class, 'customerProfile']);
+        Route::patch('customers/{customer}/classification', [CallCenterController::class, 'updateCustomerClassification']);
         Route::get('customers/{customer}/full-profile', [CallCenterController::class, 'customerFullProfile']);
         Route::get('customers/{customer}/orders', [CallCenterController::class, 'customerOrders']);
         Route::get('customers/{customer}/favorites', [CallCenterController::class, 'customerFavorites']);
@@ -349,6 +351,49 @@ Route::middleware('auth:sanctum')->prefix('admin/pos-registers')->group(function
 });
 
 Route::middleware('auth:sanctum')->apiResource('job-titles', \App\Http\Controllers\Api\JobTitleController::class);
+
+Route::middleware(['auth:sanctum', 'permission:manage-orders'])->prefix('delivery-management')->group(function () {
+    Route::apiResource('zones', \App\Http\Controllers\Api\Delivery\DeliveryZoneController::class)->except(['index','show'])->parameters(['zones'=>'deliveryZone']);
+    Route::get('candidate-orders', [\App\Http\Controllers\Api\Delivery\DeliveryTripController::class, 'candidates']);
+    Route::get('trips', [\App\Http\Controllers\Api\Delivery\DeliveryTripController::class, 'index']);
+    Route::post('trips', [\App\Http\Controllers\Api\Delivery\DeliveryTripController::class, 'store']);
+    Route::get('trips/{deliveryTrip}', [\App\Http\Controllers\Api\Delivery\DeliveryTripController::class, 'show']);
+    Route::put('trips/{deliveryTrip}', [\App\Http\Controllers\Api\Delivery\DeliveryTripController::class, 'update']);
+    Route::post('trips/{deliveryTrip}/ready', [\App\Http\Controllers\Api\Delivery\DeliveryTripController::class, 'ready']);
+    Route::post('trips/{deliveryTrip}/stops', [\App\Http\Controllers\Api\Delivery\DeliveryTripController::class, 'addStop']);
+    Route::delete('trips/{deliveryTrip}/stops/{stop}', [\App\Http\Controllers\Api\Delivery\DeliveryTripController::class, 'removeStop']);
+    Route::put('trips/{deliveryTrip}/stops/reorder', [\App\Http\Controllers\Api\Delivery\DeliveryTripController::class, 'reorder']);
+    Route::post('trips/{deliveryTrip}/start', [\App\Http\Controllers\Api\Delivery\DeliveryTripController::class, 'start']);
+    Route::patch('trips/{deliveryTrip}/stops/{stop}', [\App\Http\Controllers\Api\Delivery\DeliveryTripController::class, 'stop']);
+    Route::post('trips/{deliveryTrip}/cancel', [\App\Http\Controllers\Api\Delivery\DeliveryTripController::class, 'cancel']);
+});
+Route::middleware(['auth:sanctum', 'permission:manage-orders|access-call-center|access-pos|create-orders'])->prefix('delivery-management')->group(function () {
+    Route::get('zones', [\App\Http\Controllers\Api\Delivery\DeliveryZoneController::class, 'index']);
+    Route::get('zones/quote', [\App\Http\Controllers\Api\Delivery\DeliveryZoneController::class, 'quote']);
+});
+
+Route::post('call-center/webhook/incoming', [\App\Http\Controllers\Api\CallTicketController::class, 'webhook'])
+    ->middleware('throttle:60,1');
+
+Route::middleware(['auth:sanctum','permission:access-call-center|manage-call-center'])->prefix('call-center')->group(function () {
+    Route::get('tickets', [\App\Http\Controllers\Api\CallTicketController::class, 'index']);
+    Route::post('tickets/manual', [\App\Http\Controllers\Api\CallTicketController::class, 'manual']);
+    Route::post('tickets/{ticket}/accept', [\App\Http\Controllers\Api\CallTicketController::class, 'accept']);
+    Route::post('tickets/{ticket}/customer', [\App\Http\Controllers\Api\CallTicketController::class, 'linkCustomer']);
+    Route::post('tickets/{ticket}/order', [\App\Http\Controllers\Api\CallTicketController::class, 'linkOrder']);
+    Route::post('tickets/{ticket}/notes', [\App\Http\Controllers\Api\CallTicketController::class, 'note']);
+    Route::post('tickets/{ticket}/complete', [\App\Http\Controllers\Api\CallTicketController::class, 'complete']);
+    Route::get('tickets/{ticket}/workspace', [\App\Http\Controllers\Api\CallTicketController::class, 'workspace']);
+});
+
+Route::middleware(['auth:sanctum','permission:request-delivery-order-cancellation|manage-orders'])->group(function () {
+    Route::post('delivery-management/trips/{trip}/stops/{stop}/cancel', [\App\Http\Controllers\Api\OrderCancellationController::class, 'cancelStop']);
+});
+Route::middleware(['auth:sanctum','permission:review-order-cancellation|manage-orders'])->prefix('operations')->group(function () {
+    Route::get('cancellation-requests', [\App\Http\Controllers\Api\OrderCancellationController::class, 'index']);
+    Route::post('cancellation-requests/{cancellationRequest}/approve', [\App\Http\Controllers\Api\OrderCancellationController::class, 'approve']);
+    Route::post('cancellation-requests/{cancellationRequest}/reject', [\App\Http\Controllers\Api\OrderCancellationController::class, 'reject']);
+});
 
 // أ¢â€‌â‚¬أ¢â€‌â‚¬ Departments أ¢â€‌â‚¬أ¢â€‌â‚¬
 Route::middleware('auth:sanctum')->prefix('departments')->group(function () {

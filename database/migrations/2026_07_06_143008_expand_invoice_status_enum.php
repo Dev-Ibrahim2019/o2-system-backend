@@ -12,11 +12,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement("ALTER TABLE invoices MODIFY COLUMN status VARCHAR(30) NOT NULL DEFAULT 'draft'");
+        if (Schema::hasTable('invoices') && DB::getDriverName() === 'mysql') DB::statement("ALTER TABLE invoices MODIFY COLUMN status VARCHAR(30) NOT NULL DEFAULT 'draft'");
     }
 
     public function down(): void
     {
-        DB::statement("ALTER TABLE invoices MODIFY COLUMN status ENUM('draft','paid','partial','cancelled') NOT NULL DEFAULT 'draft'");
+        if (DB::getDriverName() === 'mysql') DB::statement("ALTER TABLE invoices MODIFY COLUMN status ENUM('draft','paid','partial','cancelled') NOT NULL DEFAULT 'draft'");
     }
 };

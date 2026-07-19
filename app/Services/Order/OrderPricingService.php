@@ -55,12 +55,27 @@ class OrderPricingService
         $manualDiscount = max(0, round($manualDiscount, 3));
         $engineDiscountTotal = round($engineDiscountTotal, 3);
         $grossSubtotal = round($grossSubtotal, 3);
-        $netTotal = max(0, round($grossSubtotal - $engineDiscountTotal - $manualDiscount, 3));
+        $deliveryFee = 0.0;
+        if ($order->order_type === 'delivery') {
+            if ($order->delivery_fee !== null) {
+                $deliveryFee = max(0, (float) $order->delivery_fee);
+            } elseif ($order->delivery_zone_id) {
+                $zone = \App\Models\DeliveryZone::query()->whereKey($order->delivery_zone_id)
+                    ->where('branch_id', $order->branch_id)->where('is_active', true)->firstOrFail();
+                if ($zone->minimum_order_amount !== null && $grossSubtotal < (float) $zone->minimum_order_amount) {
+                    throw new \InvalidArgumentException('قيمة الطلب أقل من الحد الأدنى لمنطقة التوصيل.');
+                }
+                $deliveryFee = $zone->free_delivery_threshold !== null && $grossSubtotal >= (float) $zone->free_delivery_threshold
+                    ? 0.0 : (float) $zone->base_fee;
+            }
+        }
+        $netTotal = max(0, round($grossSubtotal - $engineDiscountTotal - $manualDiscount + $deliveryFee, 3));
 
         return [
             'subtotal' => $grossSubtotal,
             'engine_discount_amount' => $engineDiscountTotal,
             'discount_amount' => $manualDiscount,
+            'delivery_fee' => round($deliveryFee, 3),
             'total' => $netTotal,
         ];
     }

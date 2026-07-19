@@ -11,6 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (! Schema::hasTable('invoices')) return;
         Schema::table('invoices', function (Blueprint $table) {
             if (! Schema::hasColumn('invoices', 'type')) {
                 $table->string('type')->nullable()->after('number');
@@ -86,6 +87,7 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (! Schema::hasTable('invoices')) return;
         Schema::table('invoices', function (Blueprint $table) {
             $table->dropColumn([
                 'type', 'customer_name', 'entity_type', 'entity_id',

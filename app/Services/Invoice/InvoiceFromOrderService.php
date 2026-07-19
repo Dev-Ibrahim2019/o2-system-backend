@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Order;
 use App\Services\Discount\DiscountEngineService;
+use App\Services\Order\OrderPricingService;
 use InvalidArgumentException;
 
 /**
@@ -15,6 +16,7 @@ class InvoiceFromOrderService
 {
     public function __construct(
         private readonly DiscountEngineService $discountEngine,
+        private readonly OrderPricingService $orderPricing,
     ) {}
 
     /**
@@ -140,9 +142,12 @@ class InvoiceFromOrderService
             }
         }
 
-        $manualDiscount = (float) $order->discount_amount;
-        $totalDiscount = round($engineDiscountTotal + $manualDiscount, 3);
-        $netTotal = max(0, round($grossSubtotal - $totalDiscount, 3));
+        // Delivery fees belong to the order total, not to invoice item lines.
+        // Reusing the pricing service guarantees they are included exactly once.
+        $pricing = $this->orderPricing->calculate($order);
+        $manualDiscount = (float) $pricing['discount_amount'];
+        $totalDiscount = round((float) $pricing['engine_discount_amount'] + $manualDiscount, 3);
+        $netTotal = (float) $pricing['total'];
 
         $invoice->update([
             'subtotal' => round($grossSubtotal, 3),
@@ -156,8 +161,9 @@ class InvoiceFromOrderService
             'employee_id' => $employeeId,
             'supplier_id' => $supplierId,
             'subtotal' => round($grossSubtotal, 3),
-            'engine_discount_amount' => round($engineDiscountTotal, 3),
+            'engine_discount_amount' => round((float) $pricing['engine_discount_amount'], 3),
             'discount_amount' => round($manualDiscount, 3),
+            'delivery_fee' => round((float) $pricing['delivery_fee'], 3),
             'total' => $netTotal,
         ]);
 
