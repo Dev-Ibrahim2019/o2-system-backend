@@ -25,6 +25,18 @@ return new class extends Migration
             // المبلغ
             $table->decimal('amount', 15, 2);
 
+            // Entity fields (polymorphic)
+            $table->string('entity_type')->nullable();
+            $table->unsignedBigInteger('entity_id')->nullable();
+            $table->string('subledger_type')->nullable();
+            $table->unsignedBigInteger('subledger_id')->nullable();
+
+            // Payment method reference
+            $table->foreignId('payment_method_id')
+                ->nullable()
+                ->constrained('payment_methods')
+                ->nullOnDelete();
+
             $table->string('reference_number', 255)->nullable();
 
             // وقت الدفع

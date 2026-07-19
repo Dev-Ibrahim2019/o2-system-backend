@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>كشف حساب — {{ $employeeName }}</title>
+    <title>كشف حساب — {{ $entityName ?? $employeeName ?? "" }}</title>
     <style>
     * {
         margin: 0;
@@ -240,8 +240,13 @@
 </head>
 
 <body>
+    @php
+        $displayEntityName = $entityName ?? $employeeName ?? '';
+        $displayEntityId = $entityCode ?? $entityId ?? $employeeId ?? '';
+        $displayEntityLabel = $entityLabel ?? 'الحساب';
+    @endphp
 
-    @if(($pdfStyle ?? 'detailed') === 'simple')
+@if(($pdfStyle ?? 'detailed') === 'simple')
     {{-- ═══════════════════════════════════════════════════════════════════
          SIMPLE STATEMENT — Compact Table Layout
          ═══════════════════════════════════════════════════════════════════ --}}
@@ -264,9 +269,9 @@
     <table class="info-grid">
         <tr>
             <td class="info-label">رقم الحساب</td>
-            <td class="info-value mono">{{ $employeeId }}</td>
+            <td class="info-value mono">{{ $displayEntityId }}</td>
             <td class="info-label">اسم الحساب</td>
-            <td class="info-value">{{ $employeeName }}</td>
+            <td class="info-value">{{ $entityName ?? $employeeName ?? "" }}</td>
             <td class="info-label">مقدم بعملة</td>
             <td class="info-value">{{ $currency ?? 'شيكل' }}</td>
         </tr>
@@ -377,9 +382,9 @@
     <table class="info-grid">
         <tr>
             <td class="info-label">رقم الحساب</td>
-            <td class="info-value mono">{{ $employeeId }}</td>
+            <td class="info-value mono">{{ $displayEntityId }}</td>
             <td class="info-label">اسم الحساب</td>
-            <td class="info-value">{{ $employeeName }}</td>
+            <td class="info-value">{{ $entityName ?? $employeeName ?? "" }}</td>
             <td class="info-label">مقيم بعملة</td>
             <td class="info-value">{{ $currency ?? 'شيكل' }}</td>
         </tr>

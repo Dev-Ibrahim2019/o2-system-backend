@@ -13,6 +13,7 @@ class OrderResource extends JsonResource
         return [
             'id'               => $this->id,
             'order_number'     => $this->order_number,
+            'dining_table_id'  => $this->dining_table_id,
             'branch_id'        => $this->branch_id,
             'cashier_id'       => $this->cashier_id,
             'order_type'       => $this->order_type,
@@ -41,6 +42,8 @@ class OrderResource extends JsonResource
                 'id'   => $this->cashier->id,
                 'name' => $this->cashier->name,
             ]),
+
+            'has_unsent_items' => $this->hasUnsentItems(),
 
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),

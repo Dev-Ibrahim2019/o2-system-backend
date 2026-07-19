@@ -15,7 +15,7 @@ class InvoiceResource extends JsonResource
             fn() => (float) $this->payments()->sum('amount')
         );
 
-        // جمع معلومات الخصم من بنود الفاتورة
+        // ط¬ظ…ط¹ ظ…ط¹ظ„ظˆظ…ط§طھ ط§ظ„ط®طµظ… ظ…ظ† ط¨ظ†ظˆط¯ ط§ظ„ظپط§طھظˆط±ط©
         $appliedDiscount = null;
         if ($this->relationLoaded('items')) {
             $discountItem = $this->items->first(function ($item) {
@@ -52,7 +52,7 @@ class InvoiceResource extends JsonResource
         return [
             'id' => $this->id,
             'number' => $this->number,
-            'type' => $this->type ?? 'فاتورة ضريبية',
+            'type' => $this->type ?? 'ظپط§طھظˆط±ط© ط¶ط±ظٹط¨ظٹط©',
             'order_id' => $this->order_id,
             'entity_type' => $this->entity_type,
             'entity_id' => $this->entity_id,
@@ -60,10 +60,11 @@ class InvoiceResource extends JsonResource
             'branch_id' => $this->branch_id,
             'branch_name' => $branchName,
             'customer_id' => $this->customer_id,
+            'customer_name' => $this->customer_name ?? null,
             'status' => $this->status,
-            'currency' => $this->currency ?? 'SAR',
+            'currency' => $this->currency ?? 'ILS',
             'payment_method' => $this->payment_method,
-            'payment_method_display' => $this->payment_method_display,
+            'payment_method_display' => $this->payment_method_display ?? null,
             'subtotal' => (float) $this->subtotal,
             'discount' => (float) $this->discount,
             'tax_total' => (float) ($this->tax_total ?? 0),
@@ -81,9 +82,9 @@ class InvoiceResource extends JsonResource
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
 
-            // ═══════════════════════════════════════════════════
-            //  🖥️ تفاصيل نقطة البيع (POS Details)
-            // ═══════════════════════════════════════════════════
+            // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
+            //  ًں–¥ï¸ڈ طھظپط§طµظٹظ„ ظ†ظ‚ط·ط© ط§ظ„ط¨ظٹط¹ (POS Details)
+            // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
             'pos' => [
                 'register_id' => $this->pos_register_id,
                 'code'        => $this->pos_code,
@@ -94,9 +95,9 @@ class InvoiceResource extends JsonResource
                 ]),
             ],
 
-            // ═══════════════════════════════════════════════════
-            //  📋 تفاصيل الفاتورة (Invoice Details)
-            // ═══════════════════════════════════════════════════
+            // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
+            //  ًں“‹ طھظپط§طµظٹظ„ ط§ظ„ظپط§طھظˆط±ط© (Invoice Details)
+            // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
             'details' => [
                 'number'         => $this->number,
                 'date'           => $this->invoice_date?->format('Y-m-d'),
@@ -105,9 +106,9 @@ class InvoiceResource extends JsonResource
                 'account_number' => $this->account_number,
             ],
 
-            // ═══════════════════════════════════════════════════
-            //  🔓 تفاصيل فتح الفاتورة (Open Details)
-            // ═══════════════════════════════════════════════════
+            // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
+            //  ًں”“ طھظپط§طµظٹظ„ ظپطھط­ ط§ظ„ظپط§طھظˆط±ط© (Open Details)
+            // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
             'opening' => [
                 'user'       => $this->whenLoaded('openedByUser', fn () => [
                     'id'   => $this->openedByUser?->id,
@@ -118,9 +119,9 @@ class InvoiceResource extends JsonResource
                 'time'       => $this->opened_at?->format('H:i:s'),
             ],
 
-            // ═══════════════════════════════════════════════════
-            //  🔒 تفاصيل إغلاق الفاتورة (Close Details)
-            // ═══════════════════════════════════════════════════
+            // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
+            //  ًں”’ طھظپط§طµظٹظ„ ط¥ط؛ظ„ط§ظ‚ ط§ظ„ظپط§طھظˆط±ط© (Close Details)
+            // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
             'closing' => $this->closed_at ? [
                 'user'       => $this->whenLoaded('closedByUser', fn () => [
                     'id'   => $this->closedByUser?->id,

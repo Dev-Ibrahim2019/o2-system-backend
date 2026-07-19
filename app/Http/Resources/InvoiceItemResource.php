@@ -18,6 +18,10 @@ class InvoiceItemResource extends JsonResource
         $quantity = (float) $this->quantity;
         $lineDiscount = (float) $this->discount_amount * $quantity;
 
+        $discountModel = $this->relationLoaded('discount')
+            ? $this->getRelation('discount')
+            : null;
+
         return [
             'id' => $this->id,
             'item_id' => $this->item_id,

@@ -19,8 +19,8 @@ class DiningZoneController extends Controller
             $q->orderByRaw("CAST(SUBSTRING(table_number FROM '[0-9]+$') AS SIGNED)");
         }]);
 
-        // إذا لم يكن super-admin، فلتر حسب الفرع
-        if (!$user->hasRole('super-admin')) {
+        // إذا لم يكن super-admin أو admin، فلتر حسب الفرع
+        if (!$user->hasRole('super-admin') && !$user->hasRole('admin')) {
             $query->where('branch_id', $user->branch_id);
         }
 
@@ -51,8 +51,8 @@ class DiningZoneController extends Controller
 
         $user = $request->user();
 
-        // إذا لم يكن super-admin، تحقق من الفرع
-        if (!$user->hasRole('super-admin') && $user->branch_id != $request->branch_id) {
+        // إذا لم يكن super-admin أو admin، تحقق من الفرع
+        if (!$user->hasRole('super-admin') && !$user->hasRole('admin') && $user->branch_id != $request->branch_id) {
             return response()->json([
                 'success' => false,
                 'message' => 'لا يمكنك إنشاء قاعة لفرع آخر!'
@@ -86,10 +86,12 @@ class DiningZoneController extends Controller
         for ($i = 1; $i <= $request->tables_count; $i++) {
             $tableNumber = $zoneCode . $i;
             $qrCode = strtoupper(Str::random(8));
-            $qrUrl = url("/table/{$qrCode}");
+            $qrUrl = url("/customer/{$qrCode}");
 
             $tables[] = DiningTable::create([
                 'dining_zone_id' => $zone->id,
+                'branch_id' => $zone->branch_id,
+                'code' => $tableNumber,
                 'table_number' => $tableNumber,
                 'qr_code' => $qrCode,
                 'qr_url' => $qrUrl,
@@ -159,10 +161,12 @@ class DiningZoneController extends Controller
 
         $tableNumber = $zone->code . $nextNumber;
         $qrCode = strtoupper(Str::random(8));
-        $qrUrl = url("/table/{$qrCode}");
+        $qrUrl = url("/customer/{$qrCode}");
 
         $table = DiningTable::create([
             'dining_zone_id' => $zoneId,
+            'branch_id' => $zone->branch_id,
+            'code' => $tableNumber,
             'table_number' => $tableNumber,
             'qr_code' => $qrCode,
             'qr_url' => $qrUrl,

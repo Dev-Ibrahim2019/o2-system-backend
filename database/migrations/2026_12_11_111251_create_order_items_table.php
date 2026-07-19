@@ -29,6 +29,19 @@ return new class extends Migration
 
             // السعر وقت الطلب
             $table->decimal('price', 15, 2);
+            $table->decimal('original_price', 15, 2)->nullable();
+            $table->decimal('final_price', 15, 2)->nullable();
+
+            // الخصم
+            $table->decimal('discount_amount', 15, 2)->default(0);
+            $table->decimal('discount_percent', 8, 2)->nullable();
+            $table->foreignId('discount_id')->nullable()
+                ->constrained('discounts')->nullOnDelete();
+            $table->string('discount_apply_strategy', 30)->nullable();
+
+            // الضريبة
+            $table->decimal('tax_rate', 5, 2)->nullable();
+            $table->decimal('tax_amount', 15, 3)->nullable();
 
             // الإجمالي
             $table->decimal('total', 15, 2);

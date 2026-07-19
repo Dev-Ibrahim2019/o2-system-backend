@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -17,20 +18,24 @@ return new class extends Migration
             $table->string('reference_number')->nullable();
 
             // ── Type & Status ──
-            $table->enum('type', ['tax_invoice', 'simple_invoice', 'credit_note', 'debit_note'])->default('tax_invoice');
-            $table->enum('status', ['draft', 'awaiting_approval', 'awaiting_payment', 'paid', 'cancelled'])->default('draft');
-            $table->enum('tax_treatment', ['inclusive', 'exclusive'])->default('exclusive');
+            $table->string('type', 30)->default('tax_invoice');
+            $table->string('status', 40)->default('draft');
+            $table->string('tax_treatment', 20)->default('exclusive');
 
             // ── Entity (Customer) ──
             $table->foreignId('customer_id')->nullable()->constrained()->nullOnDelete();
             $table->string('customer_name')->nullable();
             $table->string('customer_phone')->nullable();
             $table->string('customer_vat_number')->nullable();
+            $table->string('entity_type')->nullable();
+            $table->unsignedBigInteger('entity_id')->nullable();
 
             // ── Dates ──
             $table->dateTime('invoice_date');
             $table->date('due_date')->nullable();
             $table->date('supply_date')->nullable();
+            $table->date('delivery_date')->nullable();
+            $table->date('expected_payment_date')->nullable();
 
             // ── Financial ──
             $table->string('currency', 10)->default('ILS');
@@ -42,12 +47,17 @@ return new class extends Migration
             $table->decimal('paid_amount', 15, 4)->default(0);
             $table->decimal('remaining_amount', 15, 4)->default(0);
 
+            // ── Payment ──
+            $table->unsignedBigInteger('payment_method_id')->nullable();
+
             // ── Branch ──
             $table->foreignId('branch_id')->nullable()->constrained()->nullOnDelete();
 
             // ── Source Tracking ──
-            $table->enum('source', ['manual', 'pos_sync', 'excel_import'])->default('manual');
+            $table->string('source', 20)->default('manual');
             $table->string('pos_register_id')->nullable();
+            $table->string('pos_code')->nullable();
+            $table->string('pos_name')->nullable();
             $table->date('batch_date')->nullable();
 
             // ── ZATCA Compliance ──
@@ -55,10 +65,19 @@ return new class extends Migration
             $table->text('zatca_hash')->nullable();
             $table->text('zatca_qr_data')->nullable();
             $table->dateTime('zatca_sent_at')->nullable();
-            $table->enum('zatca_status', ['pending', 'submitted', 'accepted', 'rejected'])->nullable();
+            $table->string('zatca_status', 20)->nullable();
 
             // ── Notes ──
             $table->text('notes')->nullable();
+
+            // ── Account ──
+            $table->string('account_number')->nullable();
+
+            // ── Open/Close Tracking ──
+            $table->unsignedBigInteger('opened_by')->nullable();
+            $table->dateTime('opened_at')->nullable();
+            $table->unsignedBigInteger('closed_by')->nullable();
+            $table->dateTime('closed_at')->nullable();
 
             // ── Approval ──
             $table->foreignId('approved_by')->nullable()->constrained('users')->nullOnDelete();

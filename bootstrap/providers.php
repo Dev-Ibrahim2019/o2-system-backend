@@ -12,9 +12,11 @@
 
 use App\Providers\AppServiceProvider;
 use App\Providers\AccountingServiceProvider;
+use App\Providers\CustomerPortalServiceProvider;
 
 return [
     AppServiceProvider::class,
     AccountingServiceProvider::class,
+    CustomerPortalServiceProvider::class,
 
 ];
