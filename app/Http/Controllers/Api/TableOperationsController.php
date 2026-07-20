@@ -135,12 +135,28 @@ class TableOperationsController extends Controller
 
     public function free(DiningTable $table): JsonResponse
     {
+        \Log::info('[TABLE FREE] Called for table', [
+            'id' => $table->id,
+            'table_number' => $table->table_number,
+            'status_before' => $table->status,
+            'current_order_id' => $table->current_order_id,
+        ]);
+
         $table->setAvailable();
+
+        $fresh = $table->fresh();
+
+        \Log::info('[TABLE FREE] After setAvailable', [
+            'id' => $fresh->id,
+            'status_after' => $fresh->status,
+            'seated_at' => $fresh->seated_at,
+            'current_order_id' => $fresh->current_order_id,
+        ]);
 
         return response()->json([
             'success' => true,
             'message' => 'تم تحرير الطاولة ' . $table->table_number,
-            'data' => $this->formatTable($table->fresh()),
+            'data' => $this->formatTable($fresh),
         ]);
     }
 

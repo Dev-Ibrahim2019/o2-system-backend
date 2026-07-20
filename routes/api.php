@@ -62,6 +62,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
         Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
         Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
+        Route::post('orders/{order}/defer', [OrderController::class, 'deferOrder']);
         Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
         Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
         Route::post('orders/{order}/print-invoice', [OrderController::class, 'printInvoice']);
@@ -152,6 +153,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
     Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
     Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
+    Route::post('orders/{order}/defer', [OrderController::class, 'deferOrder']);
     Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
     Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
     Route::post('orders/{order}/print-invoice', [OrderController::class, 'printInvoice']);
