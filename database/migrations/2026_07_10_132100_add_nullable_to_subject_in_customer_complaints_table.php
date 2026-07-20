@@ -12,11 +12,21 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (!Schema::hasColumn('customer_complaints', 'subject')) {
+            Schema::table('customer_complaints', function (Blueprint $table) {
+                $table->string('subject', 255)->nullable()->after('id');
+            });
+        }
+
         DB::statement('ALTER TABLE customer_complaints MODIFY subject VARCHAR(255) NULL');
     }
 
     public function down(): void
     {
-        DB::statement('ALTER TABLE customer_complaints MODIFY subject VARCHAR(255) NOT NULL');
+        Schema::table('customer_complaints', function (Blueprint $table) {
+            if (Schema::hasColumn('customer_complaints', 'subject')) {
+                $table->dropColumn('subject');
+            }
+        });
     }
 };

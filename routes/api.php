@@ -147,6 +147,22 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('complaints/{complaint}/timeline', [CallCenterController::class, 'complaintTimeline']);
     });
 
+    // ── Call Center PBX Integration ──
+    Route::prefix('call-center/pbx')->middleware('permission:access-call-center|manage-call-center')->group(function () {
+        Route::get('live-calls', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'liveCalls']);
+        Route::get('cdr', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'callHistory']);
+        Route::get('queues', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'queueStats']);
+        Route::get('agents', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'agentStats']);
+        Route::get('analytics', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'analytics']);
+        Route::get('extensions', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'extensions']);
+        Route::get('trunks', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'trunks']);
+        Route::get('blacklist', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'blacklistIndex']);
+        Route::post('blacklist', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'blacklistStore']);
+        Route::delete('blacklist/{id}', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'blacklistDestroy']);
+        Route::get('recordings/{uniqueid}/play', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'playRecording']);
+        Route::get('recordings/{uniqueid}/download', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'downloadRecording']);
+    });
+
     // أ¢â€‌â‚¬أ¢â€‌â‚¬ ط·آ¥ط·آ¯ط·آ§ط·آ±ط·آ© ط·آ§ط¸â€‍ط¸â€¦ط·آ³ط·ع¾ط·آ®ط·آ¯ط¸â€¦ط¸ظ¹ط¸â€  أ¢â€‌â‚¬أ¢â€‌â‚¬
     Route::get('users', [UserController::class, 'index'])->middleware('permission:manage-users');
     Route::post('users', [UserController::class, 'store'])->middleware('permission:manage-users');

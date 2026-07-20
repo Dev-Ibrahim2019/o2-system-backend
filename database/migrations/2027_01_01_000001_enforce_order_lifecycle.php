@@ -10,11 +10,21 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('orders', function (Blueprint $table) {
-            $table->string('payment_status', 20)->default('UNPAID')->after('status');
-            $table->string('transaction_id')->nullable()->unique()->after('payment_status');
-            $table->foreignId('driver_id')->nullable()->constrained('employees')->nullOnDelete();
-            $table->text('cancellation_reason')->nullable();
-            $table->dateTime('cancelled_at')->nullable();
+            if (!Schema::hasColumn('orders', 'payment_status')) {
+                $table->string('payment_status', 20)->default('UNPAID')->after('status');
+            }
+            if (!Schema::hasColumn('orders', 'transaction_id')) {
+                $table->string('transaction_id')->nullable()->after('payment_status');
+            }
+            if (!Schema::hasColumn('orders', 'driver_id')) {
+                $table->foreignId('driver_id')->nullable()->constrained('employees')->nullOnDelete();
+            }
+            if (!Schema::hasColumn('orders', 'cancellation_reason')) {
+                $table->text('cancellation_reason')->nullable();
+            }
+            if (!Schema::hasColumn('orders', 'cancelled_at')) {
+                $table->dateTime('cancelled_at')->nullable();
+            }
         });
 
         if (DB::getDriverName() === 'mysql') {
@@ -29,6 +39,14 @@ return new class extends Migration
 
         if (DB::getDriverName() === 'mysql') {
             DB::statement("ALTER TABLE orders MODIFY status ENUM('PENDING_PAYMENT','PREPARATION','OUT_FOR_DELIVERY','DELIVERED','CANCELLED') NOT NULL DEFAULT 'PENDING_PAYMENT'");
+        }
+
+        if (Schema::hasColumn('orders', 'transaction_id')) {
+            try {
+                DB::statement('ALTER TABLE orders ADD UNIQUE INDEX orders_transaction_id_unique (transaction_id)');
+            } catch (\Throwable $e) {
+                // ignore if index already exists
+            }
         }
     }
 

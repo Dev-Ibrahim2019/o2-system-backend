@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('customer_notes', function (Blueprint $table) {
             $table->id();
             $table->foreignId('customer_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('order_id')->nullable()->constrained()->nullOnDelete();
+            $table->unsignedBigInteger('order_id')->nullable();
             $table->text('content');
             $table->string('type', 50)->default('general'); // general, delivery, warning, preference, service, sensitive
             $table->string('importance', 20)->default('normal'); // low, normal, high, urgent

@@ -10,19 +10,22 @@ return new class extends Migration
     {
         Schema::table('orders', function (Blueprint $table) {
             // delivery_zone_id: ربط بمنطقة التوصيل في dining_zones
-            $table->foreignId('delivery_zone_id')
-                ->nullable()
-                ->after('customer_address_id')
-                ->constrained('dining_zones')
-                ->nullOnDelete();
+            if (!Schema::hasColumn('orders', 'delivery_zone_id')) {
+                $table->foreignId('delivery_zone_id')
+                    ->nullable()
+                    ->constrained('dining_zones')
+                    ->nullOnDelete();
+            }
         });
     }
 
     public function down(): void
     {
         Schema::table('orders', function (Blueprint $table) {
-            $table->dropForeign(['delivery_zone_id']);
-            $table->dropColumn('delivery_zone_id');
+            if (Schema::hasColumn('orders', 'delivery_zone_id')) {
+                $table->dropForeign(['delivery_zone_id']);
+                $table->dropColumn('delivery_zone_id');
+            }
         });
     }
 };

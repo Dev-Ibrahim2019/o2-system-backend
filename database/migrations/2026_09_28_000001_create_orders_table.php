@@ -1,5 +1,4 @@
 <?php
-// database/migrations/2026_04_28_000001_create_orders_table.php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -9,50 +8,57 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('orders')) {
+            return;
+        }
+
         Schema::create('orders', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('customer_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignId('branch_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignId('department_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignId('cashier_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
 
-            // رقم الطلب المعروض للكاشير (تسلسلي يومي)
-            $table->string('order_number')->unique();
-
-            $table->foreignId('branch_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('cashier_id')
-                ->nullable()
-                ->references('id')->on('employees')->nullOnDelete();
-
-            // نوع الطلب: dine_in | takeaway
-            $table->enum('order_type', ['dine_in', 'takeaway', 'delivery'])->default('dine_in');
-
-            // حالة الطلب الكلية
-            $table->enum('status', [
-                'pending',      // حُفظ ولم يُرسل بعد
-                'confirmed',    // أُرسل للأقسام
-                'in_progress',  // الأقسام تعمل عليه
-                'ready',        // جاهز للتسليم
-                'served',       // سُلِّم للزبون
-                'paid',         // مدفوع ومغلق
-                'cancelled',    // ملغي
-            ])->default('pending');
-
-            // معلومات الطاولة (للمحلي)
-            $table->string('table_number')->nullable();
-
-            // معلومات الزبون
+            $table->string('barcode')->nullable();
+            $table->string('order_type')->nullable();
+            $table->string('status')->nullable();
+            $table->string('sub_status')->nullable();
+            $table->string('order_number')->nullable();
+            $table->string('reference_number')->nullable();
             $table->string('customer_name')->nullable();
+            $table->string('phone')->nullable();
             $table->string('customer_phone')->nullable();
 
-            // ملاحظة الفاتورة
+            $table->decimal('subtotal', 15, 2)->nullable();
+            $table->decimal('tax_amount', 15, 2)->nullable();
+            $table->decimal('discount_amount', 15, 2)->nullable();
+            $table->decimal('total_amount', 15, 2)->nullable();
+            $table->decimal('paid_amount', 15, 2)->nullable();
+            $table->decimal('change_amount', 15, 2)->nullable();
+            $table->decimal('balance_amount', 15, 2)->nullable();
+
             $table->text('note')->nullable();
 
-            // المبالغ
-            $table->decimal('subtotal', 10, 3)->default(0);
-            $table->decimal('discount_value', 10, 3)->default(0);
-            $table->enum('discount_type', ['amount', 'percent'])->default('amount');
-            $table->decimal('discount_amount', 10, 3)->default(0); // المبلغ الفعلي للخصم
-            $table->decimal('total', 10, 3)->default(0);
+            $table->timestamp('ordered_at')->nullable();
+            $table->timestamp('completed_at')->nullable();
+            $table->timestamp('printed_at')->nullable();
+            $table->timestamp('cancelled_at')->nullable();
 
-            $table->timestamps();
+            $table->text('cancellation_reason')->nullable();
+            $table->foreignId('cancelled_by')->nullable()->constrained('users')->nullOnDelete();
+
+            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('updated_by')->nullable()->constrained('users')->nullOnDelete();
+
             $table->softDeletes();
+            $table->timestamps();
+
+            $table->index('customer_id');
+            $table->index('branch_id');
+            $table->index('status');
+            $table->index('order_number');
+            $table->index('cashier_id');
         });
     }
 
