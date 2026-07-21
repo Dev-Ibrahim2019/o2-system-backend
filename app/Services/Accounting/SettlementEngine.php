@@ -31,8 +31,8 @@ class SettlementEngine
             throw new RuntimeException('الطلب غير مقسّم للأقسام — نفّذ confirm أولاً.');
         }
 
-        if ($order->status === 'pending' && $order->tickets()->exists()) {
-            $order->update(['status' => 'confirmed']);
+        if ($order->status === 'PENDING_PAYMENT' && $order->tickets()->exists()) {
+            $order->update(['status' => 'PREPARATION']);
         }
 
         return DB::transaction(function () use ($order, $payments) {
@@ -88,7 +88,11 @@ class SettlementEngine
                 'payment_method' => PaymentMethod::find($payments[0]['payment_method_id'])?->type,
             ]);
 
-            $order->update(['status' => 'paid']);
+            $order->update([
+                'status' => 'PREPARATION',
+                'payment_status' => 'PAID',
+                'paid_at' => now(),
+            ]);
 
             $transaction = $this->accountingService->createJournalEntryForInvoice($invoice->fresh());
 

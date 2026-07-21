@@ -23,9 +23,14 @@ class JobTitleRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => 'required|string|max:255',
+            'name' => [$this->isMethod('post') ? 'required' : 'sometimes', 'string', 'max:255'],
+            'name_ar' => 'nullable|string|max:255',
+            'name_en' => 'nullable|string|max:255',
             'description' => 'nullable|string',
-            'is_active' => 'boolean'
+            'department_id' => 'nullable|exists:departments,id',
+            'default_operational_role' => 'nullable|in:call_center_agent,assembler,delivery_driver,manager,cashier,other',
+            'requires_vehicle' => 'boolean',
+            'is_active' => 'boolean',
         ];
     }
 }

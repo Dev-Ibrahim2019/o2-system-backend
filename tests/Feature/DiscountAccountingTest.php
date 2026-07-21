@@ -7,6 +7,7 @@ use App\Models\Branch;
 use App\Models\Discount;
 use App\Models\DiscountSetting;
 use App\Models\DiscountTarget;
+use App\Models\DeliveryZone;
 use App\Models\Entry;
 use App\Models\Invoice;
 use App\Models\Order;
@@ -261,5 +262,43 @@ class DiscountAccountingTest extends TestCase
 
         $this->assertNotNull($transaction);
         $this->assertNotNull($order->fresh()->journalEntry());
+    }
+
+    #[Test]
+    public function delivery_fee_is_added_to_invoice_total_exactly_once(): void
+    {
+        $order = $this->createOrderWithItem(100, 0);
+        $zone = DeliveryZone::create([
+            'branch_id' => $order->branch_id,
+            'code' => 'CENTER',
+            'name' => 'City Center',
+            'base_fee' => 12,
+            'is_active' => true,
+        ]);
+        $order->update([
+            'order_type' => 'delivery',
+            'delivery_zone_id' => $zone->id,
+            'delivery_fee' => null,
+        ]);
+
+        $invoice = app(InvoiceFromOrderService::class)->createFromOrder($order->fresh(), [], 1);
+
+        $this->assertEquals(100, (float) $invoice->subtotal);
+        $this->assertEquals(112, (float) $invoice->total);
+        $this->assertEquals(12, (float) $invoice->fresh('order')->order->delivery_fee);
+        $this->assertEquals(112, (float) $invoice->order->total);
+    }
+
+    #[Test]
+    public function non_delivery_invoice_removes_any_stale_delivery_fee(): void
+    {
+        $order = $this->createOrderWithItem(100, 0);
+        $order->update(['order_type' => 'takeaway', 'delivery_fee' => 12]);
+
+        $invoice = app(InvoiceFromOrderService::class)->createFromOrder($order->fresh(), [], 1);
+
+        $this->assertEquals(100, (float) $invoice->total);
+        $this->assertEquals(0, (float) $invoice->fresh('order')->order->delivery_fee);
+        $this->assertEquals(100, (float) $invoice->order->total);
     }
 }

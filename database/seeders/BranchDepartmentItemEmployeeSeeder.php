@@ -110,9 +110,10 @@ class BranchDepartmentItemEmployeeSeeder extends Seeder
             ]);
         }
 
-        Employee::firstOrCreate(
-            ['employeeId' => 'EMP-000001'],
+        Employee::updateOrCreate(
+            ['username' => 'sara.manager'],
             Employee::factory()->raw([
+                'employeeId' => 'EMP-000001',
                 'name' => 'Sara Manager',
                 'phone' => '0500000001',
                 'email' => 'sara.manager@example.test',
@@ -127,9 +128,10 @@ class BranchDepartmentItemEmployeeSeeder extends Seeder
             ])
         );
 
-        Employee::firstOrCreate(
-            ['employeeId' => 'EMP-000002'],
+        Employee::updateOrCreate(
+            ['username' => 'omar.chef'],
             Employee::factory()->raw([
+                'employeeId' => 'EMP-000002',
                 'name' => 'Omar Chef',
                 'phone' => '0500000002',
                 'email' => 'omar.chef@example.test',
@@ -144,9 +146,10 @@ class BranchDepartmentItemEmployeeSeeder extends Seeder
             ])
         );
 
-        Employee::firstOrCreate(
-            ['employeeId' => 'EMP-000003'],
+        Employee::updateOrCreate(
+            ['username' => 'layla.bar'],
             Employee::factory()->raw([
+                'employeeId' => 'EMP-000003',
                 'name' => 'Layla Barista',
                 'phone' => '0500000003',
                 'email' => 'layla.bar@example.test',

@@ -10,17 +10,27 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Models\Scopes\BranchScope;
 
 /**
- * تسلسل العمل:
- * 1) pending — حفظ الطلب وبنوده في orders + order_items
- * 2) confirm — ربط البنود بالأقسام عبر production_tickets + production_ticket_items (للطباعة/KDS)
- * 3) فاتورة — invoices + invoice_items (نسخة رسمية للدفع)
- * 4) paid — payments مرتبطة بالفاتورة
+ * طھط³ظ„ط³ظ„ ط§ظ„ط¹ظ…ظ„:
+ * 1) pending â€” ط­ظپط¸ ط§ظ„ط·ظ„ط¨ ظˆط¨ظ†ظˆط¯ظ‡ ظپظٹ orders + order_items
+ * 2) confirm â€” ط±ط¨ط· ط§ظ„ط¨ظ†ظˆط¯ ط¨ط§ظ„ط£ظ‚ط³ط§ظ… ط¹ط¨ط± production_tickets + production_ticket_items (ظ„ظ„ط·ط¨ط§ط¹ط©/KDS)
+ * 3) ظپط§طھظˆط±ط© â€” invoices + invoice_items (ظ†ط³ط®ط© ط±ط³ظ…ظٹط© ظ„ظ„ط¯ظپط¹)
+ * 4) paid â€” payments ظ…ط±طھط¨ط·ط© ط¨ط§ظ„ظپط§طھظˆط±ط©
  */
 class Order extends Model
 {
     use SoftDeletes;
 
-    // تطبيق BranchScope على جميع استعلامات الطلبات
+    public const STATUS_PENDING_PAYMENT = 'PENDING_PAYMENT';
+    public const STATUS_PREPARATION = 'PREPARATION';
+    public const STATUS_ASSEMBLING = 'ASSEMBLING';
+    public const STATUS_READY_FOR_DELIVERY = 'READY_FOR_DELIVERY';
+    public const STATUS_OUT_FOR_DELIVERY = 'OUT_FOR_DELIVERY';
+    public const STATUS_CANCELLATION_REQUESTED = 'CANCELLATION_REQUESTED';
+    public const STATUS_DELIVERED = 'DELIVERED';
+    public const STATUS_FAILED_DELIVERY = 'FAILED_DELIVERY';
+    public const STATUS_CANCELLED = 'CANCELLED';
+
+    // طھط·ط¨ظٹظ‚ BranchScope ط¹ظ„ظ‰ ط¬ظ…ظٹط¹ ط§ط³طھط¹ظ„ط§ظ…ط§طھ ط§ظ„ط·ظ„ط¨ط§طھ
     protected static function booted(): void
     {
         static::addGlobalScope(new BranchScope);
@@ -31,21 +41,54 @@ class Order extends Model
         'dining_table_id',
         'branch_id',
         'cashier_id',
+        'call_center_agent_id',
         'order_type',
+        'source',
         'status',
         'table_number',
         'customer_name',
         'customer_phone',
+        'customer_mobile',
         'customer_id',
+        'customer_address_id',
+        'delivery_zone_id',
+        'delivery_fee',
+        'delivery_address_snapshot',
         'employee_id',
         'supplier_id',
         'note',
+        'needs_attention',
+        'customer_service_flag',
+        'customer_notes',
+        'delivery_notes',
+        'call_notes',
         'subtotal',
         'discount_value',
         'discount_type',
         'discount_amount',
         'engine_discount_amount',
         'total',
+        'paid_at',
+        'payment_status',
+        'transaction_id',
+        'assembled_at',
+        'assembly_started_at',
+        'assembler_id',
+        'assembled_by',
+        'assembly_duration_seconds',
+        'delivery_started_at',
+        'delivered_at',
+        'delivery_employee_name',
+        'driver_id',
+        'delivery_assigned_by',
+        'delivery_duration_seconds',
+        'cancellation_reason',
+        'cancelled_at',
+        'is_urgent',
+        'priority',
+        'expedited_at',
+        'expedited_by',
+        'manual_adjustment','adjustment_reason','adjusted_by','adjusted_at',
     ];
 
     protected $casts = [
@@ -54,6 +97,22 @@ class Order extends Model
         'discount_amount' => 'decimal:3',
         'engine_discount_amount' => 'decimal:3',
         'total' => 'decimal:3',
+        'delivery_fee' => 'decimal:3',
+        'delivery_address_snapshot' => 'array',
+        'needs_attention' => 'boolean',
+        'customer_service_flag' => 'boolean',
+        'paid_at' => 'datetime',
+        'assembled_at' => 'datetime',
+        'assembly_started_at' => 'datetime',
+        'assembly_duration_seconds' => 'integer',
+        'delivery_started_at' => 'datetime',
+        'delivered_at' => 'datetime',
+        'cancelled_at' => 'datetime',
+        'delivery_duration_seconds' => 'integer',
+        'is_urgent' => 'boolean',
+        'expedited_at' => 'datetime',
+        'manual_adjustment' => 'decimal:3',
+        'adjusted_at' => 'datetime',
     ];
 
     public function branch(): BelongsTo
@@ -66,12 +125,20 @@ class Order extends Model
         return $this->belongsTo(Employee::class, 'cashier_id');
     }
 
+    public function deliveryDriver(): BelongsTo { return $this->belongsTo(Employee::class, 'driver_id'); }
+    public function deliveryZone(): BelongsTo { return $this->belongsTo(DeliveryZone::class); }
+    public function deliveryTripStops(): HasMany { return $this->hasMany(DeliveryTripStop::class); }
+    public function assembler(): BelongsTo { return $this->belongsTo(Employee::class, 'assembler_id'); }
+    public function assembledByEmployee(): BelongsTo { return $this->belongsTo(Employee::class, 'assembled_by'); }
+    public function executionEvents(): HasMany { return $this->hasMany(OrderExecutionEvent::class)->orderBy('occurred_at'); }
+    public function customerExperience(): HasOne { return $this->hasOne(OrderCustomerExperience::class); }
+
     public function items(): HasMany
     {
         return $this->hasMany(OrderItem::class);
     }
 
-    /** تذاكر الأقسام — كل تذكرة = جزء طباعة/مطبخ لقسم واحد */
+    /** طھط°ط§ظƒط± ط§ظ„ط£ظ‚ط³ط§ظ… â€” ظƒظ„ طھط°ظƒط±ط© = ط¬ط²ط، ط·ط¨ط§ط¹ط©/ظ…ط·ط¨ط® ظ„ظ‚ط³ظ… ظˆط§ط­ط¯ */
     public function tickets(): HasMany
     {
         return $this->hasMany(ProductionTicket::class);
@@ -92,7 +159,7 @@ class Order extends Model
         return $this->hasOne(Invoice::class);
     }
 
-    /** القيد المحاسبي (journal entry) المرتبط بالطلب */
+    /** ط§ظ„ظ‚ظٹط¯ ط§ظ„ظ…ط­ط§ط³ط¨ظٹ (journal entry) ط§ظ„ظ…ط±طھط¨ط· ط¨ط§ظ„ط·ظ„ط¨ */
     public function journalEntry()
     {
         return Transaction::where('source_type', self::class)
@@ -114,8 +181,8 @@ class Order extends Model
     }
 
     /**
-     * أجزاء الطلب للطباعة — كل قسم مع أصنافه.
-     * بعد confirm: من التذاكر. قبل confirm: معاينة من order_items.groupBy(department_id)
+     * ط£ط¬ط²ط§ط، ط§ظ„ط·ظ„ط¨ ظ„ظ„ط·ط¨ط§ط¹ط© â€” ظƒظ„ ظ‚ط³ظ… ظ…ط¹ ط£طµظ†ط§ظپظ‡.
+     * ط¨ط¹ط¯ confirm: ظ…ظ† ط§ظ„طھط°ط§ظƒط±. ظ‚ط¨ظ„ confirm: ظ…ط¹ط§ظٹظ†ط© ظ…ظ† order_items.groupBy(department_id)
      */
     public function sectionsForPrint(): array
     {
@@ -191,7 +258,7 @@ class Order extends Model
         })->values()->all();
     }
 
-    /** إعادة حساب المجاميع — محرك الخصومات + الخصم اليدوي */
+    /** ط¥ط¹ط§ط¯ط© ط­ط³ط§ط¨ ط§ظ„ظ…ط¬ط§ظ…ظٹط¹ â€” ظ…ط­ط±ظƒ ط§ظ„ط®طµظˆظ…ط§طھ + ط§ظ„ط®طµظ… ط§ظ„ظٹط¯ظˆظٹ */
     public function recalculateTotals(): void
     {
         app(\App\Services\Order\OrderPricingService::class)->recalculateAndSave($this);
@@ -229,5 +296,22 @@ class Order extends Model
     public function canBeConfirmed(): bool
     {
         return in_array($this->status, ['pending', 'pending_confirmation']);
+    }
+
+    public function getWaitingDurationSecondsAttribute(): ?int
+    {
+        return $this->paid_at ? max(0, $this->created_at->diffInSeconds($this->paid_at, false)) : null;
+    }
+
+    public function getPreparationDurationSecondsAttribute(): ?int
+    {
+        return ($this->paid_at && $this->assembled_at)
+            ? max(0, $this->paid_at->diffInSeconds($this->assembled_at, false))
+            : null;
+    }
+
+    public function getTotalLeadTimeSecondsAttribute(): ?int
+    {
+        return $this->delivered_at ? max(0, $this->created_at->diffInSeconds($this->delivered_at, false)) : null;
     }
 }

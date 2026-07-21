@@ -57,6 +57,11 @@ class Department extends Model
         return $this->hasMany(Item::class);
     }
 
+    public function employees(): HasMany
+    {
+        return $this->hasMany(Employee::class);
+    }
+
     /** تذاكر الإنتاج/الطباعة لهذا القسم */
     public function productionTickets(): HasMany
     {

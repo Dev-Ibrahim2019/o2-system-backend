@@ -20,6 +20,7 @@ class Item extends Model
         'image',
         'unit',
         'is_active',
+        'is_weight_based',
     ];
 
     protected $appends = [
@@ -28,6 +29,7 @@ class Item extends Model
 
     protected $casts = [
         'is_active' => 'boolean',
+        'is_weight_based' => 'boolean',
     ];
 
     public function getImageUrlAttribute(): ?string
