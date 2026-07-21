@@ -738,6 +738,60 @@ class OrderController extends ApiController
         return $this->success('تمت مزامنة تسليمات الدليفري', OrderResource::collection($orders));
     }
 
+     * تأجيل الطلب — نقله لحالة بانتظار الدفع وتحرير الطاولة
+     */
+    public function deferOrder(Order $order): JsonResponse
+    {
+        if (in_array($order->status, ['paid', 'cancelled', 'pending_payment'], true)) {
+            return $this->error('لا يمكن تأجيل هذا الطلب في حالته الحالية.', 422);
+        }
+
+        try {
+            DB::transaction(function () use ($order) {
+                // تحرير الطاولة أولاً قبل تحديث الطلب
+                $table = null;
+
+                if ($order->dining_table_id) {
+                    $table = DiningTable::find($order->dining_table_id);
+                }
+                if (! $table) {
+                    $table = DiningTable::where('current_order_id', $order->id)->first();
+                }
+                if (! $table && $order->table_number && $order->branch_id) {
+                    $table = DiningTable::where('table_number', $order->table_number)
+                        ->where('branch_id', $order->branch_id)
+                        ->first();
+                }
+                if (! $table && $order->table_number && $order->branch_id) {
+                    $table = DiningTable::whereRaw('LOWER(table_number) = LOWER(?)', [$order->table_number])
+                        ->where('branch_id', $order->branch_id)
+                        ->first();
+                }
+
+                if ($table) {
+                    $table->setAvailable();
+                }
+
+                // حفظ رقم الطاولة في الملاحظات قبل إزالتها
+                $deferredTableNote = $order->table_number ? "[Table: {$order->table_number}]" : "";
+                $existingNote = $order->note ?? "";
+                $newNote = $deferredTableNote . ($existingNote && $deferredTableNote ? " | " . $existingNote : ($existingNote ?: $deferredTableNote));
+
+                // تحديث حالة الطلب إلى مؤجل + إزالة ارتباطه بالطاولة
+                $order->update([
+                    'status' => 'pending_payment',
+                    'dining_table_id' => null,
+                    'table_number' => null,
+                    'note' => $newNote,
+                ]);
+            });
+
+            return $this->success('تم تأجيل الطلب', new OrderResource($order->fresh()->load(['items.department'])));
+        } catch (\Throwable $e) {
+            return $this->error('فشل تأجيل الطلب: ' . $e->getMessage(), 500);
+        }
+    }
+
     public function journalEntry(Order $order): JsonResponse
     {
         $transaction = Transaction::with(['entries.account', 'entries.costCenter', 'branch', 'user'])
@@ -931,12 +985,37 @@ class OrderController extends ApiController
      */
     public function directPrint(Request $request, Order $order): JsonResponse
     {
-        $request->validate([
-            'cashier_device_id' => 'required|integer|exists:pos_registers,id',
-            'items' => 'nullable|array',
-            'items.*.order_item_id' => 'required|integer|exists:order_items,id',
-            'items.*.is_takeaway' => 'required|boolean',
+        \Log::info('directPrint request data', [
+            'all' => $request->all(),
+            'cashier_device_id' => $request->input('cashier_device_id'),
+            'items' => $request->input('items'),
+            'order_id' => $order->id,
         ]);
+
+        try {
+            $request->validate([
+                'cashier_device_id' => 'required|integer',
+                'items' => 'nullable|array',
+                'items.*.order_item_id' => 'required|integer|exists:order_items,id',
+                'items.*.is_takeaway' => 'required|boolean',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \Log::error('directPrint validation failed', ['errors' => $e->errors()]);
+            return response()->json([
+                'success' => false,
+                'message' => 'خطأ في البيانات المرسلة',
+                'errors' => $e->errors(),
+            ], 422);
+        }
+
+        // التحقق من وجود جهاز الكاشير — إذا لم يوجد نستخدم أول جهاز متاح للفرع
+        $cashierDeviceId = (int) $request->cashier_device_id;
+        if (!\App\Models\PosRegister::where('id', $cashierDeviceId)->exists()) {
+            $fallback = \App\Models\PosRegister::where('branch_id', $order->branch_id)->first();
+            if ($fallback) {
+                $cashierDeviceId = $fallback->id;
+            }
+        }
 
         try {
             // حفظ حالة TW لكل صنف إذا تم تمريرها
@@ -950,7 +1029,7 @@ class OrderController extends ApiController
             $service = app(\App\Services\DirectPrintRoutingService::class);
             $result = $service->execute(
                 $order->id,
-                $request->cashier_device_id
+                $cashierDeviceId
             );
 
             if (!$result['success']) {

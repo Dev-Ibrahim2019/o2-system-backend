@@ -89,6 +89,15 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware('permission:manage-orders');
         Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry'])
             ->middleware('permission:manage-accounting|post-journal');
+        // â”€â”€ Orders â”€â”€
+        Route::post('orders/{order}/void', [OrderController::class, 'void']);
+        Route::apiResource('orders', OrderController::class)->except(['destroy']);
+        Route::post('orders/{order}/items', [OrderController::class, 'addItem']);
+        Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
+        Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
+        Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
+        Route::post('orders/{order}/defer', [OrderController::class, 'deferOrder']);
+        Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
         Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
         Route::post('orders/{order}/print-invoice', [OrderController::class, 'printInvoice']);
         Route::post('orders/{order}/print-tickets', [OrderController::class, 'printTickets']);
@@ -277,6 +286,14 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:manage-orders');
     Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry'])
         ->middleware('permission:manage-accounting|post-journal');
+    Route::post('orders/{order}/void', [OrderController::class, 'void']);
+    Route::apiResource('orders', OrderController::class)->except(['destroy']);
+    Route::post('orders/{order}/items', [OrderController::class, 'addItem']);
+    Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
+    Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
+    Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
+    Route::post('orders/{order}/defer', [OrderController::class, 'deferOrder']);
+    Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
     Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
     Route::post('orders/{order}/print-invoice', [OrderController::class, 'printInvoice']);
     Route::post('orders/{order}/print-tickets', [OrderController::class, 'printTickets']);

@@ -58,6 +58,9 @@ return new class extends Migration
             $table->text('notes')->nullable();
 
             $table->timestamp('sent_to_kitchen_at')->nullable();
+
+            $table->boolean('is_printed_direct')->default(false);
+            $table->boolean('is_takeaway')->default(false);
         });
     }
 
