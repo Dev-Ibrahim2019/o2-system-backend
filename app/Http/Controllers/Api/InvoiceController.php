@@ -42,8 +42,8 @@ class InvoiceController extends ApiController
             return $this->error('الطلب غير مقسّم للأقسام — نفّذ confirm أولاً.', 422);
         }
 
-        if ($order->status === 'PENDING_PAYMENT') {
-            $order->update(['status' => 'PREPARATION']);
+        if ($order->status === 'pending') {
+            $order->update(['status' => 'confirmed']);
         }
 
         if ($order->invoice()->exists()) {
@@ -149,13 +149,7 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
                 ]);
 
                 if ($invoice->order_id) {
-                    // Financial closure must not terminate the operational lifecycle.
-                    // A paid delivery still needs preparation, assembly and delivery.
-                    $invoice->order()->update([
-                        'status' => 'PREPARATION',
-                        'payment_status' => 'PAID',
-                        'paid_at' => now(),
-                    ]);
+                    $invoice->order()->update(['status' => 'paid']);
                 }
 
                 $journalEntry = app(AccountingService::class)

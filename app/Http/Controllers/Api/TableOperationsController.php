@@ -32,7 +32,7 @@ class TableOperationsController extends Controller
             $query->with(['currentOrder' => function ($q) {
                 $q->select('id', 'order_number', 'status', 'total', 'customer_name', 'dining_table_id');
             }])
-            ->orderByRaw("CAST(SUBSTRING(table_number FROM '[0-9]+$') AS INTEGER)");
+            ->orderByRaw("CAST(SUBSTRING(table_number FROM '[0-9]+$') AS SIGNED)");
         }])
         ->where('branch_id', $branchId)
         ->where('status', 'ACTIVE')
