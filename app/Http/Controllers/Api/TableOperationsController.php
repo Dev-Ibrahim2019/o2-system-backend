@@ -114,18 +114,28 @@ class TableOperationsController extends Controller
     {
         $request->validate([
             'status' => 'required|in:AVAILABLE,OCCUPIED,PAYMENT_PENDING,PAID,RESERVED,CLEANING',
+            'current_order_id' => 'nullable|integer',
+            'customer_count' => 'nullable|integer',
         ]);
 
-        $table->update(['status' => $request->status]);
+        $updateData = ['status' => $request->status];
 
         if ($request->status === 'AVAILABLE') {
-            $table->update([
-                'current_order_id' => null,
-                'seated_at' => null,
-                'customer_count' => 0,
-                'last_order_at' => now(),
-            ]);
+            $updateData['current_order_id'] = null;
+            $updateData['seated_at'] = null;
+            $updateData['customer_count'] = 0;
+            $updateData['last_order_at'] = now();
+        } elseif ($request->status === 'OCCUPIED') {
+            if ($request->has('current_order_id')) {
+                $updateData['current_order_id'] = $request->input('current_order_id');
+            }
+            if ($request->has('customer_count')) {
+                $updateData['customer_count'] = $request->input('customer_count');
+            }
+            $updateData['last_order_at'] = now();
         }
+
+        $table->update($updateData);
 
         return response()->json([
             'success' => true,

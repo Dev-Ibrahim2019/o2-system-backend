@@ -34,6 +34,8 @@ class Order extends Model
         'order_type',
         'status',
         'table_number',
+        'customer_count',
+        'seated_at',
         'customer_name',
         'customer_phone',
         'customer_id',
@@ -54,6 +56,8 @@ class Order extends Model
         'discount_amount' => 'decimal:3',
         'engine_discount_amount' => 'decimal:3',
         'total' => 'decimal:3',
+        'seated_at' => 'datetime',
+        'customer_count' => 'integer',
     ];
 
     public function branch(): BelongsTo

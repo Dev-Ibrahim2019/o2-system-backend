@@ -478,6 +478,148 @@ class OrderController extends ApiController
         }
     }
 
+    public function transfer(Request $request, Order $order): JsonResponse
+    {
+        \Log::info('[ORDER TRANSFER] Called', [
+            'order_id' => $order->id,
+            'table_number' => $request->input('table_number'),
+            'order_dining_table_id' => $order->dining_table_id,
+            'order_table_number' => $order->table_number,
+            'order_status' => $order->status,
+            'order_branch_id' => $order->branch_id,
+        ]);
+
+        $request->validate([
+            'table_number' => 'required|string',
+        ]);
+
+        // منع النقل لطلبات في حالات نهائية
+        if (in_array($order->status, ['paid', 'cancelled', 'served', 'pending_payment'], true)) {
+            \Log::warning('[ORDER TRANSFER] Order in invalid status', ['status' => $order->status]);
+            return $this->error('لا يمكن نقل هذا الطلب في حالته الحالية.', 422);
+        }
+
+        // التحقق من أن الطلب مرتبط بطاولة (ليس takeaway)
+        if (! $order->dining_table_id && ! $order->table_number) {
+            \Log::warning('[ORDER TRANSFER] Order not associated with any table', ['order_id' => $order->id]);
+            return $this->error('هذا الطلب غير مرتبط بطاولة.', 422);
+        }
+
+        $newTableNumber = $request->input('table_number');
+
+        // البحث عن الطاولة المستهدفة مع التحقق من الفرع
+        $toTable = DiningTable::whereRaw('LOWER(table_number) = LOWER(?)', [$newTableNumber])
+            ->where('branch_id', $order->branch_id)
+            ->first();
+
+        if (! $toTable) {
+            \Log::warning('[ORDER TRANSFER] Target table not found', [
+                'table_number' => $newTableNumber,
+                'branch_id' => $order->branch_id
+            ]);
+            return $this->error('الطاولة المستهدفة غير موجودة في هذا الفرع.', 404);
+        }
+
+        if ($toTable->status !== 'AVAILABLE') {
+            \Log::warning('[ORDER TRANSFER] Target table not available', [
+                'table_id' => $toTable->id,
+                'status' => $toTable->status
+            ]);
+            return $this->error('لا يمكن النقل لهذه الطاولة - ليست متاحة.', 422);
+        }
+
+        // منع النقل لنفس الطاولة
+        if ($order->dining_table_id && $order->dining_table_id == $toTable->id) {
+            \Log::warning('[ORDER TRANSFER] Same table transfer attempt', [
+                'order_id' => $order->id,
+                'table_id' => $toTable->id
+            ]);
+            return $this->error('لا يمكن النقل لنفس الطاولة.', 422);
+        }
+
+        try {
+            DB::transaction(function () use ($order, $toTable) {
+                // تحديد الطاولة القديمة - طريقة مباشرة وآمنة
+                $oldTable = null;
+                if ($order->dining_table_id) {
+                    $oldTable = DiningTable::find($order->dining_table_id);
+                }
+
+                // حفظ بيانات الطاولة القديمة قبل التحرير
+                $oldTableNumber = $oldTable?->table_number;
+                $customerCount = $oldTable?->customer_count
+                    ?? $order->customer_count
+                    ?? 0;
+                $seatedAt = $oldTable?->seated_at
+                    ?? now();
+
+                \Log::info('[ORDER TRANSFER] Starting transfer', [
+                    'order_id' => $order->id,
+                    'old_table_id' => $oldTable?->id,
+                    'old_table_number' => $oldTableNumber,
+                    'old_table_status' => $oldTable?->status,
+                    'old_table_customer_count' => $customerCount,
+                    'old_table_seated_at' => $seatedAt?->toIso8601String(),
+                    'new_table_id' => $toTable->id,
+                    'new_table_number' => $toTable->table_number,
+                ]);
+
+                // تحرير الطاولة القديمة تماماً - جعلها فارغة
+                if ($oldTable) {
+                    $oldTable->update([
+                        'status' => 'AVAILABLE',
+                        'current_order_id' => null,
+                        'seated_at' => null,
+                        'customer_count' => 0,
+                    ]);
+
+                    \Log::info('[ORDER TRANSFER] Old table cleared', [
+                        'table_id' => $oldTable->id,
+                        'table_number' => $oldTable->table_number,
+                    ]);
+                }
+
+                // تحديث الطلب بالطاولة الجديدة وبياناتها
+                $order->update([
+                    'dining_table_id' => $toTable->id,
+                    'table_number' => $toTable->table_number,
+                    'customer_count' => $customerCount,
+                    'seated_at' => $seatedAt,
+                ]);
+
+                // تحديث الطاولة الجديدة بكل بيانات الطاولة القديمة
+                $toTable->update([
+                    'status' => 'OCCUPIED',
+                    'current_order_id' => $order->id,
+                    'seated_at' => $seatedAt,
+                    'customer_count' => $customerCount,
+                    'last_order_at' => now(),
+                ]);
+
+                \Log::info('[ORDER TRANSFER] Transfer completed successfully', [
+                    'order_id' => $order->id,
+                    'from_table_id' => $oldTable?->id,
+                    'from_table_number' => $oldTableNumber,
+                    'to_table_id' => $toTable->id,
+                    'to_table_number' => $toTable->table_number,
+                    'transferred_customer_count' => $customerCount,
+                    'transferred_seated_at' => $seatedAt?->toIso8601String(),
+                ]);
+            });
+
+            return $this->success(
+                'تم نقل الطلب بنجاح',
+                new OrderResource($order->fresh()->load(['items.department', 'diningTable']))
+            );
+        } catch (\Throwable $e) {
+            \Log::error('[ORDER TRANSFER] Failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return $this->error('فشل نقل الطلب: ' . $e->getMessage(), 500);
+        }
+    }
+
     public function journalEntry(Order $order): JsonResponse
     {
         $transaction = Transaction::with(['entries.account', 'entries.costCenter', 'branch', 'user'])
