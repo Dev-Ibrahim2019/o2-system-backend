@@ -1,0 +1,19 @@
+<?php
+namespace App\Http\Controllers\Api;
+use App\Http\Controllers\ApiController;
+use App\Models\{CallTicket,Customer,Order};
+use App\Services\CallCenter\{CallTicketService,CustomerWorkspaceBuilder};
+use Illuminate\Http\{JsonResponse,Request};
+class CallTicketController extends ApiController
+{
+    public function __construct(private readonly CallTicketService $tickets,private readonly CustomerWorkspaceBuilder $workspace){}
+    public function index(Request $request):JsonResponse{$q=CallTicket::with('customer:id,name,phone,mobile')->whereIn('status',['ringing','open','in_progress'])->when(!$request->user()->hasRole('super-admin'),fn($x)=>$x->where('branch_id',$request->user()->branch_id))->latest('started_at');return $this->success('Open call tickets',$q->limit(50)->get());}
+    public function manual(Request $request):JsonResponse{$data=$request->validate(['phone'=>['required','string','max:40'],'branch_id'=>['nullable','integer','exists:branches,id']]);$data['branch_id']=$request->user()->hasRole('super-admin')?($data['branch_id']??$request->user()->branch_id):$request->user()->branch_id;$data['agent_id']=$request->user()->id;return $this->success('Call ticket opened',$this->tickets->openManualTicket($data));}
+    public function webhook(Request $request):JsonResponse{$secret=(string)config('call_center.webhook_secret');abort_if($secret===''||!hash_equals(hash_hmac('sha256',$request->getContent(),$secret),(string)$request->header('X-Call-Signature')),401);$data=$request->validate(['external_call_id'=>['required','string','max:255'],'phone'=>['required','string','max:40'],'branch_id'=>['required','integer','exists:branches,id'],'started_at'=>['nullable','date']]);$ticket=$this->tickets->receiveIncomingCall($data+['source'=>'webhook']);return response()->json(['success'=>true,'data'=>['ticket_id'=>$ticket->id,'status'=>$ticket->status]],202);}
+    public function accept(Request $request,CallTicket $ticket):JsonResponse{return $this->success('Ticket accepted',$this->tickets->acceptTicket($ticket,$request->user()));}
+    public function linkCustomer(Request $request,CallTicket $ticket):JsonResponse{$data=$request->validate(['customer_id'=>['required','integer','exists:customers,id']]);return $this->success('Customer linked',$this->tickets->linkCustomer($ticket,Customer::findOrFail($data['customer_id']),$request->user()));}
+    public function linkOrder(Request $request,CallTicket $ticket):JsonResponse{$data=$request->validate(['order_id'=>['required','integer','exists:orders,id']]);return $this->success('Order linked',$this->tickets->linkOrder($ticket,Order::findOrFail($data['order_id']),$request->user()));}
+    public function complete(Request $request,CallTicket $ticket):JsonResponse{$data=$request->validate(['disposition'=>['required','string','max:100'],'notes'=>['nullable','string','max:4000']]);return $this->success('Ticket completed',$this->tickets->completeTicket($ticket,$request->user(),$data['disposition'],$data['notes']??null));}
+    public function note(Request $request,CallTicket $ticket):JsonResponse{$data=$request->validate(['note'=>['required','string','max:4000']]);return $this->success('Note added',$this->tickets->addTicketNote($ticket,$request->user(),$data['note']));}
+    public function workspace(Request $request,CallTicket $ticket):JsonResponse{abort_unless($request->user()->hasRole('super-admin')||(int)$request->user()->branch_id===(int)$ticket->branch_id,403);return $this->success('Ticket workspace',$this->workspace->build($ticket,$request->user()->can('view-sensitive-customer-finance')));}
+}

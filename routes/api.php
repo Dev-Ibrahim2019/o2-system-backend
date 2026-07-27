@@ -21,6 +21,8 @@ use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductionTicketController;
 use App\Http\Controllers\Api\ShiftController;
 use App\Http\Controllers\Api\TableController;
+use App\Http\Controllers\Api\CallCenterController;
+use App\Http\Controllers\Api\CallTicketController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -356,6 +358,14 @@ Route::middleware('auth:sanctum')->prefix('admin/hospitality-devices')->group(fu
 Route::post('hospitality/activate', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'activate']);
 Route::middleware('auth:sanctum')->post('hospitality/check-status', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'checkStatus']);
 
+// ── Call Center Registers (Admin) ──
+Route::middleware('auth:sanctum')->prefix('admin/call-center-registers')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\CallCenterRegisterController::class, 'index']);
+    Route::post('/', [\App\Http\Controllers\Admin\CallCenterRegisterController::class, 'store']);
+    Route::post('{id}/generate-token', [\App\Http\Controllers\Admin\CallCenterRegisterController::class, 'generateActivationToken']);
+    Route::post('{id}/revoke', [\App\Http\Controllers\Admin\CallCenterRegisterController::class, 'revokeDevice']);
+});
+
 // â”€â”€ Dining Zones (Admin) â”€â”€
 Route::middleware('auth:sanctum')->prefix('admin/dining-zones')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\DiningZoneController::class, 'index']);
@@ -431,6 +441,60 @@ Route::middleware('auth:sanctum')->prefix('pbx')->group(function () {
     Route::get('/recordings/stats', [\App\Http\Controllers\Api\PbxRecordingController::class, 'stats']);
     Route::get('/recordings/play', [\App\Http\Controllers\Api\PbxRecordingController::class, 'play']);
     Route::get('/recordings/download', [\App\Http\Controllers\Api\PbxRecordingController::class, 'download']);
+});
+
+// ── Call Center ──
+Route::post('call-center/activate', [CallCenterController::class, 'activate']);
+Route::middleware('auth:sanctum')->post('call-center/check-status', [CallCenterController::class, 'checkStatus']);
+
+Route::middleware(['auth:sanctum', 'permission:access-call-center|manage-call-center'])->prefix('call-center')->group(function () {
+    Route::get('customers/search', [CallCenterController::class, 'searchCustomers']);
+    Route::get('customers/directory', [CallCenterController::class, 'customerDirectory']);
+    Route::post('customers', [CallCenterController::class, 'storeCustomer']);
+    Route::post('customers/quick-create', [CallCenterController::class, 'quickCreateCustomer']);
+    Route::get('customers/analytics', [CallCenterController::class, 'analytics']);
+    Route::get('customers/top', [CallCenterController::class, 'topCustomers']);
+    Route::get('customers/{customer}/profile', [CallCenterController::class, 'customerProfile']);
+    Route::patch('customers/{customer}/classification', [CallCenterController::class, 'updateCustomerClassification']);
+    Route::get('customers/{customer}/full-profile', [CallCenterController::class, 'customerFullProfile']);
+    Route::get('customers/{customer}/orders', [CallCenterController::class, 'customerOrders']);
+    Route::get('customers/{customer}/favorites', [CallCenterController::class, 'customerFavorites']);
+    Route::get('customers/{customer}/addresses', [CallCenterController::class, 'customerAddresses']);
+    Route::post('customers/{customer}/addresses', [CallCenterController::class, 'storeAddress']);
+    Route::patch('customer-addresses/{address}', [CallCenterController::class, 'updateAddress']);
+    Route::post('customer-addresses/{address}/use', [CallCenterController::class, 'markAddressUsed']);
+    Route::get('customers/{customer}/complaints', [CallCenterController::class, 'customerComplaints']);
+    Route::get('customers/{customer}/alerts', [CallCenterController::class, 'customerAlerts']);
+    Route::get('customers/{customer}/occasions', [CallCenterController::class, 'customerOccasions']);
+    Route::post('customers/{customer}/occasions', [CallCenterController::class, 'storeOccasion']);
+    Route::patch('customer-occasions/{occasion}', [CallCenterController::class, 'updateOccasion']);
+    Route::delete('customer-occasions/{occasion}', [CallCenterController::class, 'deleteOccasion']);
+    Route::get('occasions', [CallCenterController::class, 'occasionsByRange']);
+    Route::get('customers/{customer}/notes', [CallCenterController::class, 'customerNotes']);
+    Route::post('customers/{customer}/notes', [CallCenterController::class, 'storeNote']);
+    Route::get('customers/{customer}/important-notes', [CallCenterController::class, 'customerImportantNotes']);
+    Route::get('orders/{order}', [CallCenterController::class, 'orderDetails']);
+    Route::get('complaints', [CallCenterController::class, 'complaintsIndex']);
+    Route::post('complaints', [CallCenterController::class, 'storeComplaint']);
+    Route::get('complaints/{complaint}', [CallCenterController::class, 'showComplaint']);
+    Route::patch('complaints/{complaint}', [CallCenterController::class, 'updateComplaint']);
+    Route::post('complaints/{complaint}/followups', [CallCenterController::class, 'addFollowup']);
+    Route::get('complaints/{complaint}/timeline', [CallCenterController::class, 'complaintTimeline']);
+});
+
+// ── Call Tickets (inbound webhook + manual) ──
+Route::post('call-center/webhook/incoming', [CallTicketController::class, 'webhook']);
+Route::middleware(['auth:sanctum', 'permission:access-call-center|manage-call-center'])->prefix('call-center')->group(function () {
+    Route::get('tickets', [CallTicketController::class, 'index']);
+    Route::post('tickets/manual', [CallTicketController::class, 'manual']);
+    Route::post('tickets/{ticket}/accept', [CallTicketController::class, 'accept']);
+    Route::post('tickets/{ticket}/customer', [CallTicketController::class, 'linkCustomer']);
+    Route::post('tickets/{ticket}/order', [CallTicketController::class, 'linkOrder']);
+    Route::post('tickets/{ticket}/notes', [CallTicketController::class, 'note']);
+    Route::post('tickets/{ticket}/complete', [CallTicketController::class, 'complete']);
+    Route::get('tickets/{ticket}/workspace', [CallTicketController::class, 'workspace']);
+});
+
 // ── Unified Tables API (POS, Hospitality, Accountant, Manager) ──
 Route::middleware('auth:sanctum')->prefix('tables')->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\TableOperationsController::class, 'index']);
@@ -443,4 +507,3 @@ Route::middleware('auth:sanctum')->prefix('tables')->group(function () {
 });
 
 Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);
-});
