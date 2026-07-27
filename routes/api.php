@@ -304,6 +304,8 @@ Route::prefix("suppliers")->group(function () {
 Route::prefix("customers")->group(function () {
     Route::get("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "index"]);
     Route::post("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "store"]);
+    Route::get("/aging-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "agingReport"]);
+    Route::get("/collection-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "collectionReport"]);
     Route::get("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "show"]);
     Route::put("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "update"]);
     Route::delete("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "destroy"]);
@@ -317,8 +319,6 @@ Route::prefix("customers")->group(function () {
     Route::get("/{customer}/statement/pdf", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statementPdf"]);
     Route::get("/{customer}/aging", [\App\Http\Controllers\Api\CustomerFinancialController::class, "aging"]);
     Route::get("/{customer}/analytics", [\App\Http\Controllers\Api\CustomerFinancialController::class, "analytics"]);
-    Route::get("/aging-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "agingReport"]);
-    Route::get("/collection-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "collectionReport"]);
 });
 
 Route::post('pos/activate', [\App\Http\Controllers\Admin\PosRegisterController::class, 'activate']);

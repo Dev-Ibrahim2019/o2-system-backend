@@ -85,6 +85,14 @@ class CustomerFinancialController extends ApiController
      */
     public function store(Request $request): JsonResponse
     {
+        if ($request->filled('category') && $request->input('category') === 'regular') {
+            $request->merge(['category' => 'retail']);
+        }
+
+        if ($request->filled('payment_terms') && $request->input('payment_terms') === 'due_on_receipt') {
+            $request->merge(['payment_terms' => 'immediate']);
+        }
+
         $data = $request->validate([
             'name'           => ['required', 'string', 'max:255'],
             'name_en'        => ['nullable', 'string', 'max:255'],
@@ -174,6 +182,14 @@ class CustomerFinancialController extends ApiController
      */
     public function update(Request $request, Customer $customer): JsonResponse
     {
+        if ($request->filled('category') && $request->input('category') === 'regular') {
+            $request->merge(['category' => 'retail']);
+        }
+
+        if ($request->filled('payment_terms') && $request->input('payment_terms') === 'due_on_receipt') {
+            $request->merge(['payment_terms' => 'immediate']);
+        }
+
         $data = $request->validate([
             'name'           => ['required', 'string', 'max:255'],
             'name_en'        => ['nullable', 'string', 'max:255'],
