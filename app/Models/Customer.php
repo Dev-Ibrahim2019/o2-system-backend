@@ -6,12 +6,16 @@ use App\Services\Accounting\SubledgerService;
 use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\App;
 
 class Customer extends Model
 {
     use SoftDeletes, Auditable;
+
+    private ?float $balanceCache = null;
 
     protected $fillable = [
         'name',
@@ -57,14 +61,73 @@ class Customer extends Model
         return $this->belongsTo(Employee::class, 'salesperson_id');
     }
 
+    public function phones(): HasMany
+    {
+        return $this->hasMany(CustomerPhone::class);
+    }
+
+    public function primaryPhone(): HasOne
+    {
+        return $this->hasOne(CustomerPhone::class)->where('is_primary', true);
+    }
+
+    public function addresses(): HasMany
+    {
+        return $this->hasMany(CustomerAddress::class);
+    }
+
+    public function address(): HasOne
+    {
+        return $this->hasOne(CustomerAddress::class)
+            ->where('is_active', true)
+            ->orderByDesc('is_default')
+            ->orderByDesc('last_used_at');
+    }
+
+    public function notes(): HasMany
+    {
+        return $this->hasMany(CustomerNote::class);
+    }
+
+    public function occasions(): HasMany
+    {
+        return $this->hasMany(CustomerOccasion::class);
+    }
+
+    public function complaints(): HasMany
+    {
+        return $this->hasMany(CustomerComplaint::class);
+    }
+
+    public function orders(): HasMany
+    {
+        return $this->hasMany(Order::class);
+    }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
     /**
      * Current balance from accounting entries via subledger
      * Uses AR Control Account (1120) via subledger_type='customer'
      */
     public function getBalanceAttribute(): float
     {
+        if ($this->balanceCache !== null) {
+            return $this->balanceCache;
+        }
+
         return App::make(SubledgerService::class)
             ->getCustomerBalance($this->id);
+    }
+
+    public function setBalanceCache(float $balance): self
+    {
+        $this->balanceCache = $balance;
+
+        return $this;
     }
 
     /**

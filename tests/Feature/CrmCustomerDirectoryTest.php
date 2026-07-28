@@ -21,8 +21,8 @@ class CrmCustomerDirectoryTest extends TestCase
     public function test_directory_filters_category_loyalty_and_branch(): void
     {
         $branch=Branch::factory()->create(); $other=Branch::factory()->create(); $user=$this->user($branch);
-        Customer::create(['name'=>'VIP Match','phone'=>'599000001','category'=>'vip','status'=>'active','loyalty_points'=>500,'branch_id'=>$branch->id]);
-        Customer::create(['name'=>'Wrong Branch','phone'=>'599000002','category'=>'vip','status'=>'active','loyalty_points'=>500,'branch_id'=>$other->id]);
+        Customer::create(['code'=>'CRM-1','name'=>'VIP Match','phone'=>'599000001','category'=>'vip','status'=>'active','branch_id'=>$branch->id])->forceFill(['loyalty_points'=>500])->save();
+        Customer::create(['code'=>'CRM-2','name'=>'Wrong Branch','phone'=>'599000002','category'=>'vip','status'=>'active','branch_id'=>$other->id])->forceFill(['loyalty_points'=>500])->save();
         $response=$this->actingAs($user)->getJson('/api/call-center/customers/directory?category=vip&loyalty_min=400');
         $response->assertOk()->assertJsonCount(1,'data.data')->assertJsonPath('data.data.0.name','VIP Match');
     }

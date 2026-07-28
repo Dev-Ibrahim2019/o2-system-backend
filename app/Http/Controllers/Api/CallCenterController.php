@@ -7,6 +7,7 @@ use App\Models\CallCenterRegister;
 use App\Models\Customer;
 use App\Models\CustomerComplaint;
 use App\Services\CallCenter\CallCenterService;
+use App\Services\Support\PhoneNormalizer;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +18,7 @@ class CallCenterController extends ApiController
 {
     public function __construct(
         private readonly CallCenterService $callCenterService,
+        private readonly PhoneNormalizer $phoneNormalizer,
     ) {}
 
     /**
@@ -24,13 +26,10 @@ class CallCenterController extends ApiController
      */
     public function storeCustomer(Request $request): JsonResponse
     {
-        $normalize = static function (?string $phone): ?string {
-            if (! $phone) return null;
-            $digits = preg_replace('/\D+/', '', $phone);
-            if (str_starts_with($digits, '00970')) $digits = substr($digits, 5);
-            elseif (str_starts_with($digits, '970')) $digits = substr($digits, 3);
-            if (str_starts_with($digits, '0')) $digits = substr($digits, 1);
-            return $digits;
+        $normalize = function (?string $phone): ?string {
+            return $phone
+                ? $this->phoneNormalizer->legacyValue($this->phoneNormalizer->normalize($phone))
+                : null;
         };
         $request->merge(['phone'=>$normalize($request->input('phone')),'mobile'=>$normalize($request->input('mobile'))]);
         $data = $request->validate([
@@ -515,9 +514,12 @@ class CallCenterController extends ApiController
     /**
      * GET /api/call-center/customers/{customer}/notes
      */
-    public function customerNotes(Customer $customer): JsonResponse
+    public function customerNotes(Request $request, Customer $customer): JsonResponse
     {
-        $notes = $this->callCenterService->getCustomerNotes($customer->id);
+        $notes = $this->callCenterService->getCustomerNotes(
+            $customer->id,
+            $request->user()?->can('crm.view-sensitive-notes') ?? false,
+        );
 
         return $this->success('â”کأ â”کآ„â•ھط¯â•ھطµâ•ھâ••â•ھط¯â•ھط² â•ھط¯â”کآ„â•ھâ•£â”کأ â”کأ¨â”کآ„', $notes);
     }
@@ -543,9 +545,12 @@ class CallCenterController extends ApiController
     /**
      * GET /api/call-center/customers/{customer}/important-notes
      */
-    public function customerImportantNotes(Customer $customer): JsonResponse
+    public function customerImportantNotes(Request $request, Customer $customer): JsonResponse
     {
-        $notes = $this->callCenterService->getImportantNotes($customer->id);
+        $notes = $this->callCenterService->getImportantNotes(
+            $customer->id,
+            $request->user()?->can('crm.view-sensitive-notes') ?? false,
+        );
 
         return $this->success('â•ھط¯â”کآ„â”کأ â”کآ„â•ھط¯â•ھطµâ•ھâ••â•ھط¯â•ھط² â•ھط¯â”کآ„â”کأ â”کأ§â”کأ â•ھط±', $notes);
     }

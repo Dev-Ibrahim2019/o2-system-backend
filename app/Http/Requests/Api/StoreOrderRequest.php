@@ -30,7 +30,11 @@ class StoreOrderRequest extends FormRequest
             'note' => 'nullable|string',
             'discount_value' => 'nullable|numeric|min:0',
             'discount_type' => 'nullable|in:amount,percent',
-            'customer_id' => 'nullable|integer',
+            'customer_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('customers', 'id')->whereNull('deleted_at'),
+            ],
             'employee_id' => 'nullable|integer',
             'supplier_id' => 'nullable|integer',
 

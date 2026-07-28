@@ -303,24 +303,42 @@ Route::prefix("suppliers")->group(function () {
 });
 
 // â”€â”€ Customers â”€â”€
-Route::prefix("customers")->group(function () {
-    Route::get("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "index"]);
-    Route::post("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "store"]);
-    Route::get("/aging-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "agingReport"]);
-    Route::get("/collection-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "collectionReport"]);
-    Route::get("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "show"]);
-    Route::put("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "update"]);
-    Route::delete("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "destroy"]);
-    Route::post("/{customer}/invoice", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordInvoice"]);
-    Route::post("/{customer}/receipt", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordReceipt"]);
-    Route::post("/{customer}/payment", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordReceipt"]);
-    Route::post("/{customer}/credit-note", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordCreditNote"]);
-    Route::post("/{customer}/debit-note", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordDebitNote"]);
-    Route::get("/{customer}/statement", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statement"]);
-    Route::get("/{customer}/statement/export", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statementExport"]);
-    Route::get("/{customer}/statement/pdf", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statementPdf"]);
-    Route::get("/{customer}/aging", [\App\Http\Controllers\Api\CustomerFinancialController::class, "aging"]);
-    Route::get("/{customer}/analytics", [\App\Http\Controllers\Api\CustomerFinancialController::class, "analytics"]);
+Route::middleware('auth:sanctum')->prefix("customers")->group(function () {
+    Route::get("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "index"])->middleware('permission:crm.view-customers');
+    Route::post("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "store"])->middleware('permission:crm.create-customers');
+    Route::get("/aging-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "agingReport"])->middleware('permission:crm.view-customer-financial');
+    Route::get("/collection-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "collectionReport"])->middleware('permission:crm.view-customer-financial');
+    Route::get("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "show"])->middleware('permission:crm.view-customers');
+    Route::put("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "update"])->middleware('permission:crm.edit-customers');
+    Route::delete("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "destroy"])->middleware('permission:crm.delete-customers');
+    Route::post("/{customer}/invoice", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordInvoice"])->middleware('permission:crm.view-customer-financial');
+    Route::post("/{customer}/receipt", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordReceipt"])->middleware('permission:crm.view-customer-financial');
+    Route::post("/{customer}/payment", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordReceipt"])->middleware('permission:crm.view-customer-financial');
+    Route::post("/{customer}/credit-note", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordCreditNote"])->middleware('permission:crm.manage-customer-credit');
+    Route::post("/{customer}/debit-note", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordDebitNote"])->middleware('permission:crm.manage-customer-credit');
+    Route::get("/{customer}/statement", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statement"])->middleware('permission:crm.view-customer-statement');
+    Route::get("/{customer}/statement/export", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statementExport"])->middleware('permission:crm.export-customer-statement');
+    Route::get("/{customer}/statement/pdf", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statementPdf"])->middleware('permission:crm.export-customer-statement');
+    Route::get("/{customer}/aging", [\App\Http\Controllers\Api\CustomerFinancialController::class, "aging"])->middleware('permission:crm.view-customer-financial');
+    Route::get("/{customer}/analytics", [\App\Http\Controllers\Api\CustomerFinancialController::class, "analytics"])->middleware('permission:crm.view-customer-financial');
+});
+
+// CRM Admin read API. Legacy customer and call-center contracts remain unchanged.
+Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->group(function () {
+    $crm = \App\Http\Controllers\Api\Crm\CrmController::class;
+
+    Route::get('dashboard', [$crm, 'dashboard'])->middleware('permission:crm.dashboard.view');
+    Route::get('customers', [$crm, 'index'])->middleware('permission:crm.view-customers');
+    Route::get('customers/{customer}', [$crm, 'show'])->middleware('permission:crm.view-customers');
+    Route::get('customers/{customer}/overview', [$crm, 'overview'])->middleware('permission:crm.view-customers');
+    Route::get('customers/{customer}/orders', [$crm, 'orders'])->middleware('permission:crm.customer-orders.view');
+    Route::get('customers/{customer}/addresses', [$crm, 'addresses'])->middleware('permission:crm.customer-addresses.view');
+    Route::get('customers/{customer}/complaints', [$crm, 'complaints'])->middleware('permission:crm.complaints.view');
+    Route::get('customers/{customer}/notes', [$crm, 'notes'])->middleware('permission:crm.notes.view');
+    Route::get('customers/{customer}/occasions', [$crm, 'occasions'])->middleware('permission:crm.occasions.view');
+    Route::get('customers/{customer}/financial-summary', [$crm, 'financial'])->middleware('permission:crm.view-customer-financial');
+    Route::get('customers/{customer}/statement', [$crm, 'statement'])->middleware('permission:crm.view-customer-statement');
+    Route::get('customers/{customer}/aging', [$crm, 'aging'])->middleware('permission:crm.view-customer-financial');
 });
 
 Route::post('pos/activate', [\App\Http\Controllers\Admin\PosRegisterController::class, 'activate']);

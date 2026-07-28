@@ -9,6 +9,9 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
         if (!Schema::hasTable('orders')) return;
 
         // حذف القيد القديم وإعادة إنشائه مع pending_confirmation
@@ -22,6 +25,9 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
         if (!Schema::hasTable('orders')) return;
 
         try {

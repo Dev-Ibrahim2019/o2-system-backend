@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\ApiController;
+use App\Http\Requests\Api\StoreCustomerRequest;
+use App\Http\Requests\Api\UpdateCustomerRequest;
 use App\Models\Account;
 use App\Models\Customer;
 use App\Models\Entry;
 use App\Services\Accounting\CustomerAccountingService;
 use App\Services\Accounting\SubledgerService;
 use App\Services\Accounting\StatementExportService;
+use App\Services\CustomerIdentityService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,6 +23,7 @@ class CustomerFinancialController extends ApiController
         private readonly CustomerAccountingService $customerService,
         private readonly SubledgerService $subledgerService,
         private readonly StatementExportService $exportService,
+        private readonly CustomerIdentityService $customerIdentity,
     ) {}
 
     // ──────────────────────────────────────────────────────────
@@ -61,15 +65,31 @@ class CustomerFinancialController extends ApiController
         }
 
         // Sorting
-        $sortField = $request->input('sort_by', 'name');
-        $sortDir   = $request->input('sort_dir', 'asc');
+        $sortField = in_array($request->input('sort_by'), ['name', 'code', 'created_at', 'status', 'risk_level'], true)
+            ? $request->input('sort_by')
+            : 'name';
+        $sortDir = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
         $query->orderBy($sortField, $sortDir);
 
-        $perPage = $request->input('per_page', 20);
+        $perPage = min(100, max(1, (int) $request->input('per_page', 20)));
         $customers = $query->paginate($perPage);
 
-        // Add balance for each customer
-        $customers->getCollection()->transform(function ($customer) {
+        $customerIds = $customers->getCollection()->pluck('id');
+        $receivableAccountId = Account::where('code', '1120')->value('id');
+        $balances = $receivableAccountId
+            ? Entry::query()
+                ->join('transactions', 'transactions.id', '=', 'entries.transaction_id')
+                ->where('entries.account_id', $receivableAccountId)
+                ->where('entries.subledger_type', 'customer')
+                ->whereIn('entries.subledger_id', $customerIds)
+                ->where('transactions.status', 'posted')
+                ->groupBy('entries.subledger_id')
+                ->selectRaw('entries.subledger_id, COALESCE(SUM(entries.debit - entries.credit), 0) as balance')
+                ->pluck('balance', 'entries.subledger_id')
+            : collect();
+
+        $customers->getCollection()->transform(function ($customer) use ($balances) {
+            $customer->setBalanceCache((float) ($balances[$customer->id] ?? 0));
             $customer->balance = $customer->balance;
             $customer->available_credit = $customer->available_credit;
             $customer->is_over_limit = $customer->is_over_limit;
@@ -83,7 +103,7 @@ class CustomerFinancialController extends ApiController
     /**
      * POST /api/customers
      */
-    public function store(Request $request): JsonResponse
+    public function store(StoreCustomerRequest $request): JsonResponse
     {
         if ($request->filled('category') && $request->input('category') === 'regular') {
             $request->merge(['category' => 'retail']);
@@ -131,7 +151,7 @@ class CustomerFinancialController extends ApiController
         $data['payment_terms'] ??= 'net30';
         $data['credit_days'] ??= 30;
 
-        $customer = Customer::create($data);
+        $customer = $this->customerIdentity->create($data);
 
         // Post opening balance if set
         if (($data['opening_balance'] ?? 0) > 0) {
@@ -180,7 +200,7 @@ class CustomerFinancialController extends ApiController
     /**
      * PUT /api/customers/{customer}
      */
-    public function update(Request $request, Customer $customer): JsonResponse
+    public function update(UpdateCustomerRequest $request, Customer $customer): JsonResponse
     {
         if ($request->filled('category') && $request->input('category') === 'regular') {
             $request->merge(['category' => 'retail']);
@@ -215,7 +235,7 @@ class CustomerFinancialController extends ApiController
             'salesperson_id' => ['nullable', 'integer', 'exists:employees,id'],
         ]);
 
-        $customer->update($data);
+        $this->customerIdentity->update($customer, $data);
         $customer->load('branch:id,name');
         $customer->balance = $customer->balance;
 

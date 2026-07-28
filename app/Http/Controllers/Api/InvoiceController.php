@@ -51,6 +51,11 @@ class InvoiceController extends ApiController
         }
 
         $data = $request->validated();
+        if ($order->customer_id && isset($data['customer_id'])
+            && (int) $data['customer_id'] !== (int) $order->customer_id) {
+            return $this->error('Invoice customer must match the customer attached to the order.', 422);
+        }
+        $data['customer_id'] = $order->customer_id ?? ($data['customer_id'] ?? null);
 
         // ── جلب معلومات نقطة البيع من الهيدر ──
         $deviceUuid = $request->header('X-Device-UUID');

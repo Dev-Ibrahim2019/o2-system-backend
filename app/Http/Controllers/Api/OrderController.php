@@ -10,6 +10,7 @@ use App\Http\Resources\AccountingResources\TransactionResource;
 use App\Http\Resources\OrderItemResource;
 use App\Http\Resources\OrderResource;
 use App\Models\DiningTable;
+use App\Models\Customer;
 use App\Models\Item;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -45,6 +46,7 @@ class OrderController extends ApiController
         DB::beginTransaction();
         try {
             $authUser = auth()->user();
+            $customer = isset($data['customer_id']) ? Customer::find($data['customer_id']) : null;
 
             $branchId = $authUser->branch_id ?? $data['branch_id'] ?? \App\Models\Branch::value('id');
 
@@ -56,8 +58,8 @@ class OrderController extends ApiController
                 'order_type' => $data['order_type'],
                 'status' => 'pending',
                 'table_number' => $data['table_number'] ?? null,
-                'customer_name' => $data['customer_name'] ?? null,
-                'customer_phone' => $data['customer_phone'] ?? null,
+                'customer_name' => $customer?->name ?? ($data['customer_name'] ?? null),
+                'customer_phone' => $customer?->phone ?? $customer?->mobile ?? ($data['customer_phone'] ?? null),
                 'customer_id' => $data['customer_id'] ?? null,
                 'employee_id' => $data['employee_id'] ?? null,
                 'supplier_id' => $data['supplier_id'] ?? null,

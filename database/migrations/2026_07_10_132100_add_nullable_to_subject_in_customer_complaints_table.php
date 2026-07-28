@@ -12,11 +12,25 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            Schema::table('customer_complaints', function (Blueprint $table) {
+                $table->string('title')->nullable()->change();
+            });
+            return;
+        }
+
         DB::statement('ALTER TABLE customer_complaints MODIFY title VARCHAR(255) NULL');
     }
 
     public function down(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            Schema::table('customer_complaints', function (Blueprint $table) {
+                $table->string('title')->nullable(false)->change();
+            });
+            return;
+        }
+
         DB::statement('ALTER TABLE customer_complaints MODIFY title VARCHAR(255) NOT NULL');
     }
 };

@@ -14,8 +14,8 @@ return new class extends Migration {
         Schema::create('customer_complaints', function (Blueprint $table) {
             $table->id();
             $table->foreignId('customer_id')->constrained('customers')->cascadeOnDelete();
-            $table->foreignId('order_id')->nullable()->constrained('orders')->nullOnDelete();
-            $table->foreignId('invoice_id')->nullable()->constrained('invoices')->nullOnDelete();
+            $table->unsignedBigInteger('order_id')->nullable();
+            $table->unsignedBigInteger('invoice_id')->nullable();
             $table->foreignId('assigned_to')->nullable()->constrained('employees')->nullOnDelete();
             $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
 
@@ -45,6 +45,12 @@ return new class extends Migration {
             $table->index('priority');
             $table->index(['customer_id', 'status']);
         });
+
+        if (Schema::hasTable('orders')) {
+            Schema::table('customer_complaints', function (Blueprint $table) {
+                $table->foreign('order_id')->references('id')->on('orders')->nullOnDelete();
+            });
+        }
     }
 
     public function down(): void

@@ -27,7 +27,9 @@ return new class extends Migration
         });
 
         // CHECK constraint for status - PostgreSQL compatible (VARCHAR + CHECK)
-        DB::statement("ALTER TABLE dining_tables ADD CONSTRAINT dining_tables_status_check CHECK (status IN ('AVAILABLE', 'OCCUPIED', 'PAYMENT_PENDING', 'PAID', 'RESERVED', 'CLEANING', 'HAS_ORDER', 'PENDING_CONFIRMATION'));");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE dining_tables ADD CONSTRAINT dining_tables_status_check CHECK (status IN ('AVAILABLE', 'OCCUPIED', 'PAYMENT_PENDING', 'PAID', 'RESERVED', 'CLEANING', 'HAS_ORDER', 'PENDING_CONFIRMATION'));");
+        }
     }
 
     /**
@@ -35,7 +37,9 @@ return new class extends Migration
      */
     public function down(): void
     {
-        DB::statement("ALTER TABLE dining_tables DROP CONSTRAINT IF EXISTS dining_tables_status_check;");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE dining_tables DROP CONSTRAINT IF EXISTS dining_tables_status_check;");
+        }
         Schema::dropIfExists('dining_tables');
     }
 };

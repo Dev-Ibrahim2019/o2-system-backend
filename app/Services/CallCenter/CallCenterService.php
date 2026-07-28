@@ -11,6 +11,7 @@ use App\Models\ComplaintFollowup;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\User;
+use App\Services\CustomerIdentityService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,10 @@ use Illuminate\Support\Facades\Schema;
 
 class CallCenterService
 {
+    public function __construct(
+        private readonly CustomerIdentityService $customerIdentity,
+    ) {}
+
     /**
      * Search customers by phone, name, code, or mobile
      */
@@ -50,7 +55,7 @@ class CallCenterService
                 $code = 'C-' . strtoupper(uniqid());
             }
 
-            $customer = Customer::create([
+            $customer = $this->customerIdentity->create([
                 'name' => $data['name'],
                 'code' => $code,
                 'phone' => $data['phone'] ?? null,
@@ -697,9 +702,10 @@ class CallCenterService
     // NOTE MANAGEMENT
     // ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤
 
-    public function getCustomerNotes(int $customerId): array
+    public function getCustomerNotes(int $customerId, bool $includeSensitive = false): array
     {
         return CustomerNote::where('customer_id', $customerId)
+            ->when(! $includeSensitive, fn ($query) => $query->where('type', '!=', 'sensitive'))
             ->with('createdBy:id,name')
             ->orderByDesc('created_at')
             ->get()
@@ -714,9 +720,10 @@ class CallCenterService
         ]));
     }
 
-    public function getImportantNotes(int $customerId): array
+    public function getImportantNotes(int $customerId, bool $includeSensitive = false): array
     {
         return CustomerNote::where('customer_id', $customerId)
+            ->when(! $includeSensitive, fn ($query) => $query->where('type', '!=', 'sensitive'))
             ->where(function ($q) {
                 $q->where('show_during_order', true)
                     ->orWhere('importance', 'high')
