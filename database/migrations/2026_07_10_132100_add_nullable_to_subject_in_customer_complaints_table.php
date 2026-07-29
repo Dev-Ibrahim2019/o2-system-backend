@@ -12,11 +12,17 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement('ALTER TABLE customer_complaints MODIFY subject VARCHAR(255) NULL');
+        if (Schema::hasTable('customer_complaints')
+            && Schema::hasColumn('customer_complaints', 'subject')) {
+            DB::statement('ALTER TABLE customer_complaints MODIFY subject VARCHAR(255) NULL');
+        }
     }
 
     public function down(): void
     {
-        DB::statement('ALTER TABLE customer_complaints MODIFY subject VARCHAR(255) NOT NULL');
+        if (Schema::hasTable('customer_complaints')
+            && Schema::hasColumn('customer_complaints', 'subject')) {
+            DB::statement('ALTER TABLE customer_complaints MODIFY subject VARCHAR(255) NOT NULL');
+        }
     }
 };

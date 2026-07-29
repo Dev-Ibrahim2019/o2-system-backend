@@ -125,6 +125,7 @@ class Order extends Model
     }
 
     public function deliveryDriver(): BelongsTo { return $this->belongsTo(Employee::class, 'driver_id'); }
+    public function customerAddress(): BelongsTo { return $this->belongsTo(CustomerAddress::class); }
     public function deliveryZone(): BelongsTo { return $this->belongsTo(DeliveryZone::class); }
     public function deliveryTripStops(): HasMany { return $this->hasMany(DeliveryTripStop::class); }
     public function assembler(): BelongsTo { return $this->belongsTo(Employee::class, 'assembler_id'); }
@@ -275,5 +276,4 @@ class Order extends Model
         return $this->delivered_at ? max(0, $this->created_at->diffInSeconds($this->delivered_at, false)) : null;
     }
 }
-
 

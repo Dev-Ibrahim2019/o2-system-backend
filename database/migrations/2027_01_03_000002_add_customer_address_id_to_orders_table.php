@@ -8,27 +8,29 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (! Schema::hasTable('orders') || Schema::hasColumn('orders', 'delivery_zone_id')) {
+        if (! Schema::hasTable('orders')
+            || ! Schema::hasTable('customer_addresses')
+            || Schema::hasColumn('orders', 'customer_address_id')) {
             return;
         }
 
         Schema::table('orders', function (Blueprint $table) {
-            // delivery_zone_id: ربط بمنطقة التوصيل في dining_zones
-            $table->foreignId('delivery_zone_id')
+            $table->foreignId('customer_address_id')
                 ->nullable()
-                ->constrained('dining_zones')
+                ->constrained('customer_addresses')
                 ->nullOnDelete();
         });
     }
 
     public function down(): void
     {
-        if (! Schema::hasTable('orders') || ! Schema::hasColumn('orders', 'delivery_zone_id')) {
+        if (! Schema::hasTable('orders')
+            || ! Schema::hasColumn('orders', 'customer_address_id')) {
             return;
         }
 
         Schema::table('orders', function (Blueprint $table) {
-            $table->dropConstrainedForeignId('delivery_zone_id');
+            $table->dropConstrainedForeignId('customer_address_id');
         });
     }
 };

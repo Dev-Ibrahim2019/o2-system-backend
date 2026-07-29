@@ -13,7 +13,7 @@ return new class extends Migration
             if (! Schema::hasColumn('orders', 'assembler_id')) $table->foreignId('assembler_id')->nullable()->after('assembly_started_at')->constrained('employees')->nullOnDelete();
             if (! Schema::hasColumn('orders', 'assembled_by')) $table->foreignId('assembled_by')->nullable()->after('assembled_at')->constrained('employees')->nullOnDelete();
             if (! Schema::hasColumn('orders', 'assembly_duration_seconds')) $table->unsignedInteger('assembly_duration_seconds')->nullable()->after('assembled_by');
-            if (! Schema::hasColumn('orders', 'delivery_assigned_by')) $table->foreignId('delivery_assigned_by')->nullable()->after('driver_id')->constrained('users')->nullOnDelete();
+            if (! Schema::hasColumn('orders', 'delivery_assigned_by')) $table->foreignId('delivery_assigned_by')->nullable()->constrained('users')->nullOnDelete();
         });
 
         if (! Schema::hasTable('order_execution_events')) {

@@ -17,7 +17,7 @@ return new class extends Migration
 
         if (! Schema::hasColumn('invoices', 'approved_by')) {
             Schema::table('invoices', function (Blueprint $table) {
-                $table->unsignedBigInteger('approved_by')->nullable()->after('account_number');
+                $table->unsignedBigInteger('approved_by')->nullable();
             });
         }
 
@@ -35,7 +35,7 @@ return new class extends Migration
 
         if (! Schema::hasColumn('invoices', 'reference_number')) {
             Schema::table('invoices', function (Blueprint $table) {
-                $table->string('reference_number', 100)->nullable()->after('account_number');
+                $table->string('reference_number', 100)->nullable();
             });
         }
     }

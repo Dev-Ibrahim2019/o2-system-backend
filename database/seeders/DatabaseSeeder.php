@@ -35,6 +35,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             ChartOfAccountsSeeder::class,
             PaymentMethodSeeder::class,
+            DeliveryZoneSeeder::class,
         ]);
     }
 }
