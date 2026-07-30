@@ -31,7 +31,9 @@ class Order extends Model
         'dining_table_id',
         'branch_id',
         'cashier_id',
+        'call_center_agent_id',
         'order_type',
+        'source',
         'status',
         'table_number',
         'customer_count',
@@ -41,6 +43,12 @@ class Order extends Model
         'customer_id',
         'employee_id',
         'supplier_id',
+        'customer_address_id',
+        'delivery_zone_id',
+        'delivery_fee',
+        'delivery_address_snapshot',
+        'delivery_notes',
+        'call_notes',
         'note',
         'subtotal',
         'discount_value',
@@ -58,6 +66,8 @@ class Order extends Model
         'total' => 'decimal:3',
         'seated_at' => 'datetime',
         'customer_count' => 'integer',
+        'delivery_fee' => 'decimal:3',
+        'delivery_address_snapshot' => 'array',
     ];
 
     public function branch(): BelongsTo
@@ -94,6 +104,11 @@ class Order extends Model
     public function invoice(): HasOne
     {
         return $this->hasOne(Invoice::class);
+    }
+
+    public function feedback(): HasOne
+    {
+        return $this->hasOne(OrderFeedback::class);
     }
 
     /** القيد المحاسبي (journal entry) المرتبط بالطلب */

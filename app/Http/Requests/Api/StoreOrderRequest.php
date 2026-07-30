@@ -37,6 +37,14 @@ class StoreOrderRequest extends FormRequest
             ],
             'employee_id' => 'nullable|integer',
             'supplier_id' => 'nullable|integer',
+            'source' => 'nullable|string|max:50',
+            'call_center_agent_id' => 'nullable|integer|exists:users,id',
+            'customer_address_id' => 'nullable|integer|exists:customer_addresses,id',
+            'delivery_zone_id' => 'nullable|integer',
+            'delivery_fee' => 'nullable|numeric|min:0',
+            'delivery_address_snapshot' => 'nullable|array',
+            'delivery_notes' => 'nullable|string|max:4000',
+            'call_notes' => 'nullable|string|max:4000',
 
             // اختياري: إرسال الأصناف مع إنشاء الطلب (نفس تنسيق الواجهة القديمة)
             'items' => 'sometimes|array|min:1',
@@ -95,6 +103,14 @@ class StoreOrderRequest extends FormRequest
             'customer_id' => $this->input('customer_id') ?? $this->input('customerId'),
             'employee_id' => $this->input('employee_id') ?? $this->input('employeeId'),
             'supplier_id' => $this->input('supplier_id') ?? $this->input('supplierId'),
+            'source' => $this->input('source'),
+            'call_center_agent_id' => $this->input('call_center_agent_id'),
+            'customer_address_id' => $this->input('customer_address_id'),
+            'delivery_zone_id' => $this->input('delivery_zone_id'),
+            'delivery_fee' => $this->input('delivery_fee'),
+            'delivery_address_snapshot' => $this->input('delivery_address_snapshot'),
+            'delivery_notes' => $this->input('delivery_notes'),
+            'call_notes' => $this->input('call_notes'),
         ];
 
         if ($this->has('items')) {

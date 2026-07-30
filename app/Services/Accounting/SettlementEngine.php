@@ -47,6 +47,7 @@ class SettlementEngine
             }
 
             $invoiceTotal = (float) $invoice->total;
+            $payments = app(PaymentPlanValidator::class)->validate($invoiceTotal, $payments);
             $paymentTotal = round(collect($payments)->sum('amount'), 3);
 
             if (abs($paymentTotal - $invoiceTotal) > 0.01) {

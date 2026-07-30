@@ -21,6 +21,16 @@ class CallCenterController extends ApiController
         private readonly PhoneNormalizer $phoneNormalizer,
     ) {}
 
+    public function activeOrders(Request $request): JsonResponse
+    {
+        $data = $request->validate(['branch_id' => ['nullable', 'integer', 'exists:branches,id']]);
+
+        return $this->success(
+            'تم تحميل الطلبات النشطة',
+            $this->callCenterService->getActiveOrders($data['branch_id'] ?? null),
+        );
+    }
+
     /**
      * POST /api/call-center/customers
      */
@@ -167,6 +177,79 @@ class CallCenterController extends ApiController
     /**
      * GET /api/call-center/customers/{customer}/addresses
      */
+    public function customerOrderingInsights(Customer $customer): JsonResponse
+    {
+        $orders = $customer->orders()
+            ->where('created_at', '>=', now()->subDays(90))
+            ->whereNotIn('status', ['cancelled', 'canceled'])
+            ->get(['id', 'order_type', 'total', 'created_at']);
+
+        $mostCommonKey = static function ($groups) {
+            return $groups->sortByDesc(fn ($rows) => $rows->count())->keys()->first();
+        };
+
+        $preferredType = $mostCommonKey($orders->groupBy('order_type'));
+        $preferredDay = $mostCommonKey($orders->groupBy(fn ($order) => $order->created_at->dayOfWeek));
+        $preferredHour = $mostCommonKey($orders->groupBy(fn ($order) => $order->created_at->hour));
+
+        return $this->success('Customer ordering insights', [
+            'orders_90_days' => $orders->count(),
+            'spend_90_days' => round((float) $orders->sum('total'), 2),
+            'average_order_value' => round((float) ($orders->avg('total') ?? 0), 2),
+            'preferred_order_type' => $preferredType,
+            'preferred_day' => $preferredDay === null ? null : (int) $preferredDay,
+            'preferred_hour' => $preferredHour === null ? null : (int) $preferredHour,
+        ]);
+    }
+
+    public function deliveryQuote(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'customer_id' => 'nullable|integer|exists:customers,id',
+            'customer_address_id' => 'nullable|integer|exists:customer_addresses,id',
+            'branch_id' => 'required|integer|exists:branches,id',
+            'area' => 'nullable|string|max:100',
+            'city' => 'nullable|string|max:100',
+        ]);
+
+        $address = null;
+        if (! empty($data['customer_id']) && ! empty($data['customer_address_id'])) {
+            $customer = Customer::query()->findOrFail($data['customer_id']);
+            $address = $customer->addresses()->whereKey($data['customer_address_id'])->firstOrFail();
+        }
+        $searchValues = collect([$address?->area, $address?->district, $address?->city, $data['area'] ?? null, $data['city'] ?? null])
+            ->filter()
+            ->map(fn ($value) => mb_strtolower(trim((string) $value)));
+
+        $zone = collect(config('call-center.delivery_zones', []))->first(function ($candidate) use ($data, $searchValues) {
+            if (! is_array($candidate) || (int) ($candidate['branch_id'] ?? 0) !== (int) $data['branch_id']) {
+                return false;
+            }
+            $areas = collect($candidate['areas'] ?? [])
+                ->map(fn ($value) => mb_strtolower(trim((string) $value)));
+            return $searchValues->intersect($areas)->isNotEmpty();
+        });
+
+        if (! $zone) {
+            return response()->json([
+                'success' => false,
+                'message' => 'العنوان خارج نطاقات التوصيل المهيأة لهذا الفرع',
+            ], 422);
+        }
+
+        $validUntil = now()->addMinutes(max(1, (int) config('call-center.quote_ttl_minutes', 15)));
+        return $this->success('Delivery quote validated', [
+            'quote_id' => hash('sha256', implode('|', [
+                $data['branch_id'], $address?->id ?? 'draft', $zone['id'], $validUntil->timestamp,
+            ])),
+            'valid_until' => $validUntil->toIso8601String(),
+            'delivery_zone_id' => (int) $zone['id'],
+            'zone_name' => (string) $zone['name'],
+            'fee' => round((float) $zone['fee'], 2),
+            'eta_minutes' => (int) $zone['eta_minutes'],
+        ]);
+    }
+
     public function customerAddresses(Customer $customer): JsonResponse
     {
         $addresses = $this->callCenterService->getCustomerAddresses($customer->id);

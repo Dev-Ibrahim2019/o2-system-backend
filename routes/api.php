@@ -465,7 +465,10 @@ Route::middleware('auth:sanctum')->prefix('pbx')->group(function () {
 Route::post('call-center/activate', [CallCenterController::class, 'activate']);
 Route::middleware('auth:sanctum')->post('call-center/check-status', [CallCenterController::class, 'checkStatus']);
 
-Route::middleware(['auth:sanctum', 'permission:access-call-center|manage-call-center'])->prefix('call-center')->group(function () {
+Route::middleware(['auth:sanctum', 'role_or_permission:call-center|super-admin|accountant|branch-manager|access-call-center-interface|manage-call-center'])->prefix('call-center')->group(function () {
+    Route::get('customers/resolve-by-phone', \App\Http\Controllers\Api\CustomerResolutionController::class);
+    Route::post('orders', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'store']);
+    Route::get('active-orders', [CallCenterController::class, 'activeOrders']);
     Route::get('customers/search', [CallCenterController::class, 'searchCustomers']);
     Route::get('customers/directory', [CallCenterController::class, 'customerDirectory']);
     Route::post('customers', [CallCenterController::class, 'storeCustomer']);
@@ -477,6 +480,10 @@ Route::middleware(['auth:sanctum', 'permission:access-call-center|manage-call-ce
     Route::get('customers/{customer}/full-profile', [CallCenterController::class, 'customerFullProfile']);
     Route::get('customers/{customer}/orders', [CallCenterController::class, 'customerOrders']);
     Route::get('customers/{customer}/favorites', [CallCenterController::class, 'customerFavorites']);
+    Route::get('customers/{customer}/ordering-insights', [CallCenterController::class, 'customerOrderingInsights']);
+    Route::get('customers/{customer}/orders/{order}/feedback', [\App\Http\Controllers\Api\OrderFeedbackController::class, 'show']);
+    Route::put('customers/{customer}/orders/{order}/feedback', [\App\Http\Controllers\Api\OrderFeedbackController::class, 'store']);
+    Route::post('delivery/quote', [CallCenterController::class, 'deliveryQuote']);
     Route::get('customers/{customer}/addresses', [CallCenterController::class, 'customerAddresses']);
     Route::post('customers/{customer}/addresses', [CallCenterController::class, 'storeAddress']);
     Route::patch('customer-addresses/{address}', [CallCenterController::class, 'updateAddress']);
@@ -502,7 +509,7 @@ Route::middleware(['auth:sanctum', 'permission:access-call-center|manage-call-ce
 
 // ── Call Tickets (inbound webhook + manual) ──
 Route::post('call-center/webhook/incoming', [CallTicketController::class, 'webhook']);
-Route::middleware(['auth:sanctum', 'permission:access-call-center|manage-call-center'])->prefix('call-center')->group(function () {
+Route::middleware(['auth:sanctum', 'role_or_permission:call-center|super-admin|accountant|branch-manager|access-call-center-interface|manage-call-center'])->prefix('call-center')->group(function () {
     Route::get('tickets', [CallTicketController::class, 'index']);
     Route::post('tickets/manual', [CallTicketController::class, 'manual']);
     Route::post('tickets/{ticket}/accept', [CallTicketController::class, 'accept']);

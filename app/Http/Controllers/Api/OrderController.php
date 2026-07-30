@@ -55,7 +55,9 @@ class OrderController extends ApiController
                 'dining_table_id' => $data['dining_table_id'] ?? null,
                 'branch_id' => $branchId,
                 'cashier_id' => $data['cashier_id'] ?? null,
+                'call_center_agent_id' => $data['call_center_agent_id'] ?? null,
                 'order_type' => $data['order_type'],
+                'source' => $data['source'] ?? 'pos',
                 'status' => 'pending',
                 'table_number' => $data['table_number'] ?? null,
                 'customer_name' => $customer?->name ?? ($data['customer_name'] ?? null),
@@ -63,6 +65,12 @@ class OrderController extends ApiController
                 'customer_id' => $data['customer_id'] ?? null,
                 'employee_id' => $data['employee_id'] ?? null,
                 'supplier_id' => $data['supplier_id'] ?? null,
+                'customer_address_id' => $data['customer_address_id'] ?? null,
+                'delivery_zone_id' => $data['delivery_zone_id'] ?? null,
+                'delivery_fee' => $data['delivery_fee'] ?? 0,
+                'delivery_address_snapshot' => $data['delivery_address_snapshot'] ?? null,
+                'delivery_notes' => $data['delivery_notes'] ?? null,
+                'call_notes' => $data['call_notes'] ?? null,
                 'note' => $data['note'] ?? null,
                 'subtotal' => 0,
                 'discount_value' => $data['discount_value'] ?? 0,
@@ -278,7 +286,11 @@ class OrderController extends ApiController
      */
     public function confirm(Order $order): JsonResponse
     {
-        if (! in_array($order->status, ['pending', 'pending_confirmation'], true)) {
+        if ($order->source === 'call_center' && $order->status !== 'paid') {
+            return $this->error('لا يمكن إرسال طلب الكول سنتر للمطبخ قبل اكتمال الفاتورة والدفع.', 422);
+        }
+
+        if (! in_array($order->status, ['pending', 'pending_confirmation', 'paid'], true)) {
             return $this->error('لا يمكن تأكيد هذا الطلب في حالته الحالية.', 422);
         }
 
@@ -337,7 +349,12 @@ class OrderController extends ApiController
                 }
             }
 
-            $order->update(['status' => 'confirmed']);
+            // A call-center order may be financially closed before kitchen
+            // submission. Preserve its paid state while creating production
+            // tickets instead of reopening the financial lifecycle.
+            if ($order->status !== 'paid') {
+                $order->update(['status' => 'confirmed']);
+            }
 
             // تحديث الطاولة إلى HAS_ORDER (عليها طلب)
             if ($order->dining_table_id) {

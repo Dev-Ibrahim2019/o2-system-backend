@@ -23,6 +23,66 @@ class CallCenterService
         private readonly CustomerIdentityService $customerIdentity,
     ) {}
 
+    public function getActiveOrders(?int $branchId = null): array
+    {
+        $orders = Order::query()
+            ->where('source', 'call_center')
+            ->when($branchId, fn (Builder $query) => $query->where('branch_id', $branchId))
+            ->whereNotIn('status', ['cancelled', 'canceled', 'served'])
+            ->withCount('tickets')
+            ->with('branch:id,name')
+            ->latest()
+            ->limit(100)
+            ->get();
+
+        $rows = $orders->map(function (Order $order) {
+            $scopes = self::classifyActiveOrder(
+                $order->status,
+                $order->order_type,
+                (int) $order->tickets_count,
+            );
+
+            return [
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'status' => $order->status,
+                'order_type' => $order->order_type,
+                'customer_name' => $order->customer_name,
+                'total' => (float) $order->total,
+                'branch' => $order->branch,
+                'created_at' => $order->created_at,
+                'scopes' => $scopes,
+            ];
+        })->filter(fn (array $row) => $row['scopes'] !== [])->values();
+
+        return [
+            'operational_active' => $rows->filter(fn ($row) => in_array('operational_active', $row['scopes'], true))->values(),
+            'awaiting_payment' => $rows->filter(fn ($row) => in_array('awaiting_payment', $row['scopes'], true))->values(),
+            'kitchen_active' => $rows->filter(fn ($row) => in_array('kitchen_active', $row['scopes'], true))->values(),
+            'delivery_active' => $rows->filter(fn ($row) => in_array('delivery_active', $row['scopes'], true))->values(),
+        ];
+    }
+
+    public static function classifyActiveOrder(string $status, ?string $orderType, int $ticketCount = 0): array
+    {
+        if (in_array($status, ['cancelled', 'canceled', 'served'], true)) {
+            return [];
+        }
+
+        $scopes = ['operational_active'];
+        if (in_array($status, ['pending', 'pending_confirmation', 'pending_payment'], true)) {
+            $scopes[] = 'awaiting_payment';
+        }
+        if (in_array($status, ['confirmed', 'in_progress', 'ready'], true) || ($status === 'paid' && $ticketCount > 0)) {
+            $scopes[] = 'kitchen_active';
+        }
+        if ($orderType === 'delivery' && in_array($status, ['paid', 'confirmed', 'in_progress', 'ready'], true)) {
+            $scopes[] = 'delivery_active';
+        }
+
+        return $scopes;
+    }
+
     /**
      * Search customers by phone, name, code, or mobile
      */
@@ -213,6 +273,7 @@ class CallCenterService
             'branch:id,name',
             'cashier:id,name',
             'invoice',
+            'feedback.recorder:id,name',
         ])->findOrFail($orderId);
 
         return [
@@ -220,6 +281,10 @@ class CallCenterService
             'order_number' => $order->order_number,
             'status' => $order->status,
             'order_type' => $order->order_type,
+            'source' => $order->source,
+            'customer_id' => $order->customer_id,
+            'customer_address_id' => $order->customer_address_id,
+            'delivery_address_snapshot' => $order->delivery_address_snapshot,
             'subtotal' => (float) $order->subtotal,
             'discount_value' => (float) $order->discount_value,
             'discount_type' => $order->discount_type,
@@ -247,6 +312,7 @@ class CallCenterService
                 'number' => $order->invoice->number,
                 'status' => $order->invoice->status,
             ] : null,
+            'feedback' => $order->feedback,
         ];
     }
 
@@ -260,17 +326,26 @@ class CallCenterService
             'item_id',
             'item_name',
             'item_name_ar',
-            DB::raw('SUM(quantity) as total_quantity'),
-            DB::raw('COUNT(*) as order_count'),
+            DB::raw('SUM(quantity) as quantity_sum'),
+            DB::raw('COUNT(DISTINCT orders.id) as orders_count'),
+            DB::raw('SUM(order_items.total) as total_spent'),
             DB::raw('MAX(orders.created_at) as last_ordered_at')
         )
             ->join('orders', 'orders.id', '=', 'order_items.order_id')
             ->where('orders.customer_id', $customerId)
             ->whereNull('orders.deleted_at')
             ->groupBy('item_id', 'item_name', 'item_name_ar')
-            ->orderByDesc('order_count')
+            ->orderByDesc('orders_count')
             ->limit($limit)
             ->get()
+            ->map(static function ($row) {
+                $row->order_count = (int) $row->orders_count;
+                $row->total_quantity = (float) $row->quantity_sum;
+                $row->orders_count = (int) $row->orders_count;
+                $row->quantity_sum = (float) $row->quantity_sum;
+                $row->total_spent = (float) $row->total_spent;
+                return $row;
+            })
             ->toArray();
 
         return $favorites;
