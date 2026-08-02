@@ -29,6 +29,7 @@ class OrderController extends ApiController
             ->when($request->branch_id, fn($q) => $q->where('branch_id', $request->branch_id))
             ->when($request->status, fn($q) => $q->where('status', $request->status))
             ->when($request->date, fn($q) => $q->whereDate('created_at', $request->date))
+            ->when($request->table_number, fn($q) => $q->where('table_number', $request->table_number))
             ->orderByDesc('id')
             ->get();
 
@@ -85,7 +86,8 @@ class OrderController extends ApiController
                         (int) $row['item_id'],
                         (float) $row['quantity'],
                         isset($row['unit_price']) ? (float) $row['unit_price'] : null,
-                        $row['notes'] ?? null
+                        $row['notes'] ?? null,
+                        $row['is_takeaway'] ?? false
                     );
                 }
                 $order->recalculateTotals();
@@ -148,6 +150,22 @@ class OrderController extends ApiController
 
             // مزامنة الأصناف إذا تم إرسالها
             if ($request->has('items')) {
+                \Log::info('[OrderController::update] items data:', collect($request->items)->map(fn($r) => ['item_id' => $r['item_id'] ?? null, 'is_takeaway' => $r['is_takeaway'] ?? 'MISSING'])->toArray());
+                \Log::info('[OrderController::update] existing items:', $order->items()->get(['item_id', 'is_takeaway', 'is_printed_direct'])->toArray());
+                // تحديث is_takeaway للأصناف المطبوعة (المحفوظة مسبقاً)
+                foreach ($request->items as $row) {
+                    $existingItem = $order->items()
+                        ->where('item_id', $row['item_id'])
+                        ->where('is_printed_direct', true)
+                        ->first();
+
+                    if ($existingItem) {
+                        $existingItem->update([
+                            'is_takeaway' => $row['is_takeaway'] ?? false,
+                        ]);
+                    }
+                }
+
                 // مسح الأصناف غير المطبوعة فقط (المحفوظة بـ is_printed_direct=true لا تُحذف)
                 $order->items()
                     ->where('status', 'pending')
@@ -155,16 +173,29 @@ class OrderController extends ApiController
                     ->delete();
 
                 foreach ($request->items as $row) {
+                    // تخطي الأصناف المطبوعة (تم تحديثها أعلاه)
+                    $alreadyPrinted = $order->items()
+                        ->where('item_id', $row['item_id'])
+                        ->where('is_printed_direct', true)
+                        ->exists();
+
+                    if ($alreadyPrinted) {
+                        continue;
+                    }
+
                     $this->createOrderItem(
                         $order,
                         (int) $row['item_id'],
                         (float) $row['quantity'],
                         isset($row['unit_price']) ? (float) $row['unit_price'] : null,
-                        $row['notes'] ?? null
+                        $row['notes'] ?? null,
+                        $row['is_takeaway'] ?? false
                     );
                 }
 
                 $this->syncProductionTickets($order);
+            } elseif ($request->boolean('skip_sync')) {
+                // عند directPrintFirst لا نقوم بكتابة التذاكر هنا — ستتم بعد directPrint
             }
 
             $order->recalculateTotals();
@@ -218,7 +249,8 @@ class OrderController extends ApiController
                 (int) $data['item_id'],
                 (float) $data['quantity'],
                 isset($data['unit_price']) ? (float) $data['unit_price'] : null,
-                $data['notes'] ?? null
+                $data['notes'] ?? null,
+                $data['is_takeaway'] ?? false
             );
 
             $order->recalculateTotals();
@@ -331,17 +363,20 @@ class OrderController extends ApiController
                         'status' => 'pending',
                     ]);
 
-                    $orderItem->update(['sent_to_kitchen_at' => now()]);
+                    $orderItem->update([
+                        'sent_to_kitchen_at' => now(),
+                        'is_printed_direct' => true,
+                    ]);
                 }
             }
 
             $order->update(['status' => 'confirmed']);
 
-            // تحديث الطاولة إلى HAS_ORDER (عليها طلب)
+            // تحديث الطاولة إلى OCCUPIED (عليها طلب)
             if ($order->dining_table_id) {
                 $table = DiningTable::find($order->dining_table_id);
                 if ($table) {
-                    $table->update(['status' => 'HAS_ORDER']);
+                    $table->update(['status' => 'OCCUPIED']);
                 }
             }
 
@@ -520,7 +555,8 @@ class OrderController extends ApiController
             return $this->error('الطاولة المستهدفة غير موجودة في هذا الفرع.', 404);
         }
 
-        if ($toTable->status !== 'AVAILABLE') {
+        // السماح بالنقل للطاولة المتاحة أو المشغولة (لكن ليس نفس الطاولة)
+        if ($toTable->status !== 'AVAILABLE' && $toTable->status !== 'OCCUPIED') {
             \Log::warning('[ORDER TRANSFER] Target table not available', [
                 'table_id' => $toTable->id,
                 'status' => $toTable->status
@@ -539,47 +575,37 @@ class OrderController extends ApiController
 
         try {
             DB::transaction(function () use ($order, $toTable) {
-                // تحديد الطاولة القديمة - طريقة مباشرة وآمنة
+                // تحديد الطاولة القديمة
                 $oldTable = null;
                 if ($order->dining_table_id) {
                     $oldTable = DiningTable::find($order->dining_table_id);
                 }
 
-                // حفظ بيانات الطاولة القديمة قبل التحرير
                 $oldTableNumber = $oldTable?->table_number;
-                $customerCount = $oldTable?->customer_count
-                    ?? $order->customer_count
-                    ?? 0;
-                $seatedAt = $oldTable?->seated_at
-                    ?? now();
+                $customerCount = $oldTable?->customer_count ?? $order->customer_count ?? 0;
+                $seatedAt = $oldTable?->seated_at ?? now();
 
-                \Log::info('[ORDER TRANSFER] Starting transfer', [
-                    'order_id' => $order->id,
-                    'old_table_id' => $oldTable?->id,
-                    'old_table_number' => $oldTableNumber,
-                    'old_table_status' => $oldTable?->status,
-                    'old_table_customer_count' => $customerCount,
-                    'old_table_seated_at' => $seatedAt?->toIso8601String(),
-                    'new_table_id' => $toTable->id,
-                    'new_table_number' => $toTable->table_number,
-                ]);
-
-                // تحرير الطاولة القديمة تماماً - جعلها فارغة
+                // تحرير الطاولة القديمة فقط إذا لم يعد فيها أي طلبات نشطة
                 if ($oldTable) {
-                    $oldTable->update([
-                        'status' => 'AVAILABLE',
-                        'current_order_id' => null,
-                        'seated_at' => null,
-                        'customer_count' => 0,
-                    ]);
+                    $remainingOrders = Order::where(function ($q) use ($oldTable) {
+                            $q->where('dining_table_id', $oldTable->id)
+                              ->orWhere('table_number', $oldTable->table_number);
+                        })
+                        ->whereIn('status', ['pending', 'pending_confirmation', 'confirmed', 'in_progress', 'ready'])
+                        ->where('id', '!=', $order->id)
+                        ->count();
 
-                    \Log::info('[ORDER TRANSFER] Old table cleared', [
-                        'table_id' => $oldTable->id,
-                        'table_number' => $oldTable->table_number,
-                    ]);
+                    if ($remainingOrders === 0) {
+                        $oldTable->update([
+                            'status' => 'AVAILABLE',
+                            'current_order_id' => null,
+                            'seated_at' => null,
+                            'customer_count' => 0,
+                        ]);
+                    }
                 }
 
-                // تحديث الطلب بالطاولة الجديدة وبياناتها
+                // تحديث الطلب بالطاولة الجديدة
                 $order->update([
                     'dining_table_id' => $toTable->id,
                     'table_number' => $toTable->table_number,
@@ -587,24 +613,21 @@ class OrderController extends ApiController
                     'seated_at' => $seatedAt,
                 ]);
 
-                // تحديث الطاولة الجديدة بكل بيانات الطاولة القديمة
-                $toTable->update([
-                    'status' => 'OCCUPIED',
-                    'current_order_id' => $order->id,
-                    'seated_at' => $seatedAt,
-                    'customer_count' => $customerCount,
-                    'last_order_at' => now(),
-                ]);
-
-                \Log::info('[ORDER TRANSFER] Transfer completed successfully', [
-                    'order_id' => $order->id,
-                    'from_table_id' => $oldTable?->id,
-                    'from_table_number' => $oldTableNumber,
-                    'to_table_id' => $toTable->id,
-                    'to_table_number' => $toTable->table_number,
-                    'transferred_customer_count' => $customerCount,
-                    'transferred_seated_at' => $seatedAt?->toIso8601String(),
-                ]);
+                // تحديث الطاولة الجديدة - فقط إذا لم تكن مشغولة بالفعل
+                if ($toTable->status === 'AVAILABLE') {
+                    $toTable->update([
+                        'status' => 'OCCUPIED',
+                        'current_order_id' => $order->id,
+                        'seated_at' => $seatedAt,
+                        'customer_count' => $customerCount,
+                        'last_order_at' => now(),
+                    ]);
+                } else {
+                    // الطاولة مشغولة بالفعل - فقط نضيف order_id وأخر وقت طلب
+                    $toTable->update([
+                        'last_order_at' => now(),
+                    ]);
+                }
             });
 
             return $this->success(
@@ -688,7 +711,10 @@ class OrderController extends ApiController
                     'status' => 'pending',
                 ]);
 
-                $orderItem->update(['sent_to_kitchen_at' => now()]);
+                $orderItem->update([
+                    'sent_to_kitchen_at' => now(),
+                    'is_printed_direct' => true,
+                ]);
             }
         }
 
@@ -703,7 +729,8 @@ class OrderController extends ApiController
         int $itemId,
         float $quantity,
         ?float $unitPrice = null,
-        ?string $notes = null
+        ?string $notes = null,
+        bool $isTakeaway = false,
     ): OrderItem {
         $item = Item::with('department')->findOrFail($itemId);
 
@@ -730,6 +757,7 @@ class OrderController extends ApiController
             'total' => round($price * $quantity, 2),
             'status' => 'pending',
             'notes' => $notes,
+            'is_takeaway' => $isTakeaway,
         ]);
     }
 
@@ -813,13 +841,6 @@ class OrderController extends ApiController
      */
     public function directPrint(Request $request, Order $order): JsonResponse
     {
-        \Log::info('directPrint request data', [
-            'all' => $request->all(),
-            'cashier_device_id' => $request->input('cashier_device_id'),
-            'items' => $request->input('items'),
-            'order_id' => $order->id,
-        ]);
-
         try {
             $request->validate([
                 'cashier_device_id' => 'required|integer',

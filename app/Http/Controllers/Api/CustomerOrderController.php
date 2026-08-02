@@ -336,17 +336,20 @@ class CustomerOrderController extends ApiController
                         'status' => 'pending',
                     ]);
 
-                    $orderItem->update(['sent_to_kitchen_at' => now()]);
+                    $orderItem->update([
+                        'sent_to_kitchen_at' => now(),
+                        'is_printed_direct' => true,
+                    ]);
                 }
             }
 
             $order->update(['status' => 'confirmed']);
 
-            // تحديث حالة الطاولة إلى HAS_ORDER
+            // تحديث حالة الطاولة إلى OCCUPIED
             if ($order->dining_table_id) {
                 $table = DiningTable::find($order->dining_table_id);
                 if ($table) {
-                    $table->update(['status' => 'HAS_ORDER']);
+                    $table->update(['status' => 'OCCUPIED']);
                 }
             }
 

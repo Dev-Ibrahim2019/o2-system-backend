@@ -40,6 +40,7 @@ class StoreOrderRequest extends FormRequest
             'items.*.quantity' => 'required_with:items|numeric|min:0.001',
             'items.*.unit_price' => 'nullable|numeric|min:0',
             'items.*.notes' => 'nullable|string',
+            'items.*.is_takeaway' => 'nullable|boolean',
         ];
     }
 

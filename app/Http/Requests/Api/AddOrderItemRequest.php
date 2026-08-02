@@ -19,6 +19,7 @@ class AddOrderItemRequest extends FormRequest
             'notes' => 'nullable|string',
             // اختياري: تجاوز السعر من branch_item
             'unit_price' => 'nullable|numeric|min:0',
+            'is_takeaway' => 'nullable|boolean',
         ];
     }
 }

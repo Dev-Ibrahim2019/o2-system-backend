@@ -98,6 +98,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('tables/{table}/free', [\App\Http\Controllers\Api\TableOperationsController::class, 'free']);
     Route::post('tables/transfer', [\App\Http\Controllers\Api\TableOperationsController::class, 'transfer']);
     Route::post('tables/merge', [\App\Http\Controllers\Api\TableOperationsController::class, 'merge']);
+    Route::post('tables/{table}/unmerge', [\App\Http\Controllers\Api\TableOperationsController::class, 'unmerge']);
+    Route::post('tables/{table}/defer-all', [\App\Http\Controllers\Api\TableOperationsController::class, 'deferAll']);
 
     // ── إدارة المستخدمين ──
     Route::get('users', [UserController::class, 'index'])->middleware('permission:manage-users');
@@ -440,6 +442,7 @@ Route::middleware('auth:sanctum')->prefix('tables')->group(function () {
     Route::post('/{table}/free', [\App\Http\Controllers\Api\TableOperationsController::class, 'free']);
     Route::post('/transfer', [\App\Http\Controllers\Api\TableOperationsController::class, 'transfer']);
     Route::post('/merge', [\App\Http\Controllers\Api\TableOperationsController::class, 'merge']);
+    Route::post('/{table}/unmerge', [\App\Http\Controllers\Api\TableOperationsController::class, 'unmerge']);
 });
 
 Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);
