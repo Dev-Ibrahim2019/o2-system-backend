@@ -32,6 +32,7 @@ class UpdateOrderRequest extends FormRequest
             'items.*.unit_price' => 'nullable|numeric|min:0',
             'items.*.notes' => 'nullable|string|max:500',
             'items.*.is_takeaway' => 'nullable|boolean',
+            'skip_sync' => 'nullable|boolean',
         ];
     }
 }

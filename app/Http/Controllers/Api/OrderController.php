@@ -193,9 +193,9 @@ class OrderController extends ApiController
                     );
                 }
 
-                $this->syncProductionTickets($order);
-            } elseif ($request->boolean('skip_sync')) {
-                // عند directPrintFirst لا نقوم بكتابة التذاكر هنا — ستتم بعد directPrint
+                if (! $request->boolean('skip_sync')) {
+                    $this->syncProductionTickets($order);
+                }
             }
 
             $order->recalculateTotals();
