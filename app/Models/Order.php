@@ -20,6 +20,44 @@ class Order extends Model
 {
     use SoftDeletes;
 
+    public const PAYMENT_POLICY_MANUAL_CONFIRMATION = 'manual_confirmation';
+    public const PAYMENT_POLICY_INSTANT_DEBIT = 'instant_debit';
+    public const PAYMENT_POLICY_MIXED = 'mixed';
+
+    public const PAYMENT_POLICIES = [
+        self::PAYMENT_POLICY_MANUAL_CONFIRMATION,
+        self::PAYMENT_POLICY_INSTANT_DEBIT,
+        self::PAYMENT_POLICY_MIXED,
+    ];
+
+    public const PAYMENT_STATUS_UNPAID = 'unpaid';
+    public const PAYMENT_STATUS_AWAITING_CONFIRMATION = 'awaiting_confirmation';
+    public const PAYMENT_STATUS_PROCESSING = 'processing';
+    public const PAYMENT_STATUS_PAID = 'paid';
+    public const PAYMENT_STATUS_FAILED = 'failed';
+    public const PAYMENT_STATUS_REFUNDED = 'refunded';
+
+    public const KITCHEN_RELEASE_STATUS_HELD = 'held';
+    public const KITCHEN_RELEASE_STATUS_RELEASING = 'releasing';
+    public const KITCHEN_RELEASE_STATUS_RELEASED = 'released';
+    public const KITCHEN_RELEASE_STATUS_FAILED = 'release_failed';
+
+    public const PAYMENT_STATUSES = [
+        self::PAYMENT_STATUS_UNPAID,
+        self::PAYMENT_STATUS_AWAITING_CONFIRMATION,
+        self::PAYMENT_STATUS_PROCESSING,
+        self::PAYMENT_STATUS_PAID,
+        self::PAYMENT_STATUS_FAILED,
+        self::PAYMENT_STATUS_REFUNDED,
+    ];
+
+    public const KITCHEN_RELEASE_STATUSES = [
+        self::KITCHEN_RELEASE_STATUS_HELD,
+        self::KITCHEN_RELEASE_STATUS_RELEASING,
+        self::KITCHEN_RELEASE_STATUS_RELEASED,
+        self::KITCHEN_RELEASE_STATUS_FAILED,
+    ];
+
     // تطبيق BranchScope على جميع استعلامات الطلبات
     protected static function booted(): void
     {
@@ -35,6 +73,11 @@ class Order extends Model
         'order_type',
         'source',
         'status',
+        'payment_policy',
+        'payment_status',
+        'kitchen_release_status',
+        'kitchen_released_at',
+        'kitchen_released_by',
         'table_number',
         'customer_count',
         'seated_at',
@@ -68,6 +111,7 @@ class Order extends Model
         'customer_count' => 'integer',
         'delivery_fee' => 'decimal:3',
         'delivery_address_snapshot' => 'array',
+        'kitchen_released_at' => 'datetime',
     ];
 
     public function branch(): BelongsTo
@@ -109,6 +153,16 @@ class Order extends Model
     public function feedback(): HasOne
     {
         return $this->hasOne(OrderFeedback::class);
+    }
+
+    public function paymentConfirmations(): HasMany
+    {
+        return $this->hasMany(PaymentConfirmation::class);
+    }
+
+    public function kitchenReleasedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'kitchen_released_by');
     }
 
     /** القيد المحاسبي (journal entry) المرتبط بالطلب */

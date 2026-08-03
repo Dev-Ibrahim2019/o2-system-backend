@@ -14,7 +14,7 @@ class AddPaymentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'method' => 'required|in:cash,card,bank,wallet,account,mixed,customer,employee,supplier',
+            'method' => 'required|in:cash,card,credit_card,bank,wallet,app,account,mixed,customer,employee,supplier',
             'amount' => 'required|numeric|min:0.01',
             'notes' => 'nullable|string',
             'branch_id' => 'nullable|exists:branches,id',

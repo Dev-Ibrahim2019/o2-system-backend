@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Requests\Api\UpdateCustomerTitleRequest;
 use App\Http\Controllers\ApiController;
 use App\Models\CallCenterRegister;
 use App\Models\Customer;
@@ -119,6 +120,17 @@ class CallCenterController extends ApiController
         return $this->success('â•ھط²â”کأ  â•ھط²â•ھطµâ•ھآ»â”کأ¨â•ھط³ â•ھط²â•ھâ•،â”کآ†â”کأ¨â”کآپ â•ھط¯â”کآ„â•ھâ•£â”کأ â”کأ¨â”کآ„', [
             'id' => $customer->id,
             'category' => $customer->category,
+        ]);
+    }
+
+    /** Update the customer's honorific title from the call-center profile. */
+    public function updateCustomerTitle(UpdateCustomerTitleRequest $request, Customer $customer): JsonResponse
+    {
+        $customer->update(['title' => $request->validated('title')]);
+
+        return $this->success('تم تحديث لقب العميل', [
+            'id' => $customer->id,
+            'title' => $customer->title,
         ]);
     }
 

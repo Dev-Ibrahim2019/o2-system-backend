@@ -116,7 +116,8 @@ class CallCenterOrderTest extends TestCase
             'branch_id' => $branch->id,
             'order_type' => 'takeaway',
             'source' => 'call_center',
-            'status' => 'paid',
+            'status' => 'pending',
+            'payment_status' => 'paid',
             'call_center_agent_id' => $user->id,
             'subtotal' => 10,
             'total' => 10,
@@ -134,7 +135,7 @@ class CallCenterOrderTest extends TestCase
         ]);
 
         $this->assertSame(200, app(OrderController::class)->confirm($order)->getStatusCode());
-        $this->assertSame('paid', $order->fresh()->status);
+        $this->assertSame('confirmed', $order->fresh()->status);
         $this->assertNotNull($orderItem->fresh()->sent_to_kitchen_at);
         $this->assertSame(1, ProductionTicket::where('order_id', $order->id)->count());
         $this->assertSame(1, ProductionTicketItem::where('order_item_id', $orderItem->id)->count());

@@ -30,6 +30,7 @@ class OrderController extends ApiController
             ->when($request->branch_id, fn($q) => $q->where('branch_id', $request->branch_id))
             ->when($request->status, fn($q) => $q->where('status', $request->status))
             ->when($request->date, fn($q) => $q->whereDate('created_at', $request->date))
+            ->when($request->table_number, fn($q) => $q->where('table_number', $request->table_number))
             ->orderByDesc('id')
             ->get();
 
@@ -95,7 +96,8 @@ class OrderController extends ApiController
                         (int) $row['item_id'],
                         (float) $row['quantity'],
                         isset($row['unit_price']) ? (float) $row['unit_price'] : null,
-                        $row['notes'] ?? null
+                        $row['notes'] ?? null,
+                        $row['is_takeaway'] ?? false
                     );
                 }
                 $order->recalculateTotals();
@@ -158,6 +160,22 @@ class OrderController extends ApiController
 
             // مزامنة الأصناف إذا تم إرسالها
             if ($request->has('items')) {
+                \Log::info('[OrderController::update] items data:', collect($request->items)->map(fn($r) => ['item_id' => $r['item_id'] ?? null, 'is_takeaway' => $r['is_takeaway'] ?? 'MISSING'])->toArray());
+                \Log::info('[OrderController::update] existing items:', $order->items()->get(['item_id', 'is_takeaway', 'is_printed_direct'])->toArray());
+                // تحديث is_takeaway للأصناف المطبوعة (المحفوظة مسبقاً)
+                foreach ($request->items as $row) {
+                    $existingItem = $order->items()
+                        ->where('item_id', $row['item_id'])
+                        ->where('is_printed_direct', true)
+                        ->first();
+
+                    if ($existingItem) {
+                        $existingItem->update([
+                            'is_takeaway' => $row['is_takeaway'] ?? false,
+                        ]);
+                    }
+                }
+
                 // مسح الأصناف غير المطبوعة فقط (المحفوظة بـ is_printed_direct=true لا تُحذف)
                 $order->items()
                     ->where('status', 'pending')
@@ -165,16 +183,29 @@ class OrderController extends ApiController
                     ->delete();
 
                 foreach ($request->items as $row) {
+                    // تخطي الأصناف المطبوعة (تم تحديثها أعلاه)
+                    $alreadyPrinted = $order->items()
+                        ->where('item_id', $row['item_id'])
+                        ->where('is_printed_direct', true)
+                        ->exists();
+
+                    if ($alreadyPrinted) {
+                        continue;
+                    }
+
                     $this->createOrderItem(
                         $order,
                         (int) $row['item_id'],
                         (float) $row['quantity'],
                         isset($row['unit_price']) ? (float) $row['unit_price'] : null,
-                        $row['notes'] ?? null
+                        $row['notes'] ?? null,
+                        $row['is_takeaway'] ?? false
                     );
                 }
 
-                $this->syncProductionTickets($order);
+                if (! $request->boolean('skip_sync')) {
+                    $this->syncProductionTickets($order);
+                }
             }
 
             $order->recalculateTotals();
@@ -228,7 +259,8 @@ class OrderController extends ApiController
                 (int) $data['item_id'],
                 (float) $data['quantity'],
                 isset($data['unit_price']) ? (float) $data['unit_price'] : null,
-                $data['notes'] ?? null
+                $data['notes'] ?? null,
+                $data['is_takeaway'] ?? false
             );
 
             $order->recalculateTotals();
@@ -286,96 +318,24 @@ class OrderController extends ApiController
      */
     public function confirm(Order $order): JsonResponse
     {
-        if ($order->source === 'call_center' && $order->status !== 'paid') {
+        if ($order->source === 'call_center' && $order->payment_status !== 'paid') {
             return $this->error('لا يمكن إرسال طلب الكول سنتر للمطبخ قبل اكتمال الفاتورة والدفع.', 422);
         }
 
-        if (! in_array($order->status, ['pending', 'pending_confirmation', 'paid'], true)) {
-            return $this->error('لا يمكن تأكيد هذا الطلب في حالته الحالية.', 422);
-        }
-
-        // تعديل: جلب العلاقة هنا مع الاستعلام الأساسي لتجنب مشكلة الـ with اللاحقة
-        $unsentItems = $order->items()
-            ->with('department')
-            ->where('status', 'pending')
-            ->get();
-
-        if ($unsentItems->isEmpty()) {
-            return $this->error('لا توجد عناصر جديدة لإرسالها.', 422);
-        }
-
-        DB::beginTransaction();
         try {
-            // تعديل: التجميع مباشرة الآن بعد أن جلبنا العلاقات بالأعلى
-            $itemsByDept = $unsentItems->groupBy('department_id');
-
-            foreach ($itemsByDept as $deptId => $deptItems) {
-                if (! $deptId) {
-                    continue;
-                }
-
-                // البحث عن تذكرة نشطة موجودة للقسم نفسه في نفس الطلب
-                $ticket = $order->tickets()
-                    ->where('department_id', $deptId)
-                    ->whereIn('status', ['pending', 'preparing'])
-                    ->first();
-
-                if (! $ticket) {
-                    $ticket = ProductionTicket::create([
-                        'order_id' => $order->id,
-                        'department_id' => $deptId,
-                        'ticket_number' => ProductionTicket::generateTicketNumber((int) $deptId),
-                        'status' => 'pending',
-                        'sent_at' => now(),
-                        'notes' => $order->note,
-                    ]);
-                }
-
-                foreach ($deptItems as $orderItem) {
-                    // تجنب التكرار — لا تُضاف إذا لها ticketItem مسبقاً
-                    if ($orderItem->ticketItem) {
-                        continue;
-                    }
-
-                    ProductionTicketItem::create([
-                        'production_ticket_id' => $ticket->id,
-                        'order_item_id' => $orderItem->id,
-                        'quantity' => (int) ceil((float) $orderItem->quantity),
-                        'notes' => $orderItem->notes,
-                        'status' => 'pending',
-                    ]);
-
-                    $orderItem->update(['sent_to_kitchen_at' => now()]);
-                }
-            }
-
-            // A call-center order may be financially closed before kitchen
-            // submission. Preserve its paid state while creating production
-            // tickets instead of reopening the financial lifecycle.
-            if ($order->status !== 'paid') {
-                $order->update(['status' => 'confirmed']);
-            }
-
-            // تحديث الطاولة إلى HAS_ORDER (عليها طلب)
-            if ($order->dining_table_id) {
-                $table = DiningTable::find($order->dining_table_id);
-                if ($table) {
-                    $table->update(['status' => 'HAS_ORDER']);
-                }
-            }
-
-            DB::commit();
+            $released = app(\App\Services\Order\OrderConfirmationService::class)->release($order);
 
             return $this->success(
                 'تم إرسال الطلب للأقسام',
-                new OrderResource($order->fresh()->load([
+                new OrderResource($released->load([
                     'items.department',
                     'tickets.ticketItems.orderItem',
                     'tickets.department',
                 ]))
             );
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
+            return $this->error($e->getMessage(), $e->getStatusCode());
         } catch (\Throwable $e) {
-            DB::rollBack();
             \Log::error('فشل تأكيد الطلب #' . $order->id, [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),
@@ -464,11 +424,6 @@ class OrderController extends ApiController
                 }
                 if (! $table && $order->table_number && $order->branch_id) {
                     $table = DiningTable::where('table_number', $order->table_number)
-                        ->where('branch_id', $order->branch_id)
-                        ->first();
-                }
-                if (! $table && $order->table_number && $order->branch_id) {
-                    $table = DiningTable::whereRaw('LOWER(table_number) = LOWER(?)', [$order->table_number])
                         ->where('branch_id', $order->branch_id)
                         ->first();
                 }
@@ -664,56 +619,8 @@ class OrderController extends ApiController
             return;
         }
 
-        // فلترة العناصر غير المرحّلة فقط
-        $unsentItems = $order->items()
-            ->where('status', 'pending')
-            ->whereDoesntHave('ticketItem')
-            ->get();
-
-        if ($unsentItems->isEmpty()) {
-            return;
-        }
-
-        $itemsByDept = $unsentItems->groupBy('department_id');
-
-        foreach ($itemsByDept as $deptId => $orderItems) {
-            if (! $deptId) {
-                continue;
-            }
-
-            // البحث عن تذكرة نشطة للقسم
-            $ticket = $order->tickets()
-                ->where('department_id', $deptId)
-                ->whereIn('status', ['pending', 'preparing'])
-                ->first();
-
-            if (! $ticket) {
-                $ticket = ProductionTicket::create([
-                    'order_id' => $order->id,
-                    'department_id' => $deptId,
-                    'ticket_number' => ProductionTicket::generateTicketNumber((int) $deptId),
-                    'status' => 'pending',
-                    'sent_at' => now(),
-                    'notes' => $order->note,
-                ]);
-            }
-
-            foreach ($orderItems as $orderItem) {
-                ProductionTicketItem::create([
-                    'production_ticket_id' => $ticket->id,
-                    'order_item_id' => $orderItem->id,
-                    'quantity' => (int) ceil((float) $orderItem->quantity),
-                    'notes' => $orderItem->notes,
-                    'status' => 'pending',
-                ]);
-
-                $orderItem->update(['sent_to_kitchen_at' => now()]);
-            }
-        }
-
-        // تحديث حالة الطلب إذا لم تكن في مرحلة متقدمة
-        if (! in_array($order->status, ['confirmed', 'in_progress', 'ready', 'served'], true)) {
-            $order->update(['status' => 'confirmed']);
+        if ($order->items()->where('status', 'pending')->whereDoesntHave('ticketItem')->exists()) {
+            app(\App\Services\Order\OrderConfirmationService::class)->release($order);
         }
     }
 
@@ -722,7 +629,8 @@ class OrderController extends ApiController
         int $itemId,
         float $quantity,
         ?float $unitPrice = null,
-        ?string $notes = null
+        ?string $notes = null,
+        bool $isTakeaway = false,
     ): OrderItem {
         $item = Item::with('department')->findOrFail($itemId);
 
@@ -749,6 +657,7 @@ class OrderController extends ApiController
             'total' => round($price * $quantity, 2),
             'status' => 'pending',
             'notes' => $notes,
+            'is_takeaway' => $isTakeaway,
         ]);
     }
 

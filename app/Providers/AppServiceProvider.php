@@ -11,6 +11,8 @@ use App\Services\Printing\Renderers\ArabicTextRenderer;
 use App\Services\Printing\Renderers\ReceiptImageBuilder;
 use App\Services\PrintRoutingService;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\Gate;
+use App\Policies\CallCenterPaymentPolicy;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -33,6 +35,6 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        Gate::define('execute-call-center-payment', [CallCenterPaymentPolicy::class, 'execute']);
     }
 }

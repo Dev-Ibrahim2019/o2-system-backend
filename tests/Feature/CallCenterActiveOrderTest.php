@@ -28,7 +28,7 @@ class CallCenterActiveOrderTest extends TestCase
             'delivery paid' => ['paid', 'delivery', 0, ['operational_active', 'delivery_active']],
             'delivery preparing' => ['in_progress', 'delivery', 1, ['operational_active', 'kitchen_active', 'delivery_active']],
             'ready takeaway' => ['ready', 'takeaway', 1, ['operational_active', 'kitchen_active']],
-            'served terminal' => ['served', 'delivery', 1, []],
+            'served terminal' => ['served', 'delivery', 1, ['fulfilled_recent']],
             'cancelled terminal' => ['cancelled', 'takeaway', 0, []],
         ];
     }

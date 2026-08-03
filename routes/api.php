@@ -47,6 +47,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', fn(Request $r) => response()->json(['user' => $r->user()]));
+    // Payment methods are shared reference data used by both POS and Call Center.
+    // Reading them only requires authentication; mutations remain POS-network protected.
+    Route::get('payment-methods', [\App\Http\Controllers\Api\PaymentMethodController::class, 'index'])
+        ->name('payment-methods.index');
 
     // ط§ظ„ظ…ظ†ظٹظˆ â€” ظ…ط­ظ…ظٹ ظˆظٹظڈظپظ„طھط± طھظ„ظ‚ط§ط¦ظٹط§ظ‹ ط­ط³ط¨ ظپط±ط¹ ط§ظ„ظ…ط³طھط®ط¯ظ…
     Route::get('menu', [MenuController::class, 'index']);
@@ -88,7 +92,8 @@ Route::middleware('auth:sanctum')->group(function () {
         // â”€â”€ Settlement & Payment Routing â”€â”€
         Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle']);
         Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
-        Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class);
+        Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class)
+            ->except(['index']);
 
     }); // â†گ ظ†ظ‡ط§ظٹط© ظ…ط³ط§ط±ط§طھ POS ط§ظ„ظ…ط­ظ…ظٹط© ط¨ط´ط¨ظƒط© ط§ظ„ظپط±ط¹
 
@@ -468,6 +473,8 @@ Route::middleware('auth:sanctum')->post('call-center/check-status', [CallCenterC
 Route::middleware(['auth:sanctum', 'role_or_permission:call-center|super-admin|accountant|branch-manager|access-call-center-interface|manage-call-center'])->prefix('call-center')->group(function () {
     Route::get('customers/resolve-by-phone', \App\Http\Controllers\Api\CustomerResolutionController::class);
     Route::post('orders', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'store']);
+    Route::post('orders/{order}/confirm-transfer', [\App\Http\Controllers\Api\CallCenterPaymentController::class, 'confirmTransfer']);
+    Route::post('orders/{order}/debit-entity', [\App\Http\Controllers\Api\CallCenterPaymentController::class, 'debitEntity']);
     Route::get('active-orders', [CallCenterController::class, 'activeOrders']);
     Route::get('customers/search', [CallCenterController::class, 'searchCustomers']);
     Route::get('customers/directory', [CallCenterController::class, 'customerDirectory']);
@@ -477,6 +484,7 @@ Route::middleware(['auth:sanctum', 'role_or_permission:call-center|super-admin|a
     Route::get('customers/top', [CallCenterController::class, 'topCustomers']);
     Route::get('customers/{customer}/profile', [CallCenterController::class, 'customerProfile']);
     Route::patch('customers/{customer}/classification', [CallCenterController::class, 'updateCustomerClassification']);
+    Route::patch('customers/{customer}/title', [CallCenterController::class, 'updateCustomerTitle']);
     Route::get('customers/{customer}/full-profile', [CallCenterController::class, 'customerFullProfile']);
     Route::get('customers/{customer}/orders', [CallCenterController::class, 'customerOrders']);
     Route::get('customers/{customer}/favorites', [CallCenterController::class, 'customerFavorites']);
@@ -518,6 +526,9 @@ Route::middleware(['auth:sanctum', 'role_or_permission:call-center|super-admin|a
     Route::post('tickets/{ticket}/notes', [CallTicketController::class, 'note']);
     Route::post('tickets/{ticket}/complete', [CallTicketController::class, 'complete']);
     Route::get('tickets/{ticket}/workspace', [CallTicketController::class, 'workspace']);
+    Route::get('agent/breaks/today', [\App\Http\Controllers\Api\EmployeeBreakController::class, 'today']);
+    Route::post('agent/breaks', [\App\Http\Controllers\Api\EmployeeBreakController::class, 'start']);
+    Route::post('agent/breaks/{break}/end', [\App\Http\Controllers\Api\EmployeeBreakController::class, 'end']);
 });
 
 // ── Unified Tables API (POS, Hospitality, Accountant, Manager) ──

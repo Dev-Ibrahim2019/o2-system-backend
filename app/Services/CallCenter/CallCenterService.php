@@ -28,7 +28,10 @@ class CallCenterService
         $orders = Order::query()
             ->where('source', 'call_center')
             ->when($branchId, fn (Builder $query) => $query->where('branch_id', $branchId))
-            ->whereNotIn('status', ['cancelled', 'canceled', 'served'])
+            ->whereNotIn('status', ['cancelled', 'canceled'])
+            ->where(function (Builder $query) {
+                $query->where('status', '!=', 'served')->orWhere('updated_at', '>=', now()->subDay());
+            })
             ->withCount('tickets')
             ->with('branch:id,name')
             ->latest()
@@ -56,18 +59,19 @@ class CallCenterService
         })->filter(fn (array $row) => $row['scopes'] !== [])->values();
 
         return [
-            'operational_active' => $rows->filter(fn ($row) => in_array('operational_active', $row['scopes'], true))->values(),
             'awaiting_payment' => $rows->filter(fn ($row) => in_array('awaiting_payment', $row['scopes'], true))->values(),
             'kitchen_active' => $rows->filter(fn ($row) => in_array('kitchen_active', $row['scopes'], true))->values(),
             'delivery_active' => $rows->filter(fn ($row) => in_array('delivery_active', $row['scopes'], true))->values(),
+            'fulfilled_recent' => $rows->filter(fn ($row) => in_array('fulfilled_recent', $row['scopes'], true))->values(),
         ];
     }
 
     public static function classifyActiveOrder(string $status, ?string $orderType, int $ticketCount = 0): array
     {
-        if (in_array($status, ['cancelled', 'canceled', 'served'], true)) {
+        if (in_array($status, ['cancelled', 'canceled'], true)) {
             return [];
         }
+        if ($status === 'served') return ['fulfilled_recent'];
 
         $scopes = ['operational_active'];
         if (in_array($status, ['pending', 'pending_confirmation', 'pending_payment'], true)) {

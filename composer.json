@@ -12,7 +12,7 @@
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10.1",
         "maatwebsite/excel": "*",
-        "mike42/escpos-php": "^5.0",
+        "mike42/escpos-php": "^2.2",
         "mpdf/mpdf": "*",
         "spatie/browsershot": "^5.4",
         "spatie/laravel-permission": "^6.25"

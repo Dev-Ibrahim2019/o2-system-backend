@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "5c63e4edcf25d4db396253ee6258f9ef",
+    "content-hash": "577bef57c8bf5019fcd15ae0a497a714",
     "packages": [
         {
             "name": "brick/math",
@@ -2212,32 +2212,31 @@
         },
         {
             "name": "mike42/escpos-php",
-            "version": "v5.0",
+            "version": "v2.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/mike42/escpos-php.git",
-                "reference": "985d57cbfbef60bb98c08cb139714735f28d4518"
+                "reference": "e5496cf819b048b11877117bd14a9cea4fb17c03"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/mike42/escpos-php/zipball/985d57cbfbef60bb98c08cb139714735f28d4518",
-                "reference": "985d57cbfbef60bb98c08cb139714735f28d4518",
+                "url": "https://api.github.com/repos/mike42/escpos-php/zipball/e5496cf819b048b11877117bd14a9cea4fb17c03",
+                "reference": "e5496cf819b048b11877117bd14a9cea4fb17c03",
                 "shasum": ""
             },
             "require": {
-                "ext-intl": "*",
-                "ext-json": "*",
-                "ext-zlib": "*",
-                "mike42/gfx-php": "^1",
-                "php": ">=8.2.0"
+                "ext-mbstring": "*",
+                "php": ">=5.4.0"
             },
             "require-dev": {
-                "phpunit/phpunit": "^11",
-                "squizlabs/php_codesniffer": "^4"
+                "guzzlehttp/guzzle": "^5.3",
+                "phpunit/phpunit": "^4.8",
+                "squizlabs/php_codesniffer": "^3.2"
             },
             "suggest": {
                 "ext-gd": "Used for image printing if present.",
-                "ext-imagick": "Will be used for image printing if present. Required for PDF printing or use of custom fonts."
+                "ext-imagick": "Will be used for image printing if present. Required for PDF printing or use of custom fonts.",
+                "guzzlehttp/guzzle": "Allows the use of the ApiConnector to send print jobs over HTTP."
             },
             "type": "library",
             "autoload": {
@@ -2258,63 +2257,17 @@
             "description": "PHP receipt printer library for use with ESC/POS-compatible thermal and impact printers",
             "homepage": "https://github.com/mike42/escpos-php",
             "keywords": [
-                "Epson",
-                "barcode",
+                "ESC-POS",
+                "driver",
                 "escpos",
-                "printer",
-                "receipt-printer"
+                "print",
+                "receipt"
             ],
             "support": {
                 "issues": "https://github.com/mike42/escpos-php/issues",
-                "source": "https://github.com/mike42/escpos-php/tree/v5.0"
+                "source": "https://github.com/mike42/escpos-php/tree/v2.2"
             },
-            "time": "2026-07-01T04:07:38+00:00"
-        },
-        {
-            "name": "mike42/gfx-php",
-            "version": "v1.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/mike42/gfx-php.git",
-                "reference": "f13863c32b2ecd1d897565b85f2e1eaec8cb6d2e"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/mike42/gfx-php/zipball/f13863c32b2ecd1d897565b85f2e1eaec8cb6d2e",
-                "reference": "f13863c32b2ecd1d897565b85f2e1eaec8cb6d2e",
-                "shasum": ""
-            },
-            "require": {
-                "php": ">=8.2.0"
-            },
-            "require-dev": {
-                "phpbench/phpbench": "^1",
-                "phpunit/phpunit": "^11",
-                "squizlabs/php_codesniffer": "^4"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Mike42\\": "src/Mike42"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "LGPL-2.1-or-later"
-            ],
-            "authors": [
-                {
-                    "name": "Michael Billington",
-                    "email": "michael.billington@gmail.com"
-                }
-            ],
-            "description": "The pure PHP graphics library",
-            "homepage": "https://github.com/mike42/gfx-php",
-            "support": {
-                "issues": "https://github.com/mike42/gfx-php/issues",
-                "source": "https://github.com/mike42/gfx-php/tree/v1.0"
-            },
-            "time": "2026-06-29T17:32:07+00:00"
+            "time": "2019-10-05T05:59:00+00:00"
         },
         {
             "name": "monolog/monolog",
@@ -9191,5 +9144,5 @@
         "php": "^8.2"
     },
     "platform-dev": {},
-    "plugin-api-version": "2.6.0"
+    "plugin-api-version": "2.9.0"
 }

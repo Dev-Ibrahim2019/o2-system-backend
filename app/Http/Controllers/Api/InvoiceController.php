@@ -19,6 +19,8 @@ use App\Models\PosRegister;
 use App\Models\Transaction;
 use App\Services\AccountingService;
 use App\Services\Invoice\InvoiceFromOrderService;
+use App\Services\Invoice\InvoicePaymentService;
+use App\Services\Order\OrderConfirmationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,6 +29,8 @@ class InvoiceController extends ApiController
 {
     public function __construct(
         private readonly InvoiceFromOrderService $invoiceFromOrderService,
+        private readonly InvoicePaymentService $invoicePaymentService,
+        private readonly OrderConfirmationService $orderConfirmationService,
     ) {}
 
     /**
@@ -38,12 +42,14 @@ class InvoiceController extends ApiController
             return $this->error('لا يمكن إنشاء فاتورة لهذا الطلب.', 422);
         }
 
-        if (! $order->tickets()->exists()) {
-            return $this->error('الطلب غير مقسّم للأقسام — نفّذ confirm أولاً.', 422);
-        }
-
-        if ($order->status === 'pending') {
-            $order->update(['status' => 'confirmed']);
+        if ($order->source === 'call_center') {
+            $order->update(['kitchen_release_status' => Order::KITCHEN_RELEASE_STATUS_HELD]);
+        } elseif (! $order->tickets()->exists()) {
+            try {
+                $order = $this->orderConfirmationService->release($order);
+            } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
+                return $this->error($e->getMessage(), $e->getStatusCode());
+            }
         }
 
         if ($order->invoice()->exists()) {
@@ -51,11 +57,6 @@ class InvoiceController extends ApiController
         }
 
         $data = $request->validated();
-        if ($order->customer_id && isset($data['customer_id'])
-            && (int) $data['customer_id'] !== (int) $order->customer_id) {
-            return $this->error('Invoice customer must match the customer attached to the order.', 422);
-        }
-        $data['customer_id'] = $order->customer_id ?? ($data['customer_id'] ?? null);
 
         // ── جلب معلومات نقطة البيع من الهيدر ──
         $deviceUuid = $request->header('X-Device-UUID');
@@ -64,26 +65,26 @@ class InvoiceController extends ApiController
 
         DB::beginTransaction();
         try {
-$invoice = $this->invoiceFromOrderService->createFromOrder(
-    $order,
-    array_merge($data, [
-        'customer_id'     => $data['customer_id'] ?? null,
-        'notes'           => $data['notes'] ?? $order->note,
+            $invoice = $this->invoiceFromOrderService->createFromOrder(
+                $order,
+                array_merge($data, [
+                    'customer_id'     => $data['customer_id'] ?? null,
+                    'notes'           => $data['notes'] ?? $order->note,
 
-        // معلومات نقطة البيع POS
-        'pos_register_id' => $posRegister?->id,
-        'pos_code'        => $posRegister?->code,
-        'pos_name'        => $posRegister?->name,
+                    // معلومات نقطة البيع POS
+                    'pos_register_id' => $posRegister?->id,
+                    'pos_code'        => $posRegister?->code,
+                    'pos_name'        => $posRegister?->name,
 
-        // معلومات فتح الفاتورة
-        'opened_by'       => $user?->id,
-        'opened_at'       => now(),
+                    // معلومات فتح الفاتورة
+                    'opened_by'       => $user?->id,
+                    'opened_at'       => now(),
 
-        'currency'        => $data['currency'] ?? 'ILS',
-        'account_number'  => $data['account_number'] ?? null,
-    ]),
-    $request->user()?->id
-);
+                    'currency'        => $data['currency'] ?? 'ILS',
+                    'account_number'  => $data['account_number'] ?? null,
+                ]),
+                $request->user()?->id
+            );
 
             DB::commit();
 
@@ -104,6 +105,10 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
      */
     public function addPayment(AddPaymentRequest $request, Invoice $invoice): JsonResponse
     {
+        if ($invoice->order && $invoice->order->source === 'call_center') {
+            return $this->error('دفعات الكول سنتر تُسجّل حصرًا عبر خدمة تنفيذ طلبات الكول سنتر.', 422);
+        }
+
         if ($invoice->status === 'cancelled') {
             return $this->error('الفاتورة ملغاة.', 422);
         }
@@ -124,43 +129,24 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
         try {
             $entityType = $data['entity_type'] ?? $data['subledger_type'] ?? null;
             $entityId = $data['entity_id'] ?? $data['subledger_id'] ?? null;
+            $result = $this->invoicePaymentService->recordInvoicePayment(
+                $invoice,
+                $data['method'],
+                $data['payment_method_id'] ?? null,
+                $amount,
+                $request->user()?->id,
+                $entityType,
+                $entityId,
+                null,
+                $data['notes'] ?? null,
+                $data['branch_id'] ?? null,
+            );
+            $payment = $result['payment'];
+            $invoice = $result['invoice'];
+            $journalEntry = $result['transaction'];
 
-            $payment = Payment::create([
-                'invoice_id' => $invoice->id,
-                'number' => Payment::generateNumber(),
-                'method' => $data['method'],
-                'payment_method_id' => $data['payment_method_id'] ?? null,
-                'amount' => $amount,
-                'paid_at' => now(),
-                'notes' => $data['notes'] ?? null,
-                'branch_id' => $data['branch_id'] ?? $invoice->branch_id,
-                'user_id' => $request->user()?->id,
-                'entity_type' => $entityType,
-                'entity_id' => $entityId,
-                'subledger_type' => $entityType,
-                'subledger_id' => $entityId,
-            ]);
-
-            $newPaid = $invoice->fresh()->paidAmount();
-            $journalEntry = null;
-
-            if ($newPaid >= (float) $invoice->total - 0.001) {
-                $invoice->update([
-                    'status' => 'paid',
-                    'payment_method' => $data['method'],
-                    // ── معلومات إغلاق الفاتورة ──
-                    'closed_by' => $request->user()?->id,
-                    'closed_at' => now(),
-                ]);
-
-                if ($invoice->order_id) {
-                    $invoice->order()->update(['status' => 'paid']);
-                }
-
-                $journalEntry = app(AccountingService::class)
-                    ->createJournalEntryForInvoice($invoice->fresh());
-            } elseif ($newPaid > 0) {
-                $invoice->update(['status' => 'partial']);
+            if ($invoice->status === 'paid' && $invoice->order_id) {
+                $invoice->order()->update(['status' => 'paid']);
             }
 
             DB::commit();
