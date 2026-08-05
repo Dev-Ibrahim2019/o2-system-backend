@@ -1,12 +1,27 @@
 # Customer Portal Requirements — D1
 
-Status: **Ready for Business Review**. `[R]` means drafted, not approved. This document specifies requirements only; it makes no architecture or schema decision.
+Status: **Business Approved — Awaiting Architecture Decisions**.
+
+Requirements D-01 through D-15 are business approved. Implementation remains prohibited until the required E decisions are approved. This document specifies requirements only and makes no architecture or schema decision.
 
 ## 1. Executive Summary
 
 The portal gives guests and verified O2 customers a mobile-first Arabic self-service experience for identity, profiles, addresses, orders, rewards, support, and feedback. Laravel remains the operational and financial authority; the portal must not claim an order, payment, or reward is final before Laravel confirms it. Admin CRM receives only the customer context, messages, complaints, website orders, and consent data staff are authorized to use.
 
-MVP covers phone-based access, progressive registration, safe customer linking, profiles, addresses, order history/tracking, reward visibility/redemption requests, messages, notifications, complaints, and ratings. Independent family login, advanced attachments/chatbots, voice/video, final external channels, payment-provider behavior, and integration implementation are deferred. Current constraints are: no portal identity or website orders; WhatsApp checkout; ratings-only website database; fragmented phones; balance-only loyalty; no durable synchronization or unified timeline/statuses; and duplicated catalog/pricing data.
+MVP covers phone-based access, progressive registration, safe customer linking, profiles, addresses, limited order history/tracking, reward visibility/redemption requests, messages, in-app notifications, complaints, and ratings. Independent family login, advanced attachments/chatbots, voice/video, external notification channels, payment-provider behavior, and integration implementation are deferred. Current constraints are: no portal identity or website orders; WhatsApp checkout; ratings-only website database; fragmented phones; balance-only loyalty; no durable synchronization or unified timeline/statuses; and duplicated catalog/pricing data.
+
+### Business-approved baseline
+
+- **Identity and access:** First login and every new/suspicious device use phone + OTP; the customer then creates a password and later signs in with phone + password. OTP is also required for registration, recovery, and phone changes. PIN may later be a local convenience only. Sessions last 30 days and may exist on multiple devices; device management is outside MVP and sensitive actions require reverification. Security suspension blocks login; business restriction permits account viewing but blocks ordering and points. MVP recovery uses the phone; loss of phone requires exceptional audited administration.
+- **Registration and linking:** Required registration data is phone, name, password, and versioned terms/privacy acceptance. Email, address, zone, and birth date are optional afterward. One verified matching Laravel Customer links automatically; conflicts create a limited account and administrative review. A limited account may edit its basic profile, add an address, and create a new order, but cannot view prior orders, points, or complaints. A new account creates a Laravel Customer later through the approved integration contract, records source `website`, and receives no automatic special receivable, discount, or referral points.
+- **Referral:** Capture a valid referral link, prohibit self/duplicate/multiple rewards, and award the referrer once only after the referred customer's first paid, delivered, successfully closed order. Any future new-customer discount belongs to Loyalty Rules.
+- **Profile and addresses:** Name edits are direct and audited. A primary and backup phone are allowed; every new phone needs OTP. A customer may keep at most five addresses, with one default and types `home`, `work`, `family_home`, `other_home`, or `custom`. Zone/description follow coverage rules; map location is optional. The suggested branch may be changed only to another serving branch. Delivery fees are recalculated per order and deletion deactivates/soft-deletes.
+- **Family and occasions:** Both are Post-MVP. Initial family data is name, relationship, and birth date; no financial Customer or login is created. Allergies may later assist staff but never replace order confirmation. Occasions support multiple/custom types and optional year. Call-center staff see only day/month; birth year is restricted or omitted by default. Marketing requires independent consent.
+- **Orders and tracking:** Show one active order when present plus the last two completed orders only. Do not expose lifetime count/spend/averages or full history; Admin retains full history. Reorder is limited to those two orders, uses current availability/pricing, shows price changes, copies no payment data, and requires review. Direct cancellation is allowed only before payment confirmation; afterward the customer contacts support. A modification request may cover items, quantities, notes, or address before preparation, requires call-center acceptance and repricing, and never directly changes status.
+- **Loyalty:** Points become final only after delivered + successfully closed. Redemption is automatic within configured rules/limits; large or suspicious requests require approval and may reserve points. Reward types are `invoice_discount`, `free_item`, `product_reward`, `upgrade`, and `custom_reward`. Cancellation/refund creates ledger reversal; used points trigger financial/administrative review and may yield an internal negative balance with a clear customer-facing settlement description.
+- **Conversations and payment proof:** Conversation types are `order_issue`, `complaint`, `general_inquiry`, and `suggestion`. A unified inbox supports manual claim, configurable automatic assignment, and supervisor reassignment. Normal conversations alert after 10 minutes; active orders use a shorter configurable target; after-hours messaging respects the work schedule. General-chat attachments are excluded from MVP. Complaint images are allowed. Payment proof is limited to its dedicated flow, privately stored, linked to an order/payment attempt, MIME/size/content checked (initially JPG/PNG/WEBP/PDF), fully audited, and requires authorized staff confirmation before production.
+- **Notifications and consent:** MVP channel is `in_app` only; push, WhatsApp, SMS, and email are deferred. Marketing consent is an unchecked optional registration choice, may be withdrawn, never blocks registration, is distinct from operational/security messaging, and records version, time, and source.
+- **Complaints and ratings:** Complaint images follow file policy. A complaint may reopen within seven days; afterward a new complaint links to the previous one. Internal notes remain hidden and conversation conversion is audited. Ratings of 3 stars or less create follow-up; 1–2 stars are urgent and ask whether contact is desired. A rating may be edited once within 24 hours while preserving audit history. A verified-name-and-phone guest may submit a rate-limited general rating, never link it to an unowned order, and never publish it without consent.
 
 ## 2. Actors
 
@@ -50,13 +65,13 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Actors:** Guest, Portal Customer, System Integration  
 **Business Goal:** Secure access without exposing Laravel Customer IDs.  
 **Current State:** No website login, registration, account, or Portal Account.  
-**Target Requirement:** Normalize phone, send a verification code, verify it, and create a secure Portal Account session.  
+**Target Requirement:** Use phone + OTP for first/new/suspicious-device access, then establish a 30-day secure multi-device session after password creation; subsequent recognized-device login uses phone + password.  
 **Preconditions:** Account is eligible; verification service is available; terms remain applicable.  
 **Trigger:** Guest submits a phone at `/account/login`.  
 **Primary Flow:** Normalize phone → request code → enter code → validate account status → establish session → record login → redirect safely.  
 **Alternative Flows:** Unknown phone offers registration without revealing customer classification; recovery is offered for an already-linked account.  
 **Failure Scenarios:** Expired/incorrect code, resend/attempt limit, suspended/closed account, service failure, replay, session creation failure.  
-**Business Rules:** Login belongs to Portal Account; support one-device and all-device logout; critical account security notices cannot be disabled.  
+**Business Rules:** Login belongs to Portal Account; OTP applies to registration, recovery, phone change, new device, and suspicious activity; sensitive actions reverify; PIN is only a future local convenience; security suspension blocks login while business restriction permits viewing but blocks orders/points.  
 **Validation Rules:** Palestinian formats normalized; generic responses; code lifetime, attempts, resend interval and lock duration are configurable.  
 **Permissions:** Only account owner receives a session; integration receives minimum verification data.  
 **Required Data:** Normalized phone, verification challenge, account status, session/device metadata.  
@@ -66,10 +81,10 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Audit Requirements:** Request, resend, failure, lock, login, single/all-device logout; redact code and sensitive identifiers.  
 **Privacy Requirements:** Minimize phone exposure and prevent account enumeration.  
 **Dependencies:** D-03, D-04, E-02, E-03, E-10.  
-**Architecture Decisions Required:** OTP provider/lifetime/attempts; session mechanism/duration; password option; multi-device policy.  
+**Architecture Decisions Required:** OTP provider/lifetime/attempts, session implementation, device recognition, password storage/recovery, and suspicious-activity signals.  
 **Acceptance Criteria:** Verified owner receives a secure session; invalid/suspended cases fail generically; logout revokes required sessions; no Customer ID or OTP leaks.  
 **Out of Scope:** Final provider, password implementation, social login.  
-**Open Questions:** Provider, durations, attempts, password, and device count are TBD — Requires Architecture or Business Decision.
+**Open Questions:** OTP provider/limits and technical session/device controls remain Pending Architecture Decisions; recovery operations after phone loss remain Pending Operational Configuration.
 
 ### D-02 — Account Registration
 
@@ -79,13 +94,13 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Actors:** Guest, Portal Customer, CRM Administrator, System Integration  
 **Business Goal:** Create a usable portal identity without duplicate customers or excessive onboarding.  
 **Current State:** No Portal Account; Laravel customers may already exist.  
-**Target Requirement:** Register with phone verification, minimal name when needed, and versioned acceptance of terms/privacy; complete profile later.  
+**Target Requirement:** Register with verified phone, required name/password/versioned terms and privacy acceptance; collect email, address, zone, and birth date optionally afterward.  
 **Preconditions:** Phone passes normalization and anti-abuse controls.  
 **Trigger:** Guest chooses registration or continues from unknown-phone login.  
 **Primary Flow:** Submit phone → verify → detect account/customer candidates → accept policies → create/link limited portal account → record source `website`, creation and last-login times.  
 **Alternative Flows:** New customer remains pending approved customer-creation flow; existing customer enters safe linking; ambiguous match enters review.  
 **Failure Scenarios:** Duplicate Portal Account, policy not accepted, verification failure, ambiguous match, partial integration failure.  
-**Business Rules:** Proposed states are `pending_verification`, `active`, `suspended`, `closed`; they are requirements, not schema; no automatic financial receivable.  
+**Business Rules:** Proposed states are `pending_verification`, `active`, `suspended`, `closed`; they are requirements, not schema. Record source `website`; create the Laravel Customer through the later approved contract without automatic special receivable/discount. Referral is awarded only once to the referrer after the first paid, delivered, successfully closed order.  
 **Validation Rules:** Unique normalized phone within chosen identity contract; required policy versions and timestamps.  
 **Permissions:** Guest creates only own account; administrators may review but not impersonate silently.  
 **Required Data:** Phone, optional name, policy versions/consent, source, timestamps, status.  
@@ -98,7 +113,7 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Architecture Decisions Required:** Identity/linking/account ownership and consent retention.  
 **Acceptance Criteria:** One portal account per normalized identity; existing customers are not duplicated; minimal registration works; consent is evidenced.  
 **Out of Scope:** Full profile, financial account creation, final schema.  
-**Open Questions:** When to create a new Laravel Customer and who approves it?
+**Open Questions:** Customer-creation transport/transaction boundary and referral ledger mechanism remain Pending Architecture Decisions.
 
 ### D-03 — Phone Verification
 
@@ -127,7 +142,7 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Architecture Decisions Required:** Provider, normalization, limits, delivery channel and retention.  
 **Acceptance Criteria:** Supported formats normalize consistently; replay/expired/excess attempts fail; no OTP appears in logs; responses prevent enumeration.  
 **Out of Scope:** Selecting or integrating a provider.  
-**Open Questions:** Exact supported prefixes, limits, expiry, lock duration and fallback channel.
+**Open Questions:** Exact supported prefixes/provider are Pending Architecture Decisions; attempts, expiry, lock duration and resend interval are Pending Operational Configuration.
 
 ### D-04 — Existing Customer Linking
 
@@ -141,9 +156,9 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Preconditions:** Verified Portal Account and normalized phone.  
 **Trigger:** Registration completion, login recovery, or verified phone addition.  
 **Primary Flow:** Resolve candidates → one safe match → verify ownership/link constraints → create auditable link → expose authorized history.  
-**Alternative Flows:** No match keeps limited account and defers customer creation; multiple matches create review without disclosure; multiple phones identify a verified primary; existing link invokes secure recovery.  
+**Alternative Flows:** No match creates a new Customer later through the approved contract; multiple matches create a limited account and review without disclosure; the limited account may edit its basic profile, add an address, and create a new order but cannot see prior history/points/complaints; multiple phones identify a verified primary; existing link invokes secure recovery.  
 **Failure Scenarios:** Ambiguity, conflicting existing link, stale mapping, integration outage, attempted takeover.  
-**Business Rules:** No automatic ambiguous link; no automatic receivable; customer merge is administrative, privileged and outside portal scope.  
+**Business Rules:** One verified match links automatically; OTP proves phone ownership but cannot choose among duplicates. No automatic ambiguous link or special receivable; customer merge is administrative, privileged and outside portal scope.  
 **Validation Rules:** Verified normalized phone plus chosen E-02 identity invariant; one active ownership link per policy.  
 **Permissions:** Customer sees only own result; CRM Administrator reviews candidates; support sees no unrelated candidate data.  
 **Required Data:** Opaque portal identity, verified phone, candidate references, link/review status and evidence.  
@@ -156,7 +171,7 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Architecture Decisions Required:** UUID/mapping/phone role; limited-account behavior; customer-creation authority.  
 **Acceptance Criteria:** Zero/one/many/existing-link scenarios behave safely; no duplicate or takeover; ambiguous records enter review.  
 **Out of Scope:** Customer merge and final mapping schema.  
-**Open Questions:** Who reviews matches, allowed SLA, and limited-account capabilities?
+**Open Questions:** Identity/mapping implementation remains Pending Architecture Decisions; reviewer assignment and review SLA remain Pending Operational Configuration.
 
 ### D-05 — Profile
 
@@ -166,13 +181,13 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Actors:** Portal Customer, CRM Administrator, System Integration  
 **Business Goal:** Let customers maintain appropriate data without exposing internal CRM/finance fields.  
 **Current State:** Laravel customer is rich; portal profile is absent.  
-**Target Requirement:** Show/edit basic name, primary phone, optional email, preferred branch, language, account-created date; optionally collect birth date, justified gender, food preferences/allergies and preferred channel.  
+**Target Requirement:** Show/edit basic name directly; support verified primary and backup phones; optionally collect email, preferred branch/language, birth date, justified gender, food preferences/allergies and preferred channel.  
 **Preconditions:** Authenticated account; safe link where Laravel data is required.  
 **Trigger:** Customer opens/saves profile.  
 **Primary Flow:** Load authorized projection → edit allowed fields → validate/reverify sensitive changes → synchronize under approved contract → confirm.  
 **Alternative Flows:** Unlinked account edits cloud-only permitted fields; phone change starts reverification; conflicts enter review.  
 **Failure Scenarios:** Invalid/stale update, sync outage, unauthorized field, duplicate phone.  
-**Business Rules:** Customer edits own allowed data; phone requires reverification; field authority/cloud-vs-Laravel placement Pending E; account date read-only.  
+**Business Rules:** Name edits apply directly and every change is audited; each new/changed phone requires OTP; field authority/cloud-vs-Laravel placement remains Pending E; account date is read-only and internal/financial/risk fields remain hidden.  
 **Validation Rules:** Names/phone/email/branch/language formats; allergy free text treated sensitive.  
 **Permissions:** Customer allowed fields; CRM Administrator governed correction; support read minimum; internal risk/credit/notes/accounting always hidden.  
 **Required Data:** Basic and optional fields plus consent/version metadata.  
@@ -185,7 +200,7 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Architecture Decisions Required:** Field ownership, synchronization, reverification and consent.  
 **Acceptance Criteria:** Only allowed fields appear/change; sensitive changes reverify; internal fields never appear; outages are explicit.  
 **Out of Scope:** Credit/risk/accounting/staff notes.  
-**Open Questions:** Which optional fields have approved business purposes and system authority?
+**Open Questions:** Field authority/synchronization remain Pending Architecture Decisions; optional sensitive-field purpose/retention remain Pending Privacy Policy.
 
 ### D-06 — Addresses
 
@@ -195,13 +210,13 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Actors:** Portal Customer, System Integration, CRM Administrator  
 **Business Goal:** Maintain reusable, serviceable delivery destinations.  
 **Current State:** Laravel has customer addresses; website has duplicated delivery configuration.  
-**Target Requirement:** Multiple labeled addresses (`home`, `work`, `family`, `other`) with default, zone, details, landmark, recipient/name/phone, courier note, optional coordinates and serving branch.  
+**Target Requirement:** Up to five addresses typed `home`, `work`, `family_home`, `other_home`, or `custom`, with one default, required zone/description per coverage rules, optional map location, recipient details, courier note and serving branch.  
 **Preconditions:** Verified account; current delivery coverage data available or staleness shown.  
 **Trigger:** Add/edit/select/deactivate address.  
 **Primary Flow:** Enter address → validate recipient/zone → resolve serving branch/current fee → save → optionally set default.  
 **Alternative Flows:** Coverage unknown during outage is clearly pending; changed fee is recalculated at order review; deactivate retains historical snapshots.  
 **Failure Scenarios:** Outside coverage, invalid recipient phone, stale zone/fee, branch unavailable, sync conflict.  
-**Business Rules:** One default; current price is never taken from old saved address/order; historical addresses use soft delete/deactivation.  
+**Business Rules:** One default and maximum five; system suggests branch and customer may select only another branch serving the address; delivery fee is recalculated for every order; historical addresses use soft delete/deactivation.  
 **Validation Rules:** Required structured/detail fields, normalized recipient phone, coordinates bounds when supplied, current coverage validation.  
 **Permissions:** Customer owns addresses; authorized CRM staff may assist with audit; courier sees delivery minimum only.  
 **Required Data:** Label/default, zone/details/landmark, recipient, note, optional coordinates, branch, active state.  
@@ -214,7 +229,7 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Architecture Decisions Required:** Address authority, coverage contract, coordinates provider and retention.  
 **Acceptance Criteria:** Multiple addresses and one default work; invalid/out-of-zone addresses cannot be used; current fee is revalidated; history is preserved.  
 **Out of Scope:** Map-provider selection and delivery pricing implementation.  
-**Open Questions:** Required address structure, manual exceptions, and who maintains zones?
+**Open Questions:** Coverage/source contract remains Pending Architecture Decisions; field rules, manual exceptions and zone ownership remain Pending Operational Configuration.
 
 ### D-07 — Family Members
 
@@ -224,13 +239,13 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Actors:** Family Account Owner, CRM Administrator  
 **Business Goal:** Support household preferences and occasions with explicit privacy controls.  
 **Current State:** No family-member model; customer occasions exist.  
-**Target Requirement:** Owner may maintain name, relationship, birth date, favorite products, food preferences, allergies and notes.  
+**Target Requirement:** Post-MVP owner may initially maintain name, relationship, and birth date; preferences/allergies/notes are future extensions.  
 **Preconditions:** Verified owner and explicit purpose/consent.  
 **Trigger:** Owner adds/edits/deletes a family member.  
 **Primary Flow:** Explain purpose → capture consent/minimum data → validate → save → allow correction/deletion.  
 **Alternative Flows:** Owner skips feature; revokes marketing consent without losing required operational choices.  
 **Failure Scenarios:** Missing consent, child-data policy unavailable, unauthorized staff access, sync failure.  
-**Business Rules:** Optional; never required for account/order; no financial Customer or independent login in MVP; no campaign use without consent.  
+**Business Rules:** Optional and Post-MVP; never required for account/order; no financial Customer or independent login; allergies are assistance only and never replace explicit order confirmation; no campaign use without consent.  
 **Validation Rules:** Relationship/date and sensitivity rules; child thresholds Pending E-10.  
 **Permissions:** Owner edits; authorized CRM role only; support/accounting hidden unless explicitly justified.  
 **Required Data:** Optional family attributes, consent purpose/version, owner reference.  
@@ -243,7 +258,7 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Architecture Decisions Required:** Storage, child policy, staff access and retention.  
 **Acceptance Criteria:** Feature remains optional; owner controls records; no Customer/login is created; unauthorized roles cannot view them.  
 **Out of Scope:** Independent family accounts and automatic marketing.  
-**Open Questions:** Child age/policy, lawful purpose, retention, and future independent accounts.
+**Open Questions:** Storage remains Pending Architecture Decisions; child-data rules, lawful purpose and retention remain Pending Privacy Policy.
 
 ### D-08 — Occasions
 
@@ -259,7 +274,7 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Primary Flow:** Choose type/subject/date → configure recurrence/reminder/marketing consent → save → display authorized projection.  
 **Alternative Flows:** Reminder without marketing; hidden/inactive occasion; Feb 29 follows approved rule.  
 **Failure Scenarios:** Invalid date, deleted family subject, timezone ambiguity, consent conflict, sync failure.  
-**Business Rules:** No promotional greeting after opt-out; operational reminder and marketing consent are distinct.  
+**Business Rules:** Post-MVP; year is optional; call-center staff see only day/month and birth year is restricted/omitted by default; no promotional greeting after opt-out; operational reminder and marketing consent are distinct.  
 **Validation Rules:** Valid date/type/timezone; custom label limits; explicit Feb 29 rule Pending Business Decision.  
 **Permissions:** Owner edits; admin visibility is role/purpose restricted.  
 **Required Data:** Type, date, recurrence, subject, timezone, reminder and consent state.  
@@ -272,7 +287,7 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Architecture Decisions Required:** Ownership/sync, timezone and notification policy.  
 **Acceptance Criteria:** Recurrence/subject/consent are explicit; opt-out blocks marketing; delete/hide works without corrupting history.  
 **Out of Scope:** Campaign engine.  
-**Open Questions:** Feb 29 behavior, admin visibility, reminder defaults and retention.
+**Open Questions:** Synchronization remains Pending Architecture Decisions; Feb 29/reminder defaults are Pending Operational Configuration; retention is Pending Privacy Policy.
 
 ### D-09 — Order History
 
@@ -282,14 +297,14 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Actors:** Portal Customer, System Integration  
 **Business Goal:** Show owned Laravel orders and prepare a reviewed reorder using current facts.  
 **Current State:** Website creates no Order; Laravel orders use customer links/snapshots and conflicting statuses.  
-**Target Requirement:** Paginated history shows opaque public number, date, branch, source, customer-facing state, total, items, fulfillment method and rating.  
+**Target Requirement:** Show one active order when present plus the last two completed orders, with opaque public number, date, branch, source, customer-facing state, total, items, fulfillment method and rating; retain full history for Admin only.  
 **Preconditions:** Verified safely linked customer; synchronized authorized projection.  
 **Trigger:** Customer opens history/details or chooses reorder.  
-**Primary Flow:** Authorize ownership → load page → show orders → select one → rebuild cart using current catalog/price/availability → customer reviews.  
+**Primary Flow:** Authorize ownership → show active + last two completed → select one of those completed orders → rebuild cart using current catalog/price/availability → show price changes → customer reviews.  
 **Alternative Flows:** Discontinued/unavailable items are identified; price differences are explicit; stale history is labeled.  
 **Failure Scenarios:** Unlinked account, unknown/guessable ID attempt, sync outage, partial item mapping, stale catalog.  
-**Business Rules:** Never reuse old price/payment/reference; never submit automatically; Laravel is final order authority.  
-**Validation Rules:** Opaque reference, ownership on every read, pagination limits, current item/branch validation.  
+**Business Rules:** Never expose lifetime order/spend/average/consumption statistics or full history; never reuse old price/payment/reference; never submit automatically; Laravel is final order authority.  
+**Validation Rules:** Opaque reference, ownership on every read, fixed approved history window, current item/branch validation.  
 **Permissions:** Customer own orders only; authorized support access belongs to D2.  
 **Required Data:** Public reference, timestamps, branch/source/status/total/items/method/rating and sync time.  
 **Data Source:** Laravel final orders; customer mapping Pending E-02; catalog Pending E-09.  
@@ -299,9 +314,9 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Privacy Requirements:** Hide internal notes, payment secrets, risk and staff data.  
 **Dependencies:** D-04, D-10, E-02, E-04, E-05, E-07, E-09.  
 **Architecture Decisions Required:** Public order ID, projection/storage and reorder draft location.  
-**Acceptance Criteria:** Only owned orders appear; pagination works; stale data is labeled; reorder uses current price/availability and requires review.  
+**Acceptance Criteria:** Only the owned active order and last two completed appear; no aggregate/full history appears; reorder uses current price/availability, shows differences, and requires review.  
 **Out of Scope:** Final checkout/payment design.  
-**Open Questions:** Retention window, cancellable orders, guest history, and displayed financial detail.
+**Open Questions:** Projection/public identifiers remain Pending Architecture Decisions; retention and displayed financial detail remain Pending Privacy Policy.
 
 ### D-10 — Order Tracking
 
@@ -315,9 +330,9 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Preconditions:** Authorized final Laravel order and synchronized projection.  
 **Trigger:** Order update, notification deep link, or detail refresh.  
 **Primary Flow:** Receive deduplicated ordered event → map via E-05 → update projection/timeline → show timestamp/staleness → notify when eligible.  
-**Alternative Flows:** Customer requests change/cancel or support; evaluates only after delivery; requests never change status directly.  
+**Alternative Flows:** Direct cancellation is accepted only before payment confirmation; afterward contact support. Modification request before preparation may include items, quantities, notes, or address, requires repricing and call-center acceptance; requests never change status directly.  
 **Failure Scenarios:** Offline sync, duplicate/out-of-order event, unknown mapping, missing ETA, unauthorized order.  
-**Business Rules:** Labels are not final internal statuses; Laravel confirms truth; do not show internal notes; never claim success before acknowledgement.  
+**Business Rules:** Labels are not final internal statuses; Laravel confirms truth; direct cancellation ends at payment confirmation; ordinary modification ends when preparation starts; do not show internal notes or claim success before acknowledgement.  
 **Validation Rules:** Ownership, monotonic/versioned event processing, safe reason codes, address masking.  
 **Permissions:** Customer read/request only; support responds under D2; integration maps but does not invent states.  
 **Required Data:** Public order ref, mapped state, ordered events/times, sync time, display-safe order/address/delay data.  
@@ -330,7 +345,7 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Architecture Decisions Required:** Canonical mapping, event ordering, offline policy, update transport and ETA source.  
 **Acceptance Criteria:** Duplicates/out-of-order events do not regress state; staleness is visible; only owned order displays; customer cannot mutate state.  
 **Out of Scope:** Final internal status changes, WebSocket selection and delivery workflow implementation.  
-**Open Questions:** Cancellation/modification stages, ETA ownership, delay threshold and public reasons.
+**Open Questions:** Status/event/ETA design remains Pending Architecture Decisions; active-order timing, delay thresholds and public-reason configuration remain Pending Operational Configuration.
 
 ### D-11 — Loyalty
 
@@ -340,13 +355,13 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Actors:** Portal Customer, CRM Administrator, System Integration  
 **Business Goal:** Transparently present rewards without direct balance mutation.  
 **Current State:** Laravel has only `customer.loyalty_points`; no ledger, expiry or redemption engine.  
-**Target Requirement:** Show final/pending/available/expired/expiring amounts, future ledger and rewards; submit redemption for Laravel validation and show result.  
+**Target Requirement:** Show final/pending/available/expired/expiring amounts and future ledger/rewards; points finalize only after delivered + successfully closed; redemption is automatic within configured rules and escalated when large/suspicious.  
 **Preconditions:** Verified linked customer and future authoritative ledger.  
 **Trigger:** Open rewards, choose reward, or request redemption.  
 **Primary Flow:** Load Laravel projection → choose eligible reward → submit idempotent request → Laravel validates/posts ledger → return confirmed result.  
-**Alternative Flows:** Pending/rejected request; cancellation/refund posts reversal; referral earns only after first qualifying completed order.  
+**Alternative Flows:** Large/suspicious redemption reserves points pending approval; cancellation/refund posts reversal and used points create financial/administrative review; internal negative balance may be represented with a clear settlement description; referral earns once after the first paid, delivered, successfully closed order.  
 **Failure Scenarios:** Insufficient/stale points, duplicate request, reward unavailable, sync outage, ledger absent.  
-**Business Rules:** Website never calculates authority or directly edits balance; redemption deducts used points only; admin reset is audited adjustment; earning rules belong to later phase R.  
+**Business Rules:** Website never calculates authority or directly edits balance; reward types are `invoice_discount`, `free_item`, `product_reward`, `upgrade`, `custom_reward`; every redemption is logged/notified to Admin; no points for incomplete/cancelled orders and no reset outside Ledger.  
 **Validation Rules:** Opaque idempotency/reference, nonnegative request, current reward eligibility and ledger version.  
 **Permissions:** Customer own rewards/request; privileged audited admin adjustment; accounting sees authorized consequences only.  
 **Required Data:** Ledger balance buckets, entries, expiry, reward/rule version, redemption status/reference.  
@@ -359,7 +374,7 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Architecture Decisions Required:** Ledger model, earning/expiry/refund rules, redemption financial treatment.  
 **Acceptance Criteria:** Portal cannot directly mutate points; stale/duplicate redemption is safe; Laravel response determines outcome; reversal is traceable.  
 **Out of Scope:** Implementing ledger/rules/rewards catalog.  
-**Open Questions:** Discount vs payment treatment, earning finality, refunds, negative balance and approver.
+**Open Questions:** Ledger/idempotency mechanism remains Pending Architecture Decisions; thresholds/approvers remain Pending Operational Configuration; discount/payment accounting and refund settlement remain Pending Financial Design.
 
 ### D-12 — Conversations
 
@@ -369,13 +384,13 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Actors:** Portal Customer, Customer Support Agent, System Integration  
 **Business Goal:** Provide traceable account-based support communication.  
 **Current State:** No portal conversations/messages or unified notification center.  
-**Target Requirement:** Open general/order/complaint conversation; send text; show unread, assignee, last reply, waiting party; close/reopen. Proposed states: `open`, `assigned`, `waiting_for_customer`, `waiting_for_staff`, `resolved`, `closed`.  
+**Target Requirement:** Open `order_issue`, `complaint`, `general_inquiry`, or `suggestion` threads in one inbox; send MVP text; show unread, assignee, last reply and waiting party; close/reopen. Proposed states remain non-final schema.  
 **Preconditions:** Verified account; referenced object owned when supplied.  
 **Trigger:** Customer starts/replies/reopens or staff replies/closes.  
-**Primary Flow:** Authorize context → create/idempotently send → notify Admin → assign/respond → notify customer → resolve/close.  
+**Primary Flow:** Authorize context → create/idempotently send → notify unified Admin inbox → manual claim or configured auto-assignment → respond → notify customer → resolve/close; supervisor may reassign.  
 **Alternative Flows:** Complaint conversion; attachments later; reopen by policy.  
 **Failure Scenarios:** Duplicate message, unsafe attachment, unauthorized reference, offline delivery, closed-window reply.  
-**Business Rules:** Proposed states are not final schema; messages preserve ordering; internal notes are separate and hidden.  
+**Business Rules:** Normal conversation alert target is 10 minutes; active-order target is shorter/configurable; after-hours auto-response and work schedule adjust SLA. No general-chat attachments in MVP. Complaint images use file policy. Payment proof is a separate private, audited flow linked to order/payment attempt; JPG/PNG/WEBP/PDF are initially allowed after MIME/size/content checks and authorized review, and production cannot start before payment confirmation.  
 **Validation Rules:** Text size/content safety, ownership, idempotency key, attachment policy before enabling.  
 **Permissions:** Customer own threads; assigned/authorized support; CRM admin oversight; accounting restricted.  
 **Required Data:** Thread/ref/type/state, participants, messages, unread, assignee, timestamps, safe external refs.  
@@ -388,23 +403,23 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Architecture Decisions Required:** Storage, realtime/polling, channels, retention and attachment controls.  
 **Acceptance Criteria:** Duplicate sends are suppressed; ownership is enforced; unread/waiting states are reliable; internal notes never display.  
 **Out of Scope:** Voice/video, advanced chatbot, all-channel unification, initial attachments.  
-**Open Questions:** Staffing/SLA, reopen window, attachment types and storage.
+**Open Questions:** Storage/realtime/payment-proof integration remain Pending Architecture Decisions; active-order SLA, auto-assignment delay, work schedule and file limits remain Pending Operational Configuration; file retention/access remain Pending Privacy Policy.
 
 ### D-13 — Notifications
 
 **Requirement ID:** D-13  
 **Requirement Name:** Operational and marketing notifications  
-**Priority:** P1 / MVP in-app; other channels TBD  
+**Priority:** P1 / MVP in-app only; external channels Future  
 **Actors:** Portal Customer, Customer Support Agent, System Integration  
 **Business Goal:** Deliver timely, consent-aware, deduplicated notices.  
 **Current State:** No unified portal notification center or verified channels.  
-**Target Requirement:** Separate operational order/payment/delay/support/reward notices from consent-required offers/occasion/expiry/reactivation campaigns.  
+**Target Requirement:** Provide `in_app` notifications only in MVP, separating operational/security notices from consent-required marketing; defer push, WhatsApp, SMS and email.  
 **Preconditions:** Event is authorized, classified and carries a safe reference; channel preference/consent known.  
 **Trigger:** Eligible domain/security/marketing event.  
 **Primary Flow:** Classify → check consent/preferences → deduplicate → render minimal content → send/store → record result → safe deep link.  
 **Alternative Flows:** Fallback channel Pending E-10; critical security notice bypasses optional channel disablement but follows law/policy.  
 **Failure Scenarios:** Duplicate event, invalid channel, revoked consent, provider outage, unsafe payload, stale deep link.  
-**Business Rules:** Operational is not marketing; marketing requires consent; customer controls channels; critical security cannot be disabled; no sensitive lock-screen content.  
+**Business Rules:** Marketing is an unchecked optional registration choice, never blocks registration, can be withdrawn, and records version/time/source; operational/security messaging is separate and critical security cannot be disabled.  
 **Validation Rules:** Event/reference/template/channel/consent version; `in_app`, `push`, `whatsapp`, `sms`, `email` remain candidates only.  
 **Permissions:** Customer own preferences/notices; authorized campaign/admin roles; integration minimum delivery data.  
 **Required Data:** Classification, recipient, safe reference, template/version, channel, consent/preference, delivery status.  
@@ -417,7 +432,7 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Architecture Decisions Required:** Channels/providers, preference authority, fallback, retention and delivery guarantees.  
 **Acceptance Criteria:** Marketing stops after opt-out; operational/security classes are distinct; duplicates are suppressed; deep links reauthorize.  
 **Out of Scope:** Selecting WhatsApp/SMS/email/push providers.  
-**Open Questions:** Default channels, fallback order, quiet hours, delivery SLA and campaign governance.
+**Open Questions:** Notification store/delivery contract remains Pending Architecture Decisions; in-app delivery SLA/quiet behavior remain Pending Operational Configuration; consent retention and future-channel policy remain Pending Privacy Policy.
 
 ### D-14 — Complaints
 
@@ -431,9 +446,9 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Preconditions:** Verified account; owned order if linked.  
 **Trigger:** Customer submits or converts conversation; staff follows up.  
 **Primary Flow:** Validate → create idempotently → notify/assign Admin → follow up/respond → notify customer → resolve/close → optional solution rating.  
-**Alternative Flows:** General complaint, escalation, reopen, future attachment.  
+**Alternative Flows:** General complaint, escalation, images under file policy, reopen within seven days; after seven days create a new complaint linked to the previous one.  
 **Failure Scenarios:** Duplicate, unauthorized order, invalid attachment, unavailable sync, internal-note leakage.  
-**Business Rules:** Customer never sees internal notes; priority may be internal; public status mapping needs approval; full follow-up audit.  
+**Business Rules:** Customer never sees internal notes; priority may be internal; conversation-to-complaint conversion is audited; seven-day reopen policy is enforced; public status mapping needs approval.  
 **Validation Rules:** Type/description, order ownership, idempotency, safe attachments when enabled.  
 **Permissions:** Customer own complaint; assigned support and authorized CRM admins; financial/internal detail restricted.  
 **Required Data:** Public reference, customer/order, type/text, status, priority, public replies, followups, SLA, rating.  
@@ -446,7 +461,7 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Architecture Decisions Required:** Status mapping, SLA, attachment storage, integration and retention.  
 **Acceptance Criteria:** Complaint is traceable and deduplicated; order ownership enforced; staff receives it; internal notes never display; customer gets updates.  
 **Out of Scope:** Attachment implementation and final operational workflow.  
-**Open Questions:** SLA/owner, escalation, reopen window, conversion rules and public priority.
+**Open Questions:** Status/integration/file storage remain Pending Architecture Decisions; SLA, owner, escalation and public-priority configuration remain Pending Operational Configuration; image/complaint retention remain Pending Privacy Policy.
 
 ### D-15 — Ratings
 
@@ -460,9 +475,9 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Preconditions:** Completed owned order for order rating; approved guest policy for general rating.  
 **Trigger:** Post-delivery prompt or public general-rating entry.  
 **Primary Flow:** Select eligible context → rate/comment/consent → validate/deduplicate → store under approved authority → optionally request contact → notify Admin.  
-**Alternative Flows:** Guest general rating under anti-abuse policy; edit within approved window; low score creates follow-up/complaint only with clear confirmation/policy.  
+**Alternative Flows:** Guest general rating requires verified name/phone and rate limiting; one edit is allowed within 24 hours with prior value retained; 3 stars or less creates follow-up, 1–2 is urgent, and customer is asked whether contact is desired.  
 **Failure Scenarios:** Repeat order rating, ineligible order, abusive input, rate limit, sync outage, missing consent, unsafe image.  
-**Business Rules:** One order rating or explicit edit history; no public disclosure without consent; logged-in rating links safely; guest policy remains TBD.  
+**Business Rules:** One order rating with one permitted 24-hour edit and audit history; no public disclosure without consent; guest rating never links to an order without proven ownership; follow-up/complaint remains traceable.  
 **Validation Rules:** Rating ranges/categories, completed-order ownership, content/rate limits, edit window and attachment policy.  
 **Permissions:** Customer own feedback; guest limited general rating; authorized staff review/respond; public visibility opt-in only.  
 **Required Data:** Rating type/order/customer/branch, category scores, comment, consent, contact request, timestamps/version.  
@@ -475,7 +490,7 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 **Architecture Decisions Required:** Authoritative store, guest policy, edit window, thresholds, retention and image storage.  
 **Acceptance Criteria:** Order ownership/completion enforced; duplicate policy enforced; low-rating follow-up is traceable; rating is private by default without consent.  
 **Out of Scope:** Image implementation, public review feed and final moderation tooling.  
-**Open Questions:** Guest eligibility, edit window, low-score threshold, publication/moderation and retention.
+**Open Questions:** Authoritative store/linking remain Pending Architecture Decisions; moderation/follow-up ownership remains Pending Operational Configuration; publication consent and retention remain Pending Privacy Policy.
 
 ## 5. Requirements Matrix
 
@@ -577,32 +592,27 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 
 ## 10. Open Questions
 
-### Business Questions
+### Pending Architecture Decisions
 
-- Can customers request cancellation or address/item changes, until which state, and with what confirmation?
-- Can ratings be edited; can family members ever own accounts; are corporate customers treated differently?
-- Which profile/family fields have an approved purpose, and what constitutes a public cancellation reason?
+- E-01 through E-10: integration location, identity/mapping, Portal Account authentication/session implementation, pre-approval storage, canonical status/event mapping, idempotency, durable offline synchronization, financial lifecycle timing, catalog/coverage authority, and privacy/channel architecture.
+- OTP provider and delivery mechanism; device recognition and suspicious-activity signals; authoritative stores for family, messages, notifications and ratings; private payment-proof/file storage and scanning.
 
-### Operational Questions
+### Pending Operational Configuration
 
-- Who owns messages, complaints and ambiguous-customer review, and what are their SLAs/escalations?
-- Who approves point redemption/adjustment and converts low ratings/conversations into complaints?
-- Who maintains branches, zones, fees and notification templates?
+- OTP lifetime/attempt/resend/lock values; ambiguous-match reviewer and SLA; administrative recovery controls after phone loss.
+- Coverage field rules, zone ownership/manual exceptions, Feb 29/reminder defaults, active-order modification/delay/ETA targets and public reason catalog.
+- Conversation auto-assignment delay, active-order SLA, work schedule, complaint ownership/escalation, low-rating follow-up owner, moderation workflow, and file limits.
+- Large/suspicious redemption thresholds and approval roles.
 
-### Financial Questions
+### Pending Privacy Policy
 
-- Is redemption a discount or payment method; when do points become final; what happens on refund/cancellation; may balance be negative?
-- At what lifecycle point are invoices, payments and financial transactions created (E-08)?
+- Retention/access/deletion/export rules for identity attempts, sessions, profiles, addresses, family/child data, occasions, messages, files/payment proofs, complaints, ratings, notifications and audit evidence.
+- Lawful purpose for optional sensitive fields, future external-channel consent, public rating publication, and account deletion/correction exceptions.
 
-### Technical Questions
+### Pending Financial Design
 
-- OTP provider, Portal Account location/auth/session, unified customer/public order IDs, cloud integration location, synchronization/update transport, idempotency and offline policy remain E decisions.
-- Where is a pre-approval order stored, and how are menu/price/branch/zone versions resolved?
-
-### Privacy Questions
-
-- Retention for verification attempts, sessions, messages, complaints, ratings, notifications, family/child data and audit records?
-- Account deletion/correction/export policy, marketing consent model, lock-screen content and public-review consent?
+- Whether reward redemption is represented as discount or payment and how each reward type posts financially.
+- E-08 invoice/payment timing, refund/cancellation settlement, negative loyalty balance treatment, and review when already-used points are reversed.
 
 ## 11. Architecture Decision Traceability
 

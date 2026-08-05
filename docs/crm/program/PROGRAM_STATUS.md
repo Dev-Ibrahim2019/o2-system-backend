@@ -3,11 +3,12 @@
 ```text
 Current Milestone: M0
 Current Phase: D
-Current Batch: D1 — Customer Portal Requirements
-D1 Status: Ready for Business Review
+Completed Batch: D1 — Customer Portal Requirements
+D1 Status: Business Approved
+Current Batch: D2 — Admin CRM Requirements
 Last Completed Phase: C
-Next Batch: D2 — Admin CRM Requirements
 Implementation Status: Not Started
+Architecture Decisions: Pending
 ```
 
 | Phase | Status | Outcome |
@@ -15,7 +16,7 @@ Implementation Status: Not Started
 | A | Complete | Program governance documents |
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
-| D | In Progress — D1 Ready for Review | Requirements Baseline |
+| D | In Progress — D1 Business Approved | D2 Admin CRM Requirements is next |
 | E | Not Started | Architecture Decisions |
 | F | Blocked | Waiting for E |
 | G-Z | Not Started | — |
