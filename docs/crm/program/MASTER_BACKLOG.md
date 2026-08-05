@@ -23,7 +23,7 @@ Status: `[x]` complete, `[ ]` not started, `[!]` blocked, `[?]` manual verificat
 | B-09 | B | Create draft pull requests | P1 | All | [?] | B-07 | Update after GitHub operation |
 | B-10 | B | Cross-link pull requests | P1 | All | [?] | B-09 | Update after PR creation |
 | B-11 | B | Apply documented commit naming | P1 | Backend | [x] | B-08 | Conventional documentation commits |
-| B-12 | B | Verify branch protection | P0 | All | [?] | GitHub access | Needs GitHub repository settings verification |
+| B-12 | B | Verify branch protection | P0 | All | [!] | GitHub access | Verified via GitHub API: default `main` branches are not protected |
 | C-01..C-25 | C | Current-state audit work package | P0 | All | [x] | — | See [CURRENT_STATE_AUDIT.md](../CURRENT_STATE_AUDIT.md) |
 | D-01..D-25 | D | Requirements baseline | P0 | All | [ ] | A-C | Not started |
 | E-01..E-10 | E | Architecture decisions | P0 | All | [ ] | D | See decision log |
