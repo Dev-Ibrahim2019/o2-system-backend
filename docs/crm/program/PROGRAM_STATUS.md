@@ -6,6 +6,7 @@ Current Phase: D
 Completed Batch: D1 — Customer Portal Requirements
 D1 Status: Business Approved
 Current Batch: D2 — Admin CRM Requirements
+D2 Status: Ready for Business Review
 Last Completed Phase: C
 Implementation Status: Not Started
 Architecture Decisions: Pending

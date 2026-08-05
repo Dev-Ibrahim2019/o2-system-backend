@@ -4,6 +4,8 @@ No decision below is resolved by this document.
 
 Customer Portal requirement questions are traced to these pending decisions in [CUSTOMER_PORTAL_REQUIREMENTS.md](../requirements/CUSTOMER_PORTAL_REQUIREMENTS.md#11-architecture-decision-traceability). This link records dependencies only and does not resolve any decision.
 
+Admin CRM requirements D-16 through D-25 are traced to the same pending decisions in [ADMIN_CRM_REQUIREMENTS.md](../requirements/ADMIN_CRM_REQUIREMENTS.md#16-architecture-traceability). D2 adds constraints for shared CRM projections, identity review, loyalty ledger operations, conversation delivery, consent-aware campaigns, operational timelines, and idempotent website-order approval; it resolves no E decision.
+
 | Decision ID | Title | Status | Decision | Alternatives | Rationale | D1 approved constraints to preserve | Date |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | E-01 | Cloud Integration API location | Pending | TBD | Independent service; inside Next.js | Boundary, ownership, and deployment need agreement | Must support limited accounts, Admin review/inbox, private payment proof, complaints and rating follow-up | — |
