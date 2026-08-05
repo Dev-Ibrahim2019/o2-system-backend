@@ -2,6 +2,8 @@
 
 No decision below is resolved by this document.
 
+Customer Portal requirement questions are traced to these pending decisions in [CUSTOMER_PORTAL_REQUIREMENTS.md](../requirements/CUSTOMER_PORTAL_REQUIREMENTS.md#11-architecture-decision-traceability). This link records dependencies only and does not resolve any decision.
+
 | Decision ID | Title | Status | Decision | Alternatives | Rationale | Date |
 | --- | --- | --- | --- | --- | --- | --- |
 | E-01 | Cloud Integration API location | Pending | TBD | Independent service; inside Next.js | Boundary, ownership, and deployment need agreement | — |
