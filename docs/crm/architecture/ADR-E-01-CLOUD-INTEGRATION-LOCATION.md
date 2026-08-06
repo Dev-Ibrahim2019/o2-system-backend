@@ -2,9 +2,56 @@
 
 ## Status
 
-**[R] Proposed — Ready for Architecture Review**
+**[x] Approved**
 
-This ADR proposes a deployment boundary. It does not approve implementation, a technology stack, schemas, domains, providers, or any E-02 through E-10 or EA-01 through EA-06 decision.
+Approval Date: **2026-08-06**
+
+This ADR approves the deployment boundary only. It does not approve implementation, a technology stack, schemas, domains, providers, or any E-02 through E-10 or EA-01 through EA-06 decision.
+
+## Approved Decision
+
+**Option A — Independent Cloud Integration Service** is approved.
+
+### Approved service boundary
+
+- The Cloud Integration API is independently deployed and has independently controlled data, secrets, monitoring, logs, backups, and private object storage.
+- Local Laravel remains the final operational and financial authority.
+- There is no inbound internet connection to local Laravel. Laravel needs neither a public IP nor port forwarding.
+- A local Sync Agent initiates outbound communication from the branch to the Cloud Integration API and invokes Laravel only through a narrowly authorized local boundary.
+- Next.js does not own durable retry, the authoritative Integration Inbox/Outbox, reconciliation, or permanent synchronization state.
+- The cloud is not final authority for Orders, Invoices, Payments, Production Tickets, inventory, fulfillment, or loyalty balances.
+
+### Approved communication direction
+
+```text
+Website → Independent Cloud Integration API
+Local Sync Agent → Cloud Integration API
+Local Sync Agent → Local Laravel
+Local Laravel → Local Outbox
+Local Sync Agent → Cloud Integration API
+```
+
+### Approved cloud staging boundary
+
+The independent cloud boundary may durably stage Portal Accounts, verification references, pre-approval website orders, external/correlation references, integration Inbox/Outbox records, cursors, idempotency/retry/reconciliation state, messages, in-app notifications, private payment-proof metadata/object references, customer-link review state, and explicitly stale-aware read projections. Exact ownership and schemas remain subject to E-02 through E-10 and EA decisions.
+
+### Laravel final authorities
+
+Laravel remains final authority for operational Customers, accepted Orders, Invoices, Payments, accounting entries and balances, Production Tickets, inventory, final fulfillment/order status, and loyalty ledger/balance.
+
+### Approved operational decisions
+
+1. Service ownership is recorded as logically separate roles: Integration Service Owner, Cloud Hosting and Deployment Owner, Backup and Recovery Owner, Security and Credentials Owner, and Integration Operations Owner. One person may initially hold multiple roles, but permissions, responsibilities, credential custody, and audit remain separated.
+2. Initial MVP targets are 99.5% monthly Cloud API availability, database RPO up to 5 minutes, service RTO up to 60 minutes, normal synchronization lag under 1 minute, warning over 5 minutes, and critical over 15 minutes. These are reviewable initial targets, do not imply multi-region, select no provider/infrastructure, and do not decide E-02 or E-07.
+3. A separate Staging environment is required with an independent database, independent private object storage, independent credentials, representative Sync Agent, test Laravel environment, monitoring, and logs. Production data requires masking or an approved policy.
+4. The operating model is economical managed services: managed database, private object storage, automated backups, monitoring, alerts, centralized logs, and a recovery runbook. Multi-region, enterprise-scale infrastructure, a provider, and a final numeric budget are not approved.
+5. MVP Admin access is `Admin Frontend → Local Laravel → Cloud Integration API`. Direct Admin-to-cloud access is not allowed in MVP; a later cloud-only need requires an additional architecture decision, federated or short-lived staff authentication, independent authorization, and audit.
+6. The initial planning range is up to 10 branches, 100,000 Portal Accounts, 5,000 website orders/day, 25,000 messages/day, and 2,500 private payment-proof files/day. This is planning Range B, not a commercial limit.
+7. The architecture must scale beyond Range B without rewriting external identifiers, idempotency keys, correlation IDs, Inbox/Outbox semantics, pagination/cursor contracts, synchronization acknowledgements, event versioning, Portal Account mappings, or order-staging references. No undefined Option C figures are adopted.
+8. Final retention periods are deferred to EA-06. Data is classified as Portal Sessions, Staged Orders, Completed Staged Orders, Integration Inbox, Integration Outbox, Failed Sync Evidence, Messages, Notifications, Payment Proof, Audit Logs, and Read Projections. Holds override deletion eligibility.
+9. Failure ownership is split: Integration Operations owns technical failures; CRM/Call Center Operations owns customer identity, order-content, assignment, approval, and operational rejection reviews; Finance owns payment, invoice, refund/reversal, and financially indeterminate outcomes. After-hours critical failures start with the on-duty supervisor and documented escalation. Failed Sync, Needs Review, and Financial Review remain logically separate queues.
+
+E-02 through E-10 and EA-01 through EA-06 remain **Pending**.
 
 ## Context
 
@@ -224,7 +271,7 @@ Availability must be defined as separate SLOs for the public API, workers, datab
 
 ## Recommended Option
 
-**Choose Option A: an independently deployed Cloud Integration API.**
+**Approved: Option A, an independently deployed Cloud Integration API.**
 
 Keep Laravel local as operational and financial authority. Use a local Sync Agent that initiates outbound communication. Do not place durable integration responsibility inside Next.js. Keep Admin operational reads/actions through Laravel by default; consider only narrowly scoped direct cloud access in a later approved contract.
 
@@ -279,7 +326,7 @@ Rejected because the planned extraction would migrate live portal sessions, stag
 
 ## Implementation Implications for Phase F
 
-If approved, Phase F should design—not yet implement until authorized—the following:
+Under this approved boundary, Phase F should design—not yet implement until separately authorized and the remaining required architecture decisions are approved—the following:
 
 - An independent API/worker deployment, database, private object storage, secrets, observability, backup, and staging boundaries.
 - Versioned contracts between Website↔Cloud API, Sync Agent↔Cloud API, and Sync Agent↔Laravel.
@@ -300,23 +347,67 @@ No repository, service, route, schema, migration, provider, domain, or credentia
 - Architecture catalog and risks: [DECISION_LOG.md](../program/DECISION_LOG.md), [RISK_REGISTER.md](../program/RISK_REGISTER.md)
 - Backlog/status: [MASTER_BACKLOG.md](../program/MASTER_BACKLOG.md), [PROGRAM_STATUS.md](../program/PROGRAM_STATUS.md)
 
-## Architecture Review Questions
+## Architecture Review Decisions
 
-1. **Do we approve an independently deployed Cloud Integration API as the E-01 boundary?**  
-   **Recommendation:** Approve Option A and prohibit durable integration ownership inside Next.js.
-2. **Which organizational role owns the service application, hosting, deployment, and on-call escalation?**  
-   **Recommendation:** Assign an Integration Service Owner with Platform Operations and Security responsibilities explicitly documented.
-3. **What availability and recovery objectives are required for API, workers, database, object storage, and maximum synchronization lag?**  
-   **Recommendation:** Approve measurable component SLOs and RPO/RTO before selecting infrastructure.
-4. **Is a separate staging environment required for contract and disconnection testing?**  
-   **Recommendation:** Require staging with isolated data, credentials, storage, and a representative Sync Agent.
-5. **What operating budget and support coverage are approved for the independent service?**  
-   **Recommendation:** Fund managed database/object storage, monitoring, backups, and alert response before Phase F.
-6. **Should Admin ever connect directly to the Cloud Integration API?**  
-   **Recommendation:** Default to Laravel-mediated access; approve direct access only for demonstrably cloud-only queues with federated staff authorization and full audit.
-7. **What are the expected initial and three-year branch, portal-user, order, message, and proof-file volumes?**  
-   **Recommendation:** Approve planning ranges and peak factors before capacity and availability design.
-8. **How long may staged orders, failed-sync evidence, messages, and private payment-proof files remain in cloud storage?**  
-   **Recommendation:** Defer exact periods to EA-06, but require explicit legal/business retention classes before implementation.
-9. **Who reviews Failed Sync and Needs Review queues, including after-hours and financially indeterminate outcomes?**  
-   **Recommendation:** Assign Integration Operations for transport failures and CRM/Call Center or Finance for business/financial outcomes with documented escalation.
+### 1. Independent deployment boundary
+
+**Question:** Do we approve an independently deployed Cloud Integration API as the E-01 boundary?  
+**Decision:** Approved — Option A. Durable integration ownership inside Next.js is prohibited.  
+**Rationale:** It isolates public website releases from durable integration, protects Laravel from public ingress, and provides an operable boundary for workers, private files, and recovery.  
+**Follow-up Decision:** E-02 through E-10 and EA topics define transport and domain contracts.
+
+### 2. Ownership roles
+
+**Question:** Which organizational role owns the service application, hosting, deployment, and on-call escalation?  
+**Decision:** Record Integration Service Owner, Cloud Hosting and Deployment Owner, Backup and Recovery Owner, Security and Credentials Owner, and Integration Operations Owner as separate responsibilities. One person may initially hold more than one role without merging permissions or credential custody.  
+**Rationale:** Explicit accountability is required even under a small-team operating model. Sensitive operations and credential use remain audited.  
+**Follow-up Decision:** Assign named accountable people before Phase F implementation begins.
+
+### 3. Availability and recovery objectives
+
+**Question:** What availability and recovery objectives are required for API, workers, database, object storage, and synchronization lag?  
+**Decision:** Initial MVP targets: Cloud API 99.5% monthly; database RPO ≤5 minutes; service RTO ≤60 minutes; normal lag <1 minute; warning lag >5 minutes; critical lag >15 minutes.  
+**Rationale:** These economical initial targets make degraded state measurable while real workload data is gathered. They do not imply multi-region or choose infrastructure.  
+**Follow-up Decision:** E-02 and E-07 define transport, measurement, retry, and alert mechanics; targets are reviewed after production evidence exists.
+
+### 4. Staging environment
+
+**Question:** Is a separate staging environment required for contract and disconnection testing?  
+**Decision:** Yes. It includes an independent database, private object storage, credentials, representative Sync Agent, test Laravel, monitoring, and logs. It must test disconnection/reconnection, duplicate delivery, retry, timeout after local commit, failed proof, partial approval, out-of-order events, agent restart, credential rotation, Needs Review, and financially indeterminate results.  
+**Rationale:** Failure and replay behavior cannot be safely validated against production or only through unit-level testing.  
+**Follow-up Decision:** Define test-data masking and promotion/runbook controls before staging use.
+
+### 5. Operating model and budget posture
+
+**Question:** What operating budget and support coverage are approved for the independent service?  
+**Decision:** Use economical managed services for database, private object storage, automated backups, monitoring, alerts, centralized logs, and recovery runbooks. No provider, exact price, multi-region, or enterprise-scale platform is approved.  
+**Rationale:** Managed durability and observability reduce operational burden while avoiding premature infrastructure scale.  
+**Follow-up Decision:** Platform Operations prepares costed provider options within the approved boundary before procurement/deployment.
+
+### 6. Admin access
+
+**Question:** Should Admin connect directly to the Cloud Integration API?  
+**Decision:** No for MVP. Use `Admin Frontend → Local Laravel → Cloud Integration API`. Direct access requires a later architecture decision for a proven cloud-only screen with federated/short-lived staff authentication, independent authorization, and audit.  
+**Rationale:** Laravel already enforces staff authentication, permissions, branch scope, and operational audit; browser cloud credentials and competing truth paths are avoided.  
+**Follow-up Decision:** Phase F contract design defines the Laravel-mediated cloud read/action boundary without approving direct browser access.
+
+### 7. Capacity planning range
+
+**Question:** What initial and three-year planning range applies to branches, Portal Accounts, orders, messages, and proof files?  
+**Decision:** Plan for up to 10 branches, 100,000 Portal Accounts, 5,000 website orders/day, 25,000 messages/day, and 2,500 private payment-proof files/day. This is Range B, not a fixed commercial limit.  
+**Rationale:** It gives infrastructure planning a concrete baseline without turning estimates into product limits.  
+**Follow-up Decision:** Design beyond Range B without changing core identifier, idempotency, correlation, Inbox/Outbox, cursor, acknowledgement, versioning, mapping, or staging-reference contracts.
+
+### 8. Retention
+
+**Question:** How long may staged orders, failed-sync evidence, messages, and private payment-proof files remain in cloud storage?  
+**Decision:** No final periods are approved. EA-06 will decide them by retention class. Open Complaint, confirmed/suspected Payment, Financial Review, Dispute, Reconciliation, Legal/Business Hold, or required Audit evidence blocks deletion.  
+**Rationale:** Retention must reflect privacy, operational, financial, and legal purpose instead of applying one arbitrary duration.  
+**Follow-up Decision:** EA-06 defines class periods, hold flags, deletion eligibility, appropriate anonymization, object lifecycle, and database/object consistency.
+
+### 9. Failure ownership
+
+**Question:** Who reviews Failed Sync and Needs Review queues, including after-hours and financially indeterminate outcomes?  
+**Decision:** Integration Operations owns technical failures; CRM/Call Center Operations owns business review; Finance owns financial review. The on-duty supervisor initiates documented after-hours escalation. Failed Sync, Needs Review, and Financial Review are logically separate even if one dashboard displays them.  
+**Rationale:** Different evidence, permissions, and resolution authority apply to technical, business, and financial failures.  
+**Follow-up Decision:** Operating runbooks assign named rotations, escalation times, and handoff evidence before go-live.

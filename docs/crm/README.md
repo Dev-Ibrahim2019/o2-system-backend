@@ -5,7 +5,7 @@
 - [Customer Portal Business Decisions — D1 Approval](requirements/CUSTOMER_PORTAL_BUSINESS_DECISIONS.md)
 - [Admin CRM Requirements — D2](requirements/ADMIN_CRM_REQUIREMENTS.md)
 - [Admin CRM Business Decisions — D2 Approval](requirements/ADMIN_CRM_BUSINESS_DECISIONS.md)
-- [ADR E-01 — Cloud Integration API Location](architecture/ADR-E-01-CLOUD-INTEGRATION-LOCATION.md)
+- [ADR E-01 — Cloud Integration API Location — Approved](architecture/ADR-E-01-CLOUD-INTEGRATION-LOCATION.md)
 - [Program Charter](program/PROGRAM_CHARTER.md)
 - [Master Backlog](program/MASTER_BACKLOG.md)
 - [Decision Log](program/DECISION_LOG.md)

@@ -2,15 +2,16 @@
 
 ```text
 Current Milestone: M0
-Current Phase: E
+Current Phase: E — Architecture Decisions
 Previous Phase: D — Complete
-Current Decision: E-01 — Cloud Integration API Location
-E-01 Status: Ready for Architecture Review
+Completed Decision: E-01 — Cloud Integration API Location
+E-01 Status: Approved
+Current Decision: E-02 — Synchronization Mode
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
 Implementation Status: Not Started
-Next Step: Architecture Review and approval of E-01
+Phase F Status: Not Started — Waiting for remaining architecture approvals
 ```
 
 | Phase | Status | Outcome |
@@ -19,8 +20,8 @@ Next Step: Architecture Review and approval of E-01
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01 Proposed | E-01 is ready for architecture review; E-02 through E-10 remain pending |
-| F | Blocked | Waiting for architecture approvals |
+| E | In Progress — E-01 Approved | E-02 is current; E-02 through E-10 otherwise remain pending and no E-02 work starts in the E-01 approval task |
+| F | Not Started / Blocked | Waiting for remaining architecture approvals |
 | G-Z | Not Started | — |
 
 ## Runtime Verification Backlog
@@ -30,4 +31,4 @@ Next Step: Architecture Review and approval of E-01
 - Verify the actual deployment configuration.
 - Verify network connectivity between cloud and local environments.
 
-These items do not change the D2 business approval. They prevent the system from being declared production-ready.
+These items do not change E-01 approval. They prevent the system from being declared production-ready.
