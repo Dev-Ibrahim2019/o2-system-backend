@@ -551,17 +551,17 @@ All thresholds except the D1-approved normal conversation initial alert and the 
 
 ## 16. Architecture Traceability
 
-| D2 Requirement | E Decisions Required |
+| D2 Requirement | Canonical E decisions and supporting topics required |
 | --- | --- |
-| D-16 | E-01,E-02,E-05,E-07,E-10 |
-| D-17 | E-02,E-07,E-10 |
-| D-18 | E-02,E-07,E-10 |
-| D-19 | E-01,E-02,E-03,E-07,E-10 |
-| D-20 | E-01,E-02,E-05,E-07,E-10 |
-| D-21 | E-05,E-06,E-07,E-08,E-10 |
-| D-22 | E-01,E-06,E-07,E-10 |
-| D-23 | E-01,E-05,E-06,E-07,E-10 |
-| D-24 | E-06,E-07,E-10 |
-| D-25 | E-01,E-02,E-04,E-05,E-06,E-07,E-08,E-09,E-10 |
+| D-16 | E-01,E-02,E-07,E-08,E-09; EA-02 |
+| D-17 | E-07,E-09; EA-06 |
+| D-18 | E-08,E-09; EA-06 |
+| D-19 | E-01,E-07,E-08,E-09; EA-01,EA-06 |
+| D-20 | E-01,E-02,E-07,E-09; EA-02,EA-06 |
+| D-21 | E-07,E-08,E-10; EA-03,EA-05,EA-06 |
+| D-22 | E-01,E-02,E-03,E-07,E-09,E-10; EA-03,EA-06 |
+| D-23 | E-01,E-02,E-03,E-04,E-07,E-09,E-10; EA-02,EA-03,EA-06 |
+| D-24 | E-02,E-04,E-07,E-09,E-10; EA-03,EA-06 |
+| D-25 | E-01,E-02,E-05,E-06,E-07,E-08,E-09,E-10; EA-02,EA-03,EA-04,EA-05 |
 
-No E decision is resolved by D2.
+No E or EA decision is resolved by D2.

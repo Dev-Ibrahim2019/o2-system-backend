@@ -616,17 +616,23 @@ Deep links must authenticate first, preserve a safe destination, authorize the r
 
 ## 11. Architecture Decision Traceability
 
-| Decision | D1 questions that depend on it |
+| Decision/topic | D1 questions that depend on it |
 | --- | --- |
-| E-01 Cloud Integration location | Linking, projections, tracking, messages, complaints, ratings |
-| E-02 Customer identity | Phone normalization, account linking, profile/order ownership |
-| E-03 Portal Account authentication | Login, registration, sessions, recovery, account states |
-| E-04 Cloud order storage | Reorder/pre-approval drafts and checkout handoff |
-| E-05 Canonical order statuses | History, tracking, cancellation and complaint status display |
-| E-06 Idempotency contract | Tracking, redemption, messages, notifications, complaints, ratings |
-| E-07 Outbox/Inbox and offline policy | Every cross-system projection/mutation and stale-data behavior |
-| E-08 Invoice/payment timing | Payment notices, points finality and portal financial wording |
-| E-09 Menu and price source | Address coverage, fees, reorder price/availability |
-| E-10 Privacy/consent/retention/channels | OTP delivery, profiles, family, occasions, messages, notifications, complaints, ratings |
+| E-01 Cloud Integration API Location | Linking, projections, tracking, messages, complaints, ratings |
+| E-02 Synchronization Mode | Tracking, conversations, notifications, and freshness-sensitive projections |
+| E-03 Conversation and Message Storage | Conversations, complaint communication, ordering, assignment, and message history |
+| E-04 Notification Storage | In-app notices, preferences, delivery state, and notification audit |
+| E-05 Website Order Pre-Approval Model | Reorder/pre-approval drafts, checkout handoff, and approval boundary |
+| E-06 Payment Verification | Payment proof, confirmation, production gate, and customer-safe payment status |
+| E-07 Offline and Retry Policy | Every cross-system projection/mutation and stale-data behavior |
+| E-08 Conflict Resolution Policy | Concurrent/stale identity, catalog, order, and financial outcomes |
+| E-09 Unified Customer Identity | Phone normalization, account linking, profile/order ownership |
+| E-10 External Order Identifier and Reference Contract | External order references and cross-system correlation |
+| EA-01 Portal Authentication and Sessions | Login, registration, sessions, recovery, and account states |
+| EA-02 Canonical Status Dictionary | History, tracking, cancellation, complaint status, and fulfillment states |
+| EA-03 Idempotency Contract | Tracking, redemption, messages, notifications, complaints, ratings, and approval |
+| EA-04 Catalog and Pricing Authority | Address coverage, fees, reorder price, and availability |
+| EA-05 Financial Posting Timing | Payment notices, points finality, refunds, and financial wording |
+| EA-06 Privacy, Consent and Retention | Profiles, family, occasions, messages, notifications, complaints, and ratings |
 
-All E-01 through E-10 remain **Pending**.
+All E-01 through E-10 and EA-01 through EA-06 remain **Pending**.

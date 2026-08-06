@@ -1,20 +1,47 @@
 # Decision Log
 
-No decision below is resolved by this document.
+No decision below is resolved by this document. The catalog defines the questions that Phase E must decide; D1 and D2 only constrain acceptable answers.
 
-Customer Portal requirement questions are traced to these pending decisions in [CUSTOMER_PORTAL_REQUIREMENTS.md](../requirements/CUSTOMER_PORTAL_REQUIREMENTS.md#11-architecture-decision-traceability). This link records dependencies only and does not resolve any decision.
+## Canonical Architecture Decisions
 
-Admin CRM requirements D-16 through D-25 are traced to the same pending decisions in [ADMIN_CRM_REQUIREMENTS.md](../requirements/ADMIN_CRM_REQUIREMENTS.md#16-architecture-traceability). D2 adds constraints for shared CRM projections, identity review, loyalty ledger operations, conversation delivery, consent-aware campaigns, operational timelines, and idempotent website-order approval; it resolves no E decision.
+| Decision ID | Canonical Decision | Status | D1/D2 constraints to preserve |
+| --- | --- | --- | --- |
+| E-01 | Cloud Integration API Location | Pending | Define a secure, observable boundary for portal, Admin, and Laravel integration without changing Laravel's operational authority. |
+| E-02 | Synchronization Mode: Polling vs WebSocket vs Hybrid | Pending | Support explicit freshness, event-driven dashboard updates where feasible, five-minute fallback refresh, and recoverable degraded operation. |
+| E-03 | Conversation and Message Storage | Pending | Preserve one governed conversation history, assignment and SLA evidence, internal/public separation, ordering, and deduplication. |
+| E-04 | Notification Storage | Pending | Preserve in-app MVP delivery, auditability, preferences, delivery state, and separation of operational and marketing notices. |
+| E-05 | Website Order Pre-Approval Model | Pending | A website order remains pre-approval intent until authorized approval; no production or premature Laravel order/financial records. |
+| E-06 | Payment Verification | Pending | Payment proof is private evidence, verification is distinct from order approval, and no production starts before confirmation. |
+| E-07 | Offline and Retry Policy | Pending | Retries are bounded, observable, safe, and recoverable; unresolved outcomes enter Needs Review without silent partial success. |
+| E-08 | Conflict Resolution Policy | Pending | Define authority and reconciliation for stale, concurrent, or contradictory customer, catalog, order, and financial state. |
+| E-09 | Unified Customer Identity | Pending | One Laravel operational Customer; verified phone alone does not resolve ambiguity; link, unlink, and merge remain controlled and audited. |
+| E-10 | External Order Identifier and Reference Contract | Pending | Preserve unique external/correlation references, idempotent processing, and prevention of duplicate orders, invoices, payments, and tickets. |
 
-| Decision ID | Title | Status | Decision | Alternatives | Rationale | D1 approved constraints to preserve | Date |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| E-01 | Cloud Integration API location | Pending | TBD | Independent service; inside Next.js | Boundary, ownership, and deployment need agreement | Must support limited accounts, Admin review/inbox, private payment proof, complaints and rating follow-up | — |
-| E-02 | Unified customer identity | Pending | TBD | UUID; mapping table; both | Must support deterministic cross-system identity | Must auto-link one verified match, isolate duplicates, support primary/backup verified phones, prevent self/duplicate referral and protect order ownership | — |
-| E-03 | Portal account ownership and authentication | Pending | TBD | Cloud-owned; Laravel-owned; federated | Security and lifecycle ownership need agreement | Must support first/new-device OTP, later phone+password login, 30-day multi-device sessions, reverification, suspension split and audited recovery | — |
-| E-04 | Pre-approval order storage | Pending | TBD | Cloud; Laravel; staged integration store | Must preserve intent without creating an approved order early | Must allow limited accounts to create new orders and reviewed reorder from the last two completed without copying payment data | — |
-| E-05 | Order, production, and delivery status dictionary | Pending | TBD | Shared canonical states; mapped system states | Prevent contradictory lifecycle reporting | Must support direct cancellation before payment and modification request before preparation without portal-side status mutation | — |
-| E-06 | Idempotency and external-reference contract | Pending | TBD | Client keys; server keys; composite contract | Prevent duplicate business and financial records | Must deduplicate referral/reward/redemption/messages/complaints/ratings and preserve rating/reversal history | — |
-| E-07 | Outbox, inbox, and retry policy | Pending | TBD | Database pattern; broker; managed integration | Guarantee recoverable event delivery | Must support trustworthy tracking, one unified support inbox, configurable assignment/SLA, complaint reopen links and all cross-system projections | — |
-| E-08 | Invoice, payment, and financial transaction creation point | Pending | TBD | Approval; fulfillment; settlement | Financial controls and reconciliation need agreement | Must prevent production before payment confirmation, finalize points after delivered+closed, and support ledger reversal/financial review | — |
-| E-09 | Menu, price, branch, and delivery-zone source | Pending | TBD | Laravel authoritative; cloud authoritative; governed split | Avoid catalog and price divergence | Must reprice reorder/modifications, recalculate delivery fee each order and allow only branches that serve the address | — |
-| E-10 | Privacy, consent, retention, notifications, and conversations | Pending | TBD | Central policy; system policies with shared contract | Legal, security, and operational requirements need agreement | Must support opt-in marketing, in-app-only MVP notices, restricted family/birth data, private files, seven-day complaint reopen and consent-controlled ratings | — |
+All canonical E-01 through E-10 decisions remain **Pending**.
+
+## Supporting Architecture Decision Topics
+
+Supporting topics refine the canonical decisions but do not replace or renumber them.
+
+| Topic ID | Supporting Topic | Related canonical E decision | Related later phase | Status | D1/D2 constraints | Separate ADR later? |
+| --- | --- | --- | --- | --- | --- | --- |
+| EA-01 | Portal Authentication and Sessions | E-01,E-09 | I,U | Pending | First/new-device verification, secure recovery, limited/restricted states, revocation, and audited identity operations. | Yes — security and lifecycle contract. |
+| EA-02 | Canonical Status Dictionary | E-05,E-08 | K,L,M,N,T | Pending | Business actions govern transitions; tracking is consistent; production cannot precede payment confirmation. | Yes — lifecycle mapping and transition contract. |
+| EA-03 | Idempotency Contract | E-07,E-10 | F,K,L,O,V | Pending | Duplicate order, invoice, payment, production ticket, notification, and interaction effects must be prevented or reconciled. | Yes — keys, scope, retention, and replay semantics. |
+| EA-04 | Catalog and Pricing Authority | E-05,E-08 | J,K | Pending | Prices should not normally diverge; differences require repricing and recorded customer approval before order approval. | Yes — menu, branch, delivery-zone, and price ownership. |
+| EA-05 | Financial Posting Timing | E-05,E-06,E-08 | O,P,Q | Pending | Verification and approval are distinct; no orphan financial records; refunds/reversals and loyalty changes remain traceable. | Yes — invoice, payment, accounting, and loyalty posting points. |
+| EA-06 | Privacy, Consent and Retention | E-03,E-04,E-09 | R,S,U | Pending | Minimize PII, protect proof/internal notes/family data, separate operational notices from marketing, and retain consent/audit evidence. | Yes — lawful purpose, retention, deletion, and channel policy. |
+
+All EA-01 through EA-06 topics remain **Pending**.
+
+## Traceability Guidance
+
+- D1 traceability is maintained in [CUSTOMER_PORTAL_REQUIREMENTS.md](../requirements/CUSTOMER_PORTAL_REQUIREMENTS.md#11-architecture-decision-traceability).
+- D2 traceability is maintained in [ADMIN_CRM_REQUIREMENTS.md](../requirements/ADMIN_CRM_REQUIREMENTS.md#16-architecture-traceability).
+- Unified Customer Identity maps to E-09.
+- External references map to E-10; idempotency details additionally map to EA-03.
+- Payment-proof verification maps to E-06.
+- Pre-approval website-order state maps to E-05.
+- Synchronization transport maps to E-02.
+- Conversation storage maps to E-03; notification storage maps to E-04.
+- Offline retries map to E-07; conflict resolution maps to E-08; Cloud API location maps to E-01.
