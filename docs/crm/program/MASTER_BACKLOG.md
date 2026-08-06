@@ -28,7 +28,7 @@ Status: `[x]` complete, `[R]` drafted and ready for review, `[ ]` not started, `
 | D-01..D-15 | D | Customer Portal Requirements | P0 | All | [x] | A-C | Business approved; implementation depends on E decisions. |
 | D-16..D-25 | D | Admin CRM Requirements | P0 | Backend/Admin | [x] | D-01..D-15 | Business approved; implementation depends on canonical E and supporting architecture decisions. |
 | E-01 | E | Cloud Integration API Location | P0 | All | [x] | D | Approved: independent Cloud Integration Service with outbound-only local Sync Agent; dependent transport, identity, order, payment, retry and policy decisions remain pending. |
-| E-02 | E | Synchronization Mode | P0 | All | [R] | E-01 | Hybrid durable synchronization proposed; ready for architecture review. |
+| E-02 | E | Synchronization Mode | P0 | All | [x] | E-01 | Approved: Hybrid Durable Synchronization using outbound long polling/durable HTTP pull, Local Outbox HTTP push, adaptive fallback and mandatory reconciliation; WebSocket/SSE is deferred and hint-only. |
 | E-03 | E | Conversation and Message Storage | P0 | All | [ ] | E-01 | Pending |
 | E-04 | E | Notification Storage | P0 | All | [ ] | E-01 | Pending |
 | E-05 | E | Website Order Pre-Approval Model | P0 | All | [ ] | E-01 | Pending |

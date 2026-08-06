@@ -2,9 +2,93 @@
 
 ## Status
 
-**[R] Proposed — Ready for Architecture Review**
+**[x] Approved**
 
-This ADR proposes the cross-system synchronization transport shape. It does not implement a Sync Agent, queues, Inbox/Outbox, WebSocket/SSE, schemas, jobs, or APIs. It does not approve E-03 through E-10 or EA-01 through EA-06, including final retry, conflict, external-reference, event-versioning, or idempotency rules.
+Approval Date: **2026-08-06**
+
+This ADR approves the cross-system synchronization transport shape only. It does not implement a Sync Agent, queues, Inbox/Outbox, WebSocket/SSE, schemas, jobs, or APIs. It does not approve E-03 through E-10 or EA-01 through EA-06, including final retry, conflict, external-reference, event-versioning, or idempotency rules.
+
+## Approved Decision
+
+**Option C — Hybrid Durable Synchronization** is approved.
+
+### Approved topology
+
+- **Cloud-to-local:** outbound Long Polling / durable HTTP pull initiated by the Sync Agent, using a resumable cursor, durable delivery reference, bounded command batch, durable local receipt before Laravel invocation, per-command result, and explicit acknowledgement.
+- **Compatible fallback:** Short Adaptive Polling uses the same contract when hosting/proxies handle long polling poorly, long connections repeatedly terminate, the Agent is recovering, or Staging proves it more stable. This is one protocol with two request cadences, not two protocols.
+- **Local-to-cloud:** `Laravel transaction → Local Outbox → Sync Agent → immediate or bounded HTTP push → Cloud Inbox durable commit → acknowledgement`. Delivery is incomplete until Cloud Inbox commits and acknowledges. A lost acknowledgement causes resend.
+- **WebSocket/SSE:** deferred to Post-MVP unless Staging proves Long/Adaptive Polling cannot economically or operationally meet the active-order target. If added, it is a wake-up hint only: `Work may be available — pull now`.
+- **Reconciliation:** scheduled baseline reconciliation plus immediate targeted reconciliation after recovery, cursor gaps, ambiguous Laravel outcomes, lost acknowledgements, critical lag, out-of-order events, or projection-version mismatch.
+
+### Approved delivery principles
+
+1. Durable HTTP lanes are authoritative; WebSocket/SSE is never a source of truth.
+2. Every transfer may be redelivered. No exactly-once transport claim is made.
+3. Safe business effects depend later on EA-03 and Laravel invariants.
+4. Cursor and acknowledgement state are independent of any connection.
+5. Wake-up failure increases lag only and loses no work.
+6. Every branch/cloud connection is initiated by the Sync Agent.
+7. Laravel remains final operational and financial authority.
+8. UI realtime is independent from cross-system synchronization guarantees.
+
+### Approved latency and polling targets
+
+- Active website-order command receipt while healthy: **p95 ≤10 seconds** from Cloud availability to Agent receipt.
+- Overall normal synchronization lag: **under 1 minute**.
+- Warning lag: **over 5 minutes**.
+- Critical lag: **over 15 minutes**.
+- Active mode: **3–5 seconds** while work/backlog exists.
+- Idle mode: **20–30 second Long Poll**, or Short Adaptive Poll every **20–30 seconds with jitter**.
+- Degraded mode: controlled exponential backoff.
+- Recovery mode: bounded fast catch-up.
+- Hard fallback: mandatory check every **5 minutes**.
+
+All ranges are configurable, not hard-coded, and must be tuned using Staging measurements. Recovery is bounded and critical work does not wait behind low-priority batches. These targets select no provider and do not decide E-07 retry behavior.
+
+### Approved batch strategy
+
+- Critical financial/order outcomes: immediate or very small batches.
+- Active website orders: small, low-latency batches.
+- Messages and notifications: moderate batches.
+- Catalog projections: larger bounded batches.
+- Analytics/background projections: larger bounded low-priority batches.
+
+Phase F must later define configurable maximum item count, byte size, collection time, processing concurrency, and acknowledgement timeout. Numeric limits require Staging load tests.
+
+### Approved ordering and priorities
+
+There is **no global ordering**. Ordering is preserved only within explicit partitions/aggregates when required: External Order, Conversation, Customer/Portal Account Mapping, Payment Reference, and branch-scoped projection. Different aggregates progress independently; a gap blocks only its affected partition. Exact keys and event versions remain E-08/E-10 matters.
+
+Priority order is:
+
+1. Critical financial/order outcomes.
+2. Active website orders.
+3. Customer identity reviews.
+4. Messages.
+5. Notifications.
+6. Catalog projections.
+7. Analytics/background projections.
+
+Each logical lane supports independent rate budget, batch sizing, bounded concurrency, backpressure, fairness, age promotion, and starvation prevention. Failed Sync, Needs Review, and Financial Review remain separate logical review paths.
+
+### Approved health visibility and alerting
+
+Health states are **Healthy, Delayed, Degraded, Offline, Recovering, and Blocked**. Healthy derives from durable cursor, acknowledgement, and lag—not socket connection.
+
+- Management sees branch health, last-confirmed time, lag band, backlog summary, and operational/customer impact.
+- Supervisors see affected queues, stale orders, blocked work, review owner, and safe escalation actions.
+- Integration Operations sees Agent/version, last seen, successful pull/push, acknowledged cursor, lane backlog, acknowledgement latency, error/retry categories, connection mode, recovery progress, and redacted correlation details.
+- Customers see only last updated, delayed/stale state, and safe next action; never Agent, cursor, topology, credentials, or internal errors.
+- Technical transport/Agent alerts route to Integration Operations; business/active-order backlog to CRM/Call Center Supervisor; financially indeterminate results to Finance; critical after-hours events to the on-duty supervisor with documented escalation.
+
+### Deferred decisions
+
+- **E-07:** retry windows, backoff, visibility leases, maximum attempts, dead-letter/review thresholds, recovery concurrency, and final reconciliation schedule.
+- **E-08:** conflict resolution, gap/out-of-order handling details, and projection repair.
+- **E-10:** final external/delivery/cursor/correlation reference and event-version contracts.
+- **EA-03:** idempotency keys, duplicate-result semantics, and exactly-once business-effect safeguards.
+
+E-03 through E-10 and EA-01 through EA-06 otherwise remain **Pending**.
 
 ## Context
 
@@ -176,7 +260,7 @@ An outbound WebSocket or SSE channel may be added as an optimization. Its payloa
 Work may be available — pull the durable command lane now.
 ```
 
-It carries neither final order/payment truth nor the only copy of a command. It is not an acknowledgement channel. If it fails, expires, or is blocked by a proxy, adaptive polling continues and the effect is increased lag only. Whether this optimization is MVP or Post-MVP is an architecture-review question; no provider or certificate infrastructure is selected here.
+It carries neither final order/payment truth nor the only copy of a command. It is not an acknowledgement channel. If it fails, expires, or is blocked by a proxy, adaptive polling continues and the effect is increased lag only. This optimization is deferred to Post-MVP unless Staging proves it necessary to meet the approved target; no provider or certificate infrastructure is selected here.
 
 ## Fallback and Reconciliation
 
@@ -195,12 +279,12 @@ E-07 will decide retry windows, leases, backoff, dead-letter/review behavior, an
 
 ## Adaptive Polling Model
 
-Initial ranges are proposals for review, not approved protocol constants:
+Initial Staging ranges are approved as configurable operational values, not hard-coded protocol constants:
 
-| Mode | Proposed behavior |
+| Mode | Approved initial behavior |
 | --- | --- |
-| Active | Pull/long-poll immediately; next check in seconds when work/backlog exists |
-| Idle | Long poll or check every tens of seconds with bounded jitter |
+| Active | Pull/long-poll immediately; check every 3–5 seconds while work/backlog exists |
+| Idle | Long poll for 20–30 seconds, or short adaptive check every 20–30 seconds with bounded jitter |
 | Degraded | Exponential/controlled backoff while preserving a five-minute health/fallback attempt where reachable |
 | Recovery | Controlled fast catch-up using bounded parallelism/batches, then return to Active/Idle |
 
@@ -208,7 +292,7 @@ Cadence must consider branch count, peak traffic, API/rate cost, proxy idle time
 
 ## Ordering and Partitioning
 
-**No global ordering is proposed.** A global sequence would unnecessarily serialize branches and domains and reduce recovery/scaling flexibility.
+**No global ordering is approved.** A global sequence would unnecessarily serialize branches and domains and reduce recovery/scaling flexibility.
 
 Ordering is preserved only inside an explicit partition or aggregate when business semantics require it:
 
@@ -222,7 +306,7 @@ Different aggregates may progress independently. Customer-wide ordering should b
 
 ## Priority Lanes
 
-Logical priority isolation is proposed so low-value bulk work cannot delay active or financial operations:
+Logical priority isolation is approved so low-value bulk work cannot delay active or financial operations:
 
 1. Critical financial/order outcomes.
 2. Active website-order commands and outcomes.
@@ -254,7 +338,7 @@ health_status
 last_error_category
 ```
 
-Proposed states:
+Approved states:
 
 | State | Meaning |
 | --- | --- |
@@ -350,7 +434,7 @@ Scaling beyond Range B is achieved through partitioned cursors, bounded batches,
 
 ## Recommended Option
 
-**Choose Option C — Hybrid Durable Synchronization.**
+**Approved: Option C — Hybrid Durable Synchronization.**
 
 - **Cloud-to-local:** outbound long polling or durable HTTP pull by the Sync Agent, with bounded batches, resumable cursors, durable local receipt, and per-command acknowledgements.
 - **Local-to-cloud:** immediate HTTP push from Local Outbox under normal load, switching to bounded batches under burst/backlog.
@@ -432,25 +516,74 @@ No API route, process, table, queue, class, provider, polling constant, WebSocke
 - Business decisions: [CUSTOMER_PORTAL_BUSINESS_DECISIONS.md](../requirements/CUSTOMER_PORTAL_BUSINESS_DECISIONS.md), [ADMIN_CRM_BUSINESS_DECISIONS.md](../requirements/ADMIN_CRM_BUSINESS_DECISIONS.md)
 - Governance: [PROGRAM_CHARTER.md](../program/PROGRAM_CHARTER.md), [DECISION_LOG.md](../program/DECISION_LOG.md), [MASTER_BACKLOG.md](../program/MASTER_BACKLOG.md), [PROGRAM_STATUS.md](../program/PROGRAM_STATUS.md), [RISK_REGISTER.md](../program/RISK_REGISTER.md)
 
-## Architecture Review Questions
+## Architecture Review Decisions
 
-1. **Do we approve Option C — Hybrid Durable Synchronization?**  
-   **Recommendation:** Approve Hybrid; durable HTTP/cursor/acknowledgement lanes are authoritative and any realtime signal is optional.
-2. **Should the MVP command lane use long polling or short adaptive polling?**  
-   **Recommendation:** Prefer long polling where hosting/proxies support it, with short adaptive polling as a fully compatible fallback using the same contract.
-3. **Is a WebSocket/SSE wake-up hint required in MVP or deferred to Post-MVP?**  
-   **Recommendation:** Defer to Post-MVP unless staging measurements show polling/long polling cannot meet the active-order target economically.
-4. **What target should apply from cloud command availability to Agent receipt for an active website order?**  
-   **Recommendation:** Target p95 under 10 seconds while healthy, without weakening the approved under-one-minute overall normal synchronization-lag target.
-5. **What initial Active, Idle, and hard-fallback polling ranges should operations approve?**  
-   **Recommendation:** Active checks in seconds, Idle in tens of seconds with jitter, and a mandatory five-minute hard fallback; tune from staging evidence.
-6. **What initial batch strategy and bounds should apply?**  
-   **Recommendation:** Small/immediate batches for financial and active-order work, moderate message batches, larger bounded catalog/analytics batches; approve byte/count/time limits after load tests.
-7. **What ordering scope is approved?**  
-   **Recommendation:** No global ordering; preserve order only within explicit branch or domain aggregate partitions such as External Order, Conversation, identity mapping, and payment reference.
-8. **What logical priority isolation is required for MVP?**  
-   **Recommendation:** Isolate critical financial/order, active orders, identity review, messages, notifications, catalog, and analytics with independent batch/rate budgets and fairness.
-9. **Who may see Agent Health and who receives alerts?**  
-   **Recommendation:** Management sees summarized branch impact, supervisors see actionable queues, technical operations see detailed metrics/errors, and customers see simplified freshness only; Integration Operations receives technical alerts.
-10. **When should reconciliation sweeps run?**  
-   **Recommendation:** Run a scheduled baseline sweep plus immediate targeted sweeps after recovery, cursor gaps, ambiguous outcomes, or critical-lag alerts; defer exact cadence to E-07.
+### 1. Synchronization mode
+
+**Question:** Do we approve Option C — Hybrid Durable Synchronization?  
+**Decision:** Approved. Durable HTTP pull/push, persisted cursor/acknowledgement, adaptive fallback, and mandatory reconciliation form the authoritative topology.  
+**Rationale:** It provides low latency and durable recovery without making a live connection a single point of truth.  
+**Follow-up Decision:** E-07, E-08, E-10, and EA-03 complete retry, conflict, reference, and idempotency contracts.
+
+### 2. Command-lane polling mode
+
+**Question:** Should the MVP command lane use Long Polling or Short Adaptive Polling?  
+**Decision:** Long Polling is primary. Short Adaptive Polling is a compatible fallback using the identical cursor/batch/acknowledgement contract.  
+**Rationale:** Long Polling reduces detection latency and empty requests; Short Polling preserves operation behind incompatible proxies/hosting and during recovery.  
+**Follow-up Decision:** Staging measurements determine mode preference per supported environment without protocol divergence.
+
+### 3. WebSocket/SSE wake-up
+
+**Question:** Is a WebSocket/SSE wake-up hint required in MVP or deferred to Post-MVP?  
+**Decision:** Deferred to Post-MVP, unless Staging proves polling modes cannot meet the active-order target economically or operationally. Any later channel is hint-only.  
+**Rationale:** The current systems have no operational realtime stack, while durable Long/Adaptive Polling can meet MVP needs with less operational risk.  
+**Follow-up Decision:** If evidence triggers the exception, separately approve a wake-up implementation that never carries sole commands, financial truth, acknowledgements, or cursor advancement.
+
+### 4. Active-order latency
+
+**Question:** What target applies from Cloud command availability to Agent receipt for an active website order?  
+**Decision:** p95 ≤10 seconds while healthy. Overall normal synchronization lag remains under one minute; warning is over five minutes and critical over fifteen minutes.  
+**Rationale:** Active fulfillment needs a tighter measurable target than background synchronization.  
+**Follow-up Decision:** Validate and tune in Staging/production measurement without choosing a provider or deciding E-07 behavior.
+
+### 5. Polling ranges
+
+**Question:** What initial Active, Idle, Degraded, Recovery, and hard-fallback ranges apply?  
+**Decision:** Active 3–5 seconds; Idle Long Poll 20–30 seconds or Short Poll every 20–30 seconds with jitter; Degraded controlled exponential backoff; Recovery bounded fast catch-up; mandatory five-minute hard fallback.  
+**Rationale:** These configurable ranges balance active latency, proxy behavior, API cost, and safe recovery.  
+**Follow-up Decision:** Adjust ranges from Staging measurements; never hard-code them or permit unbounded recovery.
+
+### 6. Batch strategy
+
+**Question:** What initial batch strategy and bounds apply?  
+**Decision:** Immediate/very small financial/order outcome batches; small active-order batches; moderate message/notification batches; larger bounded catalog and low-priority analytics batches. Numeric count/bytes/collection/concurrency/ack-timeout limits are deferred.  
+**Rationale:** Latency-sensitive work must not wait behind high-volume low-priority projections.  
+**Follow-up Decision:** Phase F proposes configurable numbers after Staging load tests.
+
+### 7. Ordering scope
+
+**Question:** What ordering scope is approved?  
+**Decision:** No global ordering. Preserve order only within External Order, Conversation, Customer/Portal Account Mapping, Payment Reference, or branch projection partitions when business invariants require it.  
+**Rationale:** Independent aggregates and branches must progress without global serialization.  
+**Follow-up Decision:** E-08/E-10 define exact partition keys, event versions, gap policy, and any proven customer-wide invariant.
+
+### 8. Priority isolation
+
+**Question:** What logical priority isolation is required for MVP?  
+**Decision:** Use the seven approved priority lanes with independent rate budgets, batch sizing, bounded concurrency, backpressure, fairness, age promotion, and starvation prevention.  
+**Rationale:** Critical and active work needs predictable service while background work still eventually progresses.  
+**Follow-up Decision:** Phase F defines configurable limits without fixing queue, table, or class names.
+
+### 9. Agent Health visibility and alerts
+
+**Question:** Who may see Agent Health and who receives alerts?  
+**Decision:** Management, supervisors, Integration Operations, and customers receive the role-specific views defined above. Technical alerts go to Integration Operations; business backlog to CRM/Call Center Supervisor; financial uncertainty to Finance; after-hours critical escalation begins with the on-duty supervisor.  
+**Rationale:** Each audience needs actionable information without exposing technical internals or PII.  
+**Follow-up Decision:** Operational runbooks assign named rotations and alert thresholds before implementation/go-live.
+
+### 10. Reconciliation sweeps
+
+**Question:** When should reconciliation sweeps run?  
+**Decision:** Scheduled baseline reconciliation is mandatory, plus immediate targeted sweeps after Agent recovery, cursor gap, ambiguous Laravel outcome, lost acknowledgement, critical lag, out-of-order event, or projection-version mismatch.  
+**Rationale:** At-least-once delivery and ambiguous timeouts require an independent correctness check.  
+**Follow-up Decision:** E-07 sets baseline cadence, backoff, lease, retry window/attempts, dead-letter/Needs Review thresholds, recovery concurrency, and final sweep schedule.

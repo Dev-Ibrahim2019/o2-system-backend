@@ -7,7 +7,7 @@ No decision below is resolved by this document. The catalog defines the question
 | Decision ID | Canonical Decision | Status | D1/D2 constraints to preserve |
 | --- | --- | --- | --- |
 | E-01 | [Cloud Integration API Location](../architecture/ADR-E-01-CLOUD-INTEGRATION-LOCATION.md) | [x] Approved — 2026-08-06 | Independent Cloud Integration Service; outbound-only local Sync Agent; Laravel remains final authority and is not publicly exposed; no durable integration ownership in Next.js; Admin is Laravel-mediated by default; independent staging and economical managed services are required; initial Range B is 10 branches/100k accounts/5k orders/day/25k messages/day/2.5k proofs/day; retention periods defer to EA-06; failure ownership splits across Integration Operations, CRM/Call Center, and Finance. |
-| E-02 | [Synchronization Mode: Polling vs WebSocket vs Hybrid](../architecture/ADR-E-02-SYNCHRONIZATION-MODE.md) | [R] Proposed — Ready for Architecture Review | Hybrid durable synchronization is proposed: outbound durable HTTP pull, Local Outbox push, optional wake-up hint, adaptive fallback polling, and reconciliation. Final retry, conflict, reference, and idempotency rules remain pending. |
+| E-02 | [Synchronization Mode: Polling vs WebSocket vs Hybrid](../architecture/ADR-E-02-SYNCHRONIZATION-MODE.md) | [x] Approved — 2026-08-06 | Hybrid Durable Synchronization: outbound Long Poll/durable HTTP pull with Short Adaptive fallback; Local Outbox HTTP push; WebSocket/SSE deferred and hint-only; active command receipt p95 ≤10 seconds; no global ordering, only aggregate/partition ordering; priority isolation, durable Agent Health, and mandatory reconciliation; at-least-once transfer with no exactly-once transport claim. E-07/E-08/E-10/EA-03 remain pending. |
 | E-03 | Conversation and Message Storage | Pending | Preserve one governed conversation history, assignment and SLA evidence, internal/public separation, ordering, and deduplication. |
 | E-04 | Notification Storage | Pending | Preserve in-app MVP delivery, auditability, preferences, delivery state, and separation of operational and marketing notices. |
 | E-05 | Website Order Pre-Approval Model | Pending | A website order remains pre-approval intent until authorized approval; no production or premature Laravel order/financial records. |
@@ -17,7 +17,7 @@ No decision below is resolved by this document. The catalog defines the question
 | E-09 | Unified Customer Identity | Pending | One Laravel operational Customer; verified phone alone does not resolve ambiguity; link, unlink, and merge remain controlled and audited. |
 | E-10 | External Order Identifier and Reference Contract | Pending | Preserve unique external/correlation references, idempotent processing, and prevention of duplicate orders, invoices, payments, and tickets. |
 
-E-01 is **[x] Approved** on 2026-08-06. E-02 through E-10 remain **Pending**.
+E-01 and E-02 are **[x] Approved** on 2026-08-06. E-03 through E-10 remain **Pending**.
 
 ## Supporting Architecture Decision Topics
 
