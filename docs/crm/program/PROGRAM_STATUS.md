@@ -2,14 +2,15 @@
 
 ```text
 Current Milestone: M0
-Current Phase: D — Complete
-Completed Batch: D2 — Admin CRM Requirements
+Current Phase: E
+Previous Phase: D — Complete
+Current Decision: E-01 — Cloud Integration API Location
+E-01 Status: Ready for Architecture Review
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
 Implementation Status: Not Started
-Architecture Decisions: Pending
-Next Phase: E — Architecture Decisions
+Next Step: Architecture Review and approval of E-01
 ```
 
 | Phase | Status | Outcome |
@@ -18,8 +19,8 @@ Next Phase: E — Architecture Decisions
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | Not Started — Pending | Canonical and supporting architecture decisions are next |
-| F | Blocked | Waiting for E |
+| E | In Progress — E-01 Proposed | E-01 is ready for architecture review; E-02 through E-10 remain pending |
+| F | Blocked | Waiting for architecture approvals |
 | G-Z | Not Started | — |
 
 ## Runtime Verification Backlog

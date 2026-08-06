@@ -27,7 +27,16 @@ Status: `[x]` complete, `[R]` drafted and ready for review, `[ ]` not started, `
 | C-01..C-25 | C | Current-state audit work package | P0 | All | [x] | — | See [CURRENT_STATE_AUDIT.md](../CURRENT_STATE_AUDIT.md) |
 | D-01..D-15 | D | Customer Portal Requirements | P0 | All | [x] | A-C | Business approved; implementation depends on E decisions. |
 | D-16..D-25 | D | Admin CRM Requirements | P0 | Backend/Admin | [x] | D-01..D-15 | Business approved; implementation depends on canonical E and supporting architecture decisions. |
-| E-01..E-10 | E | Architecture decisions | P0 | All | [ ] | D | See decision log |
+| E-01 | E | Cloud Integration API Location | P0 | All | [R] | D | Proposed; ready for architecture review. See ADR E-01. |
+| E-02 | E | Synchronization Mode | P0 | All | [ ] | E-01 | Pending |
+| E-03 | E | Conversation and Message Storage | P0 | All | [ ] | E-01 | Pending |
+| E-04 | E | Notification Storage | P0 | All | [ ] | E-01 | Pending |
+| E-05 | E | Website Order Pre-Approval Model | P0 | All | [ ] | E-01 | Pending |
+| E-06 | E | Payment Verification | P0 | All | [ ] | E-01 | Pending |
+| E-07 | E | Offline and Retry Policy | P0 | All | [ ] | E-01 | Pending |
+| E-08 | E | Conflict Resolution Policy | P0 | All | [ ] | E-01 | Pending |
+| E-09 | E | Unified Customer Identity | P0 | All | [ ] | E-01 | Pending |
+| E-10 | E | External Order Identifier and Reference Contract | P0 | All | [ ] | E-01 | Pending |
 | F-01..F-25 | F | Foundation and integration contracts | P0 | All | [ ] | E | Not started |
 | G-01..G-25 | G | Customer identity and profile | P1 | All | [ ] | F | Not started |
 | H-01..H-25 | H | Customer interactions and call center | P1 | Backend/Admin | [ ] | G | Not started |
