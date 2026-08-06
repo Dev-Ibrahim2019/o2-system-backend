@@ -1,7 +1,7 @@
 # Admin CRM Requirements — D2
 
-Status: **Ready for Business Review**  
-Scope: D-16 through D-25. These are requirements, not implementation, schema, final permission names, or architecture decisions.
+Status: **Business Approved — Awaiting Architecture Decisions**  
+Scope: D-16 through D-25. These are approved business requirements, not implementation, schema, final permission names, or architecture decisions. D-16 through D-25 are business approved. Implementation remains prohibited until required E and supporting architecture decisions are approved.
 
 ## 1. Executive Summary
 
@@ -39,13 +39,13 @@ Actors are General Management, CRM Manager, Call Center Manager, Call Center Sup
 **Data Written:** Saved filters, acknowledgement/assignment/follow-up audit only.  
 **Audit Requirements:** Sensitive drill-down, export, assignment and alert disposition.  
 **Notifications:** Manager escalation for overdue queues; in-app only in MVP.  
-**SLA Requirements:** Proposed — Requires Business Approval: refresh ≤5 minutes for operational queues and daily reconciliation for aggregates.  
+**SLA Requirements:** Event-driven target with a five-minute fallback refresh; daily reconciliation for aggregates.  
 **Reporting Requirements:** Export only from authorized detailed reports; dashboard links to them.  
 **Dependencies:** D-17,D-19,D-21..D-25; D1; E-01,E-02,E-05,E-07,E-10.  
 **Architecture Decisions Required:** Projection location, identity deduplication, event freshness and canonical SLA/status mapping.  
 **Acceptance Criteria:** Cards/queues reconcile to filtered detail; permissions hold at query and drill-down; stale data is explicit; action opens the correct record.  
 **Out of Scope:** General ledger statements, predictive scoring, automated punishment.  
-**Proposed Defaults:** Proposed — Requires Business Approval: default scope is today and authorized branches; Needs Attention orders by severity then age.
+**Approved Defaults:** Default scope is today and authorized branches; Needs Attention orders by severity then age.
 
 ### D-17 — Customer Directory and Filters
 
@@ -73,13 +73,13 @@ Actors are General Management, CRM Manager, Call Center Manager, Call Center Sup
 **Data Written:** Saved views, export audit, assignment/follow-up; no duplicate profile.  
 **Audit Requirements:** Export criteria/count/actor, sensitive access, bulk actions.  
 **Notifications:** None for ordinary search; follow-up actions may notify owners.  
-**SLA Requirements:** Proposed — Requires Business Approval: debounced search responds p95 ≤2 seconds under representative load.  
+**SLA Requirements:** Debounced search target is p95 ≤2 seconds under representative load.  
 **Reporting Requirements:** Authorized export protects CSV formulas and applies current filters/masking.  
 **Dependencies:** D-18,D-19,D-20; E-02,E-07,E-10.  
 **Architecture Decisions Required:** Unified identifier/search index, portal projection and aggregate freshness.  
 **Acceptance Criteria:** Server pagination/filtering works; common phone formats resolve consistently; saved views restore; unauthorized data never appears/export.  
 **Out of Scope:** Final indexing technology and mass destructive updates.  
-**Proposed Defaults:** Proposed — Requires Business Approval: 25 rows/page; saved views private unless explicitly shared by a manager.
+**Approved Defaults:** 25 rows/page; saved views private unless explicitly shared by a manager.
 
 ### D-18 — Classifications, Tags and Segments
 
@@ -107,13 +107,13 @@ Actors are General Management, CRM Manager, Call Center Manager, Call Center Sup
 **Data Written:** Versioned classification/tag/segment and approval audit.  
 **Audit Requirements:** Full before/after/reason/rule/approver and campaign membership snapshot.  
 **Notifications:** Notify owner/manager on approved sensitive treatment changes.  
-**SLA Requirements:** Proposed — Requires Business Approval: sensitive classification approval within one business day.  
+**SLA Requirements:** Sensitive classification approval target is within one business day.  
 **Reporting Requirements:** Counts and movement by classification/segment without exposing restricted reasons.  
 **Dependencies:** D-17,D-24; E-02,E-07,E-10.  
 **Architecture Decisions Required:** Rule evaluation/projection and consent synchronization.  
 **Acceptance Criteria:** History is immutable; manual reasons required; consent exclusions work; dynamic membership is explainable.  
 **Out of Scope:** ML scoring and automatic punitive treatment.  
-**Proposed Defaults:** Proposed — Requires Business Approval: blocked/undesirable require CRM Manager approval; tags are manager-governed.
+**Approved Defaults:** `undesirable` requires manager approval; `blocked` requires CRM Manager and General Manager approval; tags are manager-governed.
 
 ### D-19 — Portal Accounts and Identity Review
 
@@ -141,13 +141,13 @@ Actors are General Management, CRM Manager, Call Center Manager, Call Center Sup
 **Data Written:** Decision/link/restriction/recovery audit; no merge.  
 **Audit Requirements:** Case access, evidence, before/after link, actor/reason/approver/correlation.  
 **Notifications:** In-app reviewer queue and safe customer outcome where appropriate.  
-**SLA Requirements:** Proposed — Requires Business Approval: review within 4 business hours; urgent recovery within 1 hour.  
+**SLA Requirements:** Identity review target is within one business day; recovery timing remains Pending Operational Configuration.  
 **Reporting Requirements:** Open/aged/outcome/reversal counts without leaking candidate PII.  
 **Dependencies:** D1 D-01..D-04; E-01,E-02,E-03,E-07,E-10.  
 **Architecture Decisions Required:** Portal ownership, mapping/UUID, case store and recovery/session revocation.  
 **Acceptance Criteria:** Only authorized reviewer sees candidates; every decision has reason/audit; limited data stays hidden until valid link; merge is separate.  
 **Out of Scope:** Customer merge implementation and device management MVP.  
-**Proposed Defaults:** Proposed — Requires Business Approval: two-person approval for unlink/recovery when prior order/points history exists.
+**Approved Defaults:** Unlink requires a second approval; recovery approval details remain Pending Operational Configuration.
 
 ### D-20 — Customer 360
 
@@ -175,13 +175,13 @@ Actors are General Management, CRM Manager, Call Center Manager, Call Center Sup
 **Data Written:** Domain action only through approved service; UI preferences/audit.  
 **Audit Requirements:** Sensitive tab access/export and every sensitive action.  
 **Notifications:** Action-specific in-app notices only where required.  
-**SLA Requirements:** Proposed — Requires Business Approval: header p95 ≤2 seconds; each lazy tab p95 ≤3 seconds.  
+**SLA Requirements:** Header target p95 ≤2 seconds; each lazy tab target p95 ≤3 seconds.  
 **Reporting Requirements:** Links to domain reports; no hidden data inferred through totals.  
 **Dependencies:** D-17..D-25; E-01,E-02,E-05,E-07,E-10.  
 **Architecture Decisions Required:** Shared projection/API boundary, identifier and freshness.  
 **Acceptance Criteria:** Same Customer opens from Admin/call center; tabs/actions match permissions; partial failure is isolated; no duplicate profile is created.  
 **Out of Scope:** Rebuilding reusable UI without need and final visual design.  
-**Proposed Defaults:** Proposed — Requires Business Approval: Overview/Orders/Addresses available to standard CRM roles; other tabs explicit grants.
+**Approved Defaults:** Overview/Orders/Addresses/Conversations are available to standard authorized agent roles; other tabs require explicit grants.
 
 ### D-21 — Loyalty Administration
 
@@ -209,13 +209,13 @@ Actors are General Management, CRM Manager, Call Center Manager, Call Center Sup
 **Data Written:** Ledger/rule/reservation/approval/reversal; never balance overwrite.  
 **Audit Requirements:** Full actor/reason/approver/before-after/idempotency/correlation.  
 **Notifications:** Admin record for every redemption; customer in-app result.  
-**SLA Requirements:** Proposed — Requires Business Approval: approval queue resolved within 2 business hours.  
+**SLA Requirements:** Approval-queue timing remains Pending Operational Configuration.  
 **Reporting Requirements:** Earned/redeemed/liability-like totals, referral outcomes, future cost vs sales with finance-approved definition.  
 **Dependencies:** D1 D-11; E-05,E-06,E-07,E-08,E-10.  
 **Architecture Decisions Required:** Ledger/rule engine, posting timing/idempotency and accounting treatment.  
 **Acceptance Criteria:** Duplicate event posts once; no direct edit; approvals/reversals trace; D1 earning/referral rules hold.  
 **Out of Scope:** Implementing ledger/schema and punitive automated fraud decisions.  
-**Proposed Defaults:** Proposed — Requires Business Approval: manager approval above configurable points threshold; second approval for privileged adjustment above a higher threshold.
+**Approved Defaults:** CRM Manager approves within the configured limit; General Manager or Finance approves above it. Threshold values remain Pending Operational Configuration.
 
 ### D-22 — Conversation Center
 
@@ -243,13 +243,13 @@ Actors are General Management, CRM Manager, Call Center Manager, Call Center Sup
 **Data Written:** Messages, assignment/state/internal note/audit and notification intent.  
 **Audit Requirements:** Assignment history, state/priority, conversion, sensitive access and message delivery references.  
 **Notifications:** In-app customer reply; agent/supervisor queue/escalation.  
-**SLA Requirements:** Normal 10-minute initial alert; Proposed — Requires Business Approval: active-order 3 minutes, yellow at target, red at 2× target; configurable and schedule-aware.  
+**SLA Requirements:** Normal 10-minute initial alert; active-order and escalation timings remain Pending Operational Configuration and are schedule-aware.  
 **Reporting Requirements:** Volume, first response, resolution, breached SLA, assignment/transfer and backlog by team; no automatic punishment.  
 **Dependencies:** D1 D-12,D-13; D-20,D-23; E-01,E-06,E-07,E-10.  
 **Architecture Decisions Required:** Store, ordering/deduplication, delivery method and offline policy.  
 **Acceptance Criteria:** One inbox; duplicate suppressed; manual/auto assignment audited; SLA schedule works; internal/proof data never leaks.  
 **Out of Scope:** Voice/video/chatbot and general attachments.  
-**Proposed Defaults:** Proposed — Requires Business Approval: manual claim first, auto-assign after 2 minutes if unclaimed and capacity exists.
+**Approved Defaults:** Assignment follows branch, type, specialization, active shift/availability, capacity, then least busy; timing remains Pending Operational Configuration.
 
 ### D-23 — Complaints, Ratings, Occasions and Follow-up
 
@@ -277,13 +277,13 @@ Actors are General Management, CRM Manager, Call Center Manager, Call Center Sup
 **Data Written:** Domain actions/followups/audit and in-app notification intent.  
 **Audit Requirements:** Assignment, access to sensitive image, public/internal reply, conversion, reopen/link, rating edit history.  
 **Notifications:** Customer/admin in-app per event and consent classification.  
-**SLA Requirements:** Proposed — Requires Business Approval: urgent rating acknowledged 15 minutes; standard complaint 30 minutes; resolution target configured by type/branch.  
+**SLA Requirements:** Standard complaint human acknowledgement is 30 minutes; active-order complaint, urgent-rating, and resolution timings remain Pending Operational Configuration.  
 **Reporting Requirements:** Intake, aging, first response/resolution, reopen, rating recovery, root cause and follow-up completion.  
 **Dependencies:** D1 D-08,D-14,D-15; D-20,D-22,D-24; E-01,E-05,E-06,E-07,E-10.  
 **Architecture Decisions Required:** Unified rating authority, event/follow-up store, files and retention.  
 **Acceptance Criteria:** D1 thresholds/reopen hold; every follow-up owned/due; sensitive fields hidden; conversions/history remain traceable.  
 **Out of Scope:** Final file implementation and automated disciplinary action.  
-**Proposed Defaults:** Proposed — Requires Business Approval: complaints sort overdue/priority then age; low rating always creates follow-up, complaint only by rule/agent decision.
+**Approved Defaults:** Complaints sort overdue/priority then age; urgent ratings create assigned follow-up and notifications, while complaint creation remains governed by rule/agent decision.
 
 ### D-24 — Notifications and Campaigns
 
@@ -311,13 +311,13 @@ Actors are General Management, CRM Manager, Call Center Manager, Call Center Sup
 **Data Written:** Notification/campaign/approval/delivery/audit records.  
 **Audit Requirements:** Creator/approver/audience criteria/count/template/version/schedule/result/cancel.  
 **Notifications:** In-app only by definition for MVP.  
-**SLA Requirements:** Proposed — Requires Business Approval: operational events queued within 1 minute; campaigns execute within approved window.  
+**SLA Requirements:** Delivery timing and campaign windows remain Pending Operational Configuration.  
 **Reporting Requirements:** Intended/excluded/sent/delivered/read/failed counts without implying engagement causality.  
 **Dependencies:** D1 D-13; D-18,D-22,D-23,D-25; E-06,E-07,E-10.  
 **Architecture Decisions Required:** Notification store/delivery/dedupe, consent authority and retry policy.  
 **Acceptance Criteria:** No opted-out customer in marketing; operational remains separate; duplicate event sends once; bulk approval/audit enforced.  
 **Out of Scope:** Push/WhatsApp/SMS/email and provider selection.  
-**Proposed Defaults:** Proposed — Requires Business Approval: manager approval for marketing to >100 recipients; individual operational notice needs no campaign approval.
+**Approved Defaults:** Campaign escalation uses configurable risk/cost factors rather than recipient count alone; approved individual operational templates need no campaign approval.
 
 ### D-25 — Operations and Website Orders
 
@@ -345,13 +345,13 @@ Actors are General Management, CRM Manager, Call Center Manager, Call Center Sup
 **Data Written:** Transactional Laravel records and durable integration/timeline/audit outcomes.  
 **Audit Requirements:** Every review/check/decision/attempt/financial confirmation/status business action with before/after and correlation.  
 **Notifications:** Customer in-app receipt/rejection/approval/tracking; internal delay/payment/review alerts.  
-**SLA Requirements:** Proposed — Requires Business Approval: overall <20 normal, 20–30 yellow, >30 red; configurable per stage/branch, pausable by approved stage, never color-only. Stages include payment_review, call_center_approval, production, assembly, driver_waiting, delivery.  
+**SLA Requirements:** Overall <20 normal, 20–30 yellow, >30 red; configurable per stage/branch/order type/source/period, pausable only by approved policy, and never color-only.  
 **Reporting Requirements:** Approval time/count/error/modification/cancellation, production/assembly/driver/delivery time, late orders/reasons; contextual management review only.  
 **Dependencies:** D1 D-09,D-10,D-12,D-13; E-01,E-02,E-04,E-05,E-06,E-07,E-08,E-09,E-10.  
 **Architecture Decisions Required:** All integration/identity/order/status/idempotency/offline/finance/catalog contracts.  
 **Acceptance Criteria:** Same external ref processes once; failure leaves no orphan/duplicate and is visible/recoverable; proof/payment authorization holds; timeline/SLA explains stage/owner.  
 **Out of Scope:** Implementing ingestion, schema, state unification or automated employee punishment.  
-**Proposed Defaults:** Proposed — Requires Business Approval: oldest red website order first; approval and payment confirmation require distinct permissions.
+**Approved Defaults:** Oldest red website order first; Order Approval and Payment Verification require distinct permissions and audit events.
 
 ## 4. Preliminary Permission Catalog
 
@@ -376,7 +376,7 @@ Names are requirement labels, not final permission identifiers: `VIEW_CRM`, `VIE
 | Approve/reject web order | Restricted | Hidden | Allowed | Approval Required | Restricted | Restricted | Approval Required | Hidden |
 | View payment proof | Hidden | Hidden | Restricted | Restricted | Hidden | Restricted | Allowed | Hidden |
 
-All entries are **Proposed — Requires Business Approval** and still require least-privilege Backend enforcement and branch/assignment scope.
+This is the business-approved role baseline. Final permission identifiers and enforcement design remain pending; least-privilege Backend enforcement and branch/assignment scope are mandatory.
 
 ## 6. Admin Sitemap
 
@@ -461,7 +461,7 @@ All entries are **Proposed — Requires Business Approval** and still require le
 | Identity review | <4 business h | 4–8h | >8h | Identity reviewer | Yes |
 | Overall order | <20m | 20–30m | >30m | Operations | Stage-specific |
 
-All thresholds except the D1-approved normal conversation initial alert and the requested initial order bands are **Proposed — Requires Business Approval**; final stage/branch configuration remains required.
+The normal conversation initial alert, standard complaint acknowledgement, identity-review business-day target, and overall order bands are business approved. Other thresholds and final stage/branch configuration remain Pending Operational Configuration.
 
 ## 12. Reusable Components Matrix
 
@@ -502,52 +502,25 @@ All thresholds except the D1-approved normal conversation initial alert and the 
 7. **Website order:** order/proof → private review → transactional approval → production/timeline → customer tracking.
 8. **Delayed order:** stage threshold → yellow/red text/icon → manager timeline → owner/department → reason/action recorded.
 
-## 15. Final Business Review Questions
+## 15. Remaining Questions
 
-### A. CRM Dashboard
+All business-review questions are resolved in [ADMIN_CRM_BUSINESS_DECISIONS.md](ADMIN_CRM_BUSINESS_DECISIONS.md). The following categories remain open and do not authorize implementation.
 
-- **CRM-DASH-01:** Default dashboard scope: A) employee’s branches/today, B) all branches/today, C) last selected. **Recommendation:** A.
-- **CRM-DASH-02:** Operational aggregate refresh: A) 1 minute, B) 5 minutes, C) 15 minutes. **Recommendation:** B.
+### Pending Architecture Decisions
 
-### B. Customer Directory and Classification
+- E-01 through E-10 and supporting EA-01 through EA-06, including integration location, synchronization mode, storage, identity, pre-approval, verification, retry, conflict, reference, status, idempotency, catalog, financial posting, and privacy contracts.
 
-- **CRM-CUST-01:** Default page size: A) 25, B) 50, C) 100. **Recommendation:** A.
-- **CRM-CUST-02:** `undesirable`/`blocked` approval: A) CRM Manager, B) two-person approval, C) General Management. **Recommendation:** A, with two-person approval for high-impact cases.
+### Pending Operational Configuration
 
-### C. Portal Account Review
+- Per-stage/branch/order-type SLA overrides, operating calendars, capacity limits, assignment timing, escalation schedules, campaign thresholds, and configurable approval limits.
 
-- **CRM-ID-01:** Identity review target: A) 1 hour, B) 4 business hours, C) 1 business day. **Recommendation:** B.
-- **CRM-ID-02:** Unlink/recovery with history: A) one reviewer, B) two-person approval, C) General Management only. **Recommendation:** B.
+### Pending Financial Design
 
-### D. Customer 360 and Permissions
+- Invoice/payment/accounting posting timing, compensation settlement, refund/reversal treatment, loyalty accounting, and financial reconciliation details.
 
-- **CRM-360-01:** Default tabs for agents: A) Overview/Orders/Addresses/Conversations, B) all non-financial, C) Overview only. **Recommendation:** A.
-- **CRM-360-02:** Sensitive-tab access audit: A) every open, B) only export/change, C) sampled. **Recommendation:** A for finance/proof/identity; B for other tabs.
+### Pending Privacy Policy
 
-### E. Loyalty
-
-- **CRM-LOY-01:** Large redemption threshold: A) fixed points, B) percentage of available balance, C) rule-specific. **Recommendation:** C.
-- **CRM-LOY-02:** High-value adjustment approval: A) CRM Manager, B) CRM + Accountant, C) General Management. **Recommendation:** B.
-
-### F. Conversations and SLA
-
-- **CRM-MSG-01:** Active-order initial alert: A) 2 minutes, B) 3 minutes, C) 5 minutes. **Recommendation:** B.
-- **CRM-MSG-02:** Auto-assignment delay: A) immediate, B) 2 minutes unclaimed, C) 5 minutes unclaimed. **Recommendation:** B.
-
-### G. Complaints, Ratings and Occasions
-
-- **CRM-CX-01:** Standard complaint acknowledgement: A) 15 minutes, B) 30 minutes, C) 60 minutes. **Recommendation:** B.
-- **CRM-CX-02:** A ≤3-star rating creates: A) follow-up only, B) complaint automatically, C) follow-up then agent decides complaint. **Recommendation:** C.
-
-### H. Notifications and Campaigns
-
-- **CRM-CAMP-01:** Bulk marketing approval threshold: A) every campaign, B) >100 recipients, C) >500 recipients. **Recommendation:** B.
-- **CRM-CAMP-02:** Shared saved segments: A) CRM Manager only, B) all campaign creators, C) General Management only. **Recommendation:** A.
-
-### I. Operations and Website Orders
-
-- **OPS-01:** Website-order approval ownership: A) call-center supervisor, B) branch manager, C) call center approves order and authorized finance confirms payment. **Recommendation:** C.
-- **OPS-02:** Overall SLA bands: A) retain <20/20–30/>30, B) branch-specific only, C) order-type-specific only. **Recommendation:** A initially, then allow branch/stage overrides.
+- Lawful purpose, consent evidence, retention/deletion periods, sensitive-field access, proof/attachment retention, and future communication-channel policy.
 
 ## 16. Architecture Traceability
 

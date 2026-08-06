@@ -26,7 +26,7 @@ Status: `[x]` complete, `[R]` drafted and ready for review, `[ ]` not started, `
 | B-12 | B | Verify branch protection | P0 | All | [!] | GitHub access | Verified via GitHub API: default `main` branches are not protected |
 | C-01..C-25 | C | Current-state audit work package | P0 | All | [x] | — | See [CURRENT_STATE_AUDIT.md](../CURRENT_STATE_AUDIT.md) |
 | D-01..D-15 | D | Customer Portal Requirements | P0 | All | [x] | A-C | Business approved; implementation depends on E decisions. |
-| D-16..D-25 | D | Admin CRM Requirements | P0 | Backend/Admin | [R] | D-01..D-15 | Drafted; requires business review and approval. |
+| D-16..D-25 | D | Admin CRM Requirements | P0 | Backend/Admin | [x] | D-01..D-15 | Business approved; implementation depends on canonical E and supporting architecture decisions. |
 | E-01..E-10 | E | Architecture decisions | P0 | All | [ ] | D | See decision log |
 | F-01..F-25 | F | Foundation and integration contracts | P0 | All | [ ] | E | Not started |
 | G-01..G-25 | G | Customer identity and profile | P1 | All | [ ] | F | Not started |
