@@ -7,6 +7,7 @@ Previous Phase: D — Complete
 Completed Decision: E-01 — Cloud Integration API Location
 E-01 Status: Approved
 Current Decision: E-02 — Synchronization Mode
+E-02 Status: Ready for Architecture Review
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
@@ -20,7 +21,7 @@ Phase F Status: Not Started — Waiting for remaining architecture approvals
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01 Approved | E-02 is current; E-02 through E-10 otherwise remain pending and no E-02 work starts in the E-01 approval task |
+| E | In Progress — E-01 Approved, E-02 Proposed | E-02 is ready for architecture review; E-03 through E-10 remain pending |
 | F | Not Started / Blocked | Waiting for remaining architecture approvals |
 | G-Z | Not Started | — |
 
