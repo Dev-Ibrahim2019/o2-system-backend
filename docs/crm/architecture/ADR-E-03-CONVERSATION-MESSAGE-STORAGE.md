@@ -2,9 +2,13 @@
 
 ## Status
 
-**[R] Proposed — Ready for Architecture Review**
+**[x] Approved**
 
-This proposal selects an authority boundary and conceptual semantics only. It does not approve a schema, table or class names, retention periods, attachment implementation, exact identifiers, exact statuses, queues/jobs, APIs, WebSocket/SSE, complaint implementation, or Phase F work.
+Approval Date: **2026-08-07**
+
+Approved Decision: **Cloud-authoritative Conversation and Public Message Storage**
+
+This approval selects an authority boundary and conceptual semantics only. It does not approve a schema, table or class names, retention periods, storage/scanning providers, attachment allowlists or limits, exact identifiers, exact statuses, queues/jobs, APIs, WebSocket/SSE, complaint implementation, or Phase F work.
 
 ## Context
 
@@ -26,7 +30,7 @@ The customer portal needs a durable conversation history while branch Laravel ca
 5. Ordering must be reliable and duplicate delivery must not create another logical message.
 6. System Receipt, Human Acknowledgement, read state and staff reply are distinct facts.
 7. Conversation history must have one authority and must not diverge during outages.
-8. MVP is text-only. Payment Proof is governed by E-06, not by message attachments.
+8. MVP supports controlled multi-type attachments as purpose-classified evidence; arbitrary executable or active content is prohibited by default. Payment Proof is governed by E-06, not by generic message attachments.
 9. Final retention, deletion and privacy periods are deferred to EA-06.
 
 ## Current-System Evidence
@@ -113,11 +117,11 @@ Laravel Authority preserves familiar local staff operations, but it cannot provi
 
 Use a **Cloud-authoritative Conversation Store**.
 
-Cloud owns the Conversation aggregate, public Messages, per-conversation sequence, customer-visible state, assignment snapshot/history, SLA and acknowledgement evidence, per-participant read cursors, and delivery/synchronization state.
+Cloud owns Conversation identity, the public Conversation/Message history, per-conversation sequence, customer-visible state, assignment snapshot/history, SLA and Human Acknowledgement evidence, per-participant read cursors, message correction/redaction history, customer delivery/release state, and conversation synchronization state.
 
 Laravel owns staff identity, authentication and authorization, role/branch scope, operational Customer/Order/Complaint records, internal notes, financial/compensation actions, and local authorization/audit evidence. It stores an authorized operational read projection of Conversations and public Messages.
 
-The Laravel projection is not a parallel authority, accepts no direct edits, follows Cloud sequence/version, exposes freshness and synchronization state, may be stale during outage, and is repaired only through synchronization/reconciliation.
+Laravel retains the complete authorized Public Message history within the applicable retention period to support Call Center operations, Customer 360, complaint investigation, search, SLA review and continuity during temporary synchronization lag. The projection is not a parallel authority, accepts no direct edits, follows Cloud sequence/version, exposes freshness, `last_confirmed_at` and `sync_status`, may be stale during outage, and is repaired only through synchronization/reconciliation. EA-06 remains responsible for final retention, minimization, deletion, redaction and hold policy.
 
 ## Data Ownership Matrix
 
@@ -134,6 +138,11 @@ The Laravel projection is not a parallel authority, accepts no direct edits, fol
 | SLA timestamps | Cloud | Yes | Policy-limited | No |
 | Human acknowledgement | Cloud | Yes | Yes | No |
 | Read cursors | Cloud | Relevant projection | Own/allowed state only | No |
+| Customer delivery/release state | Cloud | Yes | Yes | No |
+| Message correction/redaction history | Cloud | Authorized result | Policy-limited | Restricted original evidence |
+| General Conversation Evidence | Cloud/private object boundary | Authorized metadata/reference | When explicitly public | Purpose-dependent |
+| Complaint Evidence | Laravel Complaint authority with governed evidence reference | Purpose-scoped | Policy-limited | Often restricted |
+| Payment Proof | Pending E-06; never generic attachment authority | Purpose-scoped | No by default | Finance-restricted |
 | Internal notes | Laravel | Native local record | No | Yes |
 | Staff permissions | Laravel | No cloud authority; scoped claims only | No | Yes |
 | Customer identity mapping | Pending E-09 | Needed locally | Minimal reference | No |
@@ -152,7 +161,7 @@ The public reference must not expose a Laravel incremental ID. E-10 decides its 
 
 ## Message Model
 
-A Message concept contains an opaque message reference; Conversation reference; sender type and reference; public content; per-conversation sequence; source-created and Cloud-accepted timestamps; delivery/synchronization state; optional correction/redaction reference; and Cloud version.
+A Message concept contains an opaque message reference; Conversation reference; sender type and reference; public content; per-conversation sequence; source-created and Cloud-accepted timestamps; customer-release state; delivery/synchronization state; optional governed correction/redaction reference; authorized attachment references; and Cloud version.
 
 - Sequence, not timestamp alone, determines order; there is no global message order.
 - Once accepted by Cloud, a Message is not directly edited.
@@ -180,7 +189,7 @@ Customer
 → Human Acknowledgement
 ```
 
-Conceptually: **System Receipt** proves the request was durably received; **Message Accepted** proves the public Message was committed; **Assigned** records ownership; **Human Acknowledged** records a person accepting attention; **Staff Replied** proves an accepted public reply; **Resolved** and **Closed** are later public lifecycle facts. These are not final enum names. The portal must never claim a human read or reply without evidence.
+Conceptually: **System Receipt** proves durable receipt of a customer submission; **Message Accepted/Cloud Accepted** proves Cloud committed the public Message; **Assigned** records staff/team responsibility; **Human Acknowledgement** proves a human explicitly accepted attention/responsibility; **Staff Reply** proves a public staff response was Cloud-accepted; **Customer Released** proves the response became available to the customer; **Customer Read** proves the applicable read cursor crossed its sequence. Resolved and Closed are later public lifecycle facts. These are not final enum names. The UI must never claim read, acknowledged, replied or delivered without corresponding evidence.
 
 ## Staff Reply Flow
 
@@ -194,7 +203,7 @@ Admin user
 → Laravel projection confirmation
 ```
 
-Permit a staff reply to be saved locally as **Pending Sync** during an outage only when Laravel can safely preserve actor, scope, content and a stable command identity. Show it to staff as pending, never Sent; do not advance customer unread state or final waiting-party state before Cloud acknowledgement. Retries must converge on the same logical result. Permanent failure becomes Failed Sync/Needs Review subject to E-07.
+Permit a staff reply to be saved locally as **Pending Sync** during an outage only when Laravel durably preserves actor, scope, content, stable command identity, creation time and target Conversation reference. Show it to staff as pending, never Sent. While pending, it does not advance customer unread state, authoritative waiting-party state or Cloud sequence and is not visible in the Portal. Retries must converge on the same logical result. Permanent failure becomes Failed Sync/Needs Review subject to E-07. An unaccepted local draft may be edited or cancelled.
 
 This is preferable to blocking all offline drafting because it preserves staff work, while the explicit pending boundary prevents false customer-visible claims. Local unsent drafts may be edited; they are not accepted Messages.
 
@@ -220,13 +229,37 @@ Conversation
 
 Do not copy Messages into a second editable complaint history. Laravel remains authority for the operational Complaint; each side retains a governed reference to the other. Complaint follow-ups/internal notes remain local and separate. Any public complaint follow-up must explicitly become a Cloud public Message. Conversion must later be idempotent under EA-03.
 
+### Complaint classification and operational awareness
+
+Laravel is authority for structured operational Complaint classification. Conceptually this may include Problem Category, Problem Subcategory, Priority/Severity, Related Order, Related Branch, Complaint Status, Follow-up Required, Resolution Summary and Last Follow-up/Update. These are conceptual facts, not schema names.
+
+Before conversion, Cloud may own a general Conversation Topic; that topic is not Complaint Classification. After conversion, Cloud receives only the safe Complaint reference/projection needed for customer-facing or synchronization use.
+
+Authorized Customer 360 and Call Center context must later be capable of surfacing an active-complaint indicator, problem category, priority, related order/branch, current status, follow-up requirement, last follow-up and an authorized resolution summary. This is a Laravel operational projection and must not expose sensitive internal notes or unrestricted Complaint detail.
+
 ## Message Mutability
 
-Choose immutability after Cloud acceptance, with governed correction/redaction and audit. This protects chronology, assignment/SLA evidence and customer trust. Incorrect replies and abusive content require visible governed correction or redaction; privacy deletion must use an audited redaction/tombstone consistent with EA-06; legal/business hold can prevent destructive action. Only an unsubmitted local draft is directly editable. Exact correction windows and redaction policy remain open.
+An accepted Message has an immutable original record. Direct in-place editing and silent deletion are prohibited. **Cloud Accepted**, **Customer Released** and **Customer Read** are distinct facts.
+
+Before Customer Release, an authorized supervisor may intercept, correct, redact or cancel customer delivery of inappropriate, incorrect or unsafe content. The original accepted content remains in restricted audit history and corrected/replacement public content is a separate governed revision/result. Preserve conceptually the original message reference/content, corrected or redacted content, staff and supervisor actors, moderation action/reason, timestamps and correlation/reference.
+
+After Customer Release, history is never silently rewritten; an explicit governed Correction or Redaction changes customer-facing presentation while preserving original restricted evidence where law and policy permit. A missing read cursor does not guarantee interception: the guaranteed safety boundary is before Customer Release, not before Customer Read. Only an unsubmitted local draft is directly editable. Exact moderation windows, roles, automated detection, presentation, privacy deletion and hold rules remain E-08/EA-03/EA-06 or implementation decisions.
 
 ## Attachments Scope
 
-MVP conversations are text-only. General attachments, voice, video, chatbot and rich media are deferred. Payment Proof remains under E-06, and complaint images do not automatically become Message attachments. Future attachments require private object storage, malware scanning, size/type limits, signed access, retention and audit. No attachment schema is approved here.
+The original text-only MVP proposal is rejected. MVP approves **Controlled Multi-Type Attachments** for integrated operational evidence. Allowed categories may include images, documents, PDF, spreadsheets, audio, video and other explicitly allowed business evidence. This is not approval for unrestricted file types; executable and unsafe active/script content is denied by default.
+
+Attachment implementation must use private object storage with no permanent public object URLs; file-type allowlists; MIME/content validation; maximum-size limits; malware scanning; integrity checksum/hash; ownership/purpose authorization; short-lived signed or scoped access; access/action audit; retention classification; and legal/business hold support. This ADR chooses no provider, scanning product, exact MIME/extension list, size limit or signed-access duration.
+
+Purpose determines workflow even when customer upload experience is unified:
+
+```text
+General Conversation Evidence → Conversation Attachment
+Complaint Evidence → Complaint Evidence
+Payment Proof → E-06 Payment Verification Evidence
+```
+
+A Conversation may hold opaque references to authorized private attachments, governed by customer/conversation ownership and public/internal visibility. Complaint conversion may link applicable evidence without unnecessarily copying binaries or creating independent mutable copies. Payment Proof is never a generic Message Attachment, never inherits generic conversation retention automatically, and remains subject to E-06 financial authorization, verification state, evidence lifecycle, privacy, audit and reconciliation. Exact evidence contracts and retention/deletion remain Phase F, E-06 and EA-06 work; no attachment schema is approved here.
 
 ## Offline and Failure Behavior
 
@@ -263,23 +296,23 @@ Use server-side cursor/pagination for conversation lists and Message history. Me
 | --- | --- |
 | E-04 Notification Storage | Notifications reference Cloud conversation/message facts; internal notes never enter customer payloads. |
 | E-05 Pre-Approval Order Model | Conversations may link to staged or accepted orders without changing order authority. |
-| E-06 Payment Verification | Payment Proof is separate private evidence, not a Message attachment. |
-| E-07 Offline and Retry | Must define pending-command retry, terminal failure, stale thresholds and reconciliation. |
-| E-08 Conflict Resolution | Must respect Cloud public-history authority and Laravel operational-record authority. |
-| E-09 Unified Customer Identity | Must define portal-to-Laravel Customer mapping and ambiguity handling. |
-| E-10 External References | Must define opaque Conversation/Message and cross-system link references. |
+| E-06 Payment Verification | Must define purpose-specific Payment Proof evidence; it is not a generic Message attachment. |
+| E-07 Offline and Retry | Must define Pending Sync retry, terminal failure, stale thresholds and reconciliation. |
+| E-08 Conflict Resolution | Must respect authority boundaries and define correction/moderation reconciliation. |
+| E-09 Unified Customer Identity | Must define portal ownership and portal-to-Laravel Customer mapping. |
+| E-10 External References | Must define opaque Conversation, Message, attachment and cross-system link references. |
 | EA-01 Portal Authentication | Must authenticate portal participants and secure conversation ownership. |
 | EA-02 Status Dictionary | Must define exact public/workflow states and allowed transitions. |
-| EA-03 Idempotency | Must define command/event keys, scope, retention and replay outcomes. |
+| EA-03 Idempotency | Must define staff-send/moderation command and event keys, scope, retention and replay outcomes. |
 | EA-04 Catalog Authority | No ownership change; order-linked summaries remain projections. |
 | EA-05 Financial Timing | Public conversation cannot authorize or post financial effects. |
-| EA-06 Privacy and Retention | Must define message/note retention, redaction, deletion, consent, holds and exports. |
+| EA-06 Privacy and Retention | Must define message/note/attachment retention classes, redaction, deletion, consent, holds and exports. |
 
 E-03 does not resolve these decisions.
 
 ## Recommended Option
 
-Choose **Option A — Cloud-authoritative Conversation and Public Message Storage**. Replicate an authorized operational read projection to Laravel; keep Internal Notes Laravel-only; authorize all staff actions in Laravel; confirm staff replies and public state changes only after Cloud commit; use per-conversation sequence and per-participant read cursors; link complaint conversion without copying history.
+Choose **Option A — Cloud-authoritative Conversation and Public Message Storage** with an authorized Laravel operational projection, Laravel-only Internal Notes, Cloud-authoritative assignment/SLA timeline, Pending Sync staff replies, immutable accepted Messages with governed moderation revisions, per-conversation sequence, per-participant read cursor, link-only Complaint conversion with Laravel-authoritative problem classification, controlled multi-type MVP attachments, and purpose-specific evidence routing.
 
 ## Consequences
 
@@ -288,6 +321,8 @@ Choose **Option A — Cloud-authoritative Conversation and Public Message Storag
 - Staff public actions acquire an asynchronous pending/confirmed lifecycle and projection freshness must be visible.
 - Cloud becomes a regulated content authority requiring backup, recovery, moderation, audit and privacy controls.
 - Search/reporting may use local projections but must declare freshness and cannot correct Cloud history directly.
+- Moderation requires an explicit customer-release boundary and restricted preservation of immutable original evidence.
+- Multi-type evidence increases private-storage, scanning, authorization, bandwidth and retention responsibilities in MVP.
 
 ## Risks
 
@@ -297,6 +332,10 @@ Choose **Option A — Cloud-authoritative Conversation and Public Message Storag
 - Incorrect scope mapping can expose conversations or internal information.
 - Cross-system assignment actions can be stale when staff eligibility changes.
 - Deferred retention/redaction decisions can block production readiness.
+- Attachments introduce malware, incorrect authorization, large-file storage/bandwidth growth and evidence-retention mismatch risks.
+- Payment Proof could be incorrectly routed or retained as a generic attachment.
+- Supervisors could misuse correction/redaction, and restricted original inappropriate content creates audit exposure.
+- A race between supervisor interception and Customer Release may make interception impossible.
 
 ## Mitigations
 
@@ -306,29 +345,102 @@ Choose **Option A — Cloud-authoritative Conversation and Public Message Storag
 - Laravel authorization, branch/team scope, minimal projection fields and access audit.
 - Revalidate staff eligibility for each command and reject/review stale actions without overwrite.
 - Complete EA-06 and security review before production data is accepted.
+- Use private storage, allowlists, MIME/content validation, malware scanning, checksums, purpose classification, scoped access and retention classes.
+- Enforce role-based moderation, mandatory reasons, immutable original evidence, audit and an authoritative Customer Release state; never promise interception after release.
+- Route Payment Proof explicitly to E-06 and keep attachment/privacy/payment/idempotency risks open until their dependent decisions are approved.
 
 ## Rejected Alternatives
 
 - **Laravel Authority** is rejected because customer messages cannot be authoritatively accepted during branch/Laravel outage; Cloud staging would become a second pre-authority with complex promotion semantics.
 - **Dual Authority/dual write** is rejected because intermittent connectivity makes atomic commitment impossible and creates irreconcilable ordering, read-state, assignment and SLA histories.
 - Reusing Complaint Followups, Customer Notes, ratings, call tickets or notifications as public Messages is rejected because their audience, authority, lifecycle and confidentiality differ.
+- A text-only MVP is rejected by Architecture Review because integrated customer operations require controlled evidence intake; unrestricted file upload is also rejected.
 
 ## Implementation Implications for Phase F
 
-After approval and dependent decisions, Phase F must define versioned contracts for aggregate references, commands/events, sequence gaps, projection freshness, authorization claims and reconciliation; a read-only Laravel projection boundary; outbox/inbox and idempotency behavior; audit/observability; and tests for outage, redelivery, lost acknowledgement and privacy scope. It must not begin until authorized by the program and must not infer final schema from this conceptual ADR.
+After dependent decisions are approved, Phase F must define versioned contracts for aggregate/evidence references, commands/events, sequence gaps, release/moderation state, projection freshness, authorization claims and reconciliation; a read-only Laravel projection boundary; outbox/inbox and idempotency behavior; private attachment security; audit/observability; and tests for outage, redelivery, lost acknowledgement, release races, malicious files and privacy scope. Phase F has not started and must not infer final schema from this conceptual ADR.
 
-## Architecture Review Questions
+## Architecture Review Decisions
 
-1. **Do we approve a Cloud-authoritative Conversation Store?** Recommendation: Yes; it is the only option that combines branch-outage customer availability with one governed history.
-2. **Does Laravel project the complete Public Message history within the applicable retention window?** Recommendation: Yes for authorized operational use, subject to EA-06 minimization and retention rules.
-3. **Does Cloud own conversation state, assignment and the SLA timeline?** Recommendation: Yes; Laravel authorizes staff actions and Cloud commits the authoritative conversation result.
-4. **Do Internal Notes remain Laravel-only?** Recommendation: Yes for MVP, with separate endpoints and permissions.
-5. **May Laravel save a staff reply as Pending Sync during outage?** Recommendation: Yes only with durable actor/scope/content and stable command identity; never show it as Sent.
-6. **Are Messages immutable after Cloud acceptance?** Recommendation: Yes, with governed audited correction/redaction only.
-7. **Do we approve per-conversation sequence and per-participant read cursor?** Recommendation: Yes; derive unread counters as projections.
-8. **Does complaint conversion link without copying history?** Recommendation: Yes; Laravel owns the Complaint and Cloud retains the Conversation.
-9. **Does MVP remain text-only?** Recommendation: Yes; defer general attachments and keep Payment Proof under E-06.
-10. **What distinction is approved between System Receipt, Human Acknowledgement and Staff Reply?** Recommendation: Receipt proves durable system intake, acknowledgement proves human attention, and reply proves a Cloud-accepted public response.
+1. **Cloud-authoritative Conversation Store**
+
+   **Decision:** Approved.
+
+   **Rationale:** Provides branch-outage customer availability and one governed public history; dual authority is prohibited.
+
+   **Follow-up Decision:** E-09/E-10 define ownership mapping and references.
+
+2. **Complete authorized Public Message projection in Laravel**
+
+   **Decision:** Approved within the applicable retention period.
+
+   **Rationale:** Supports Call Center, Customer 360, investigation, search, SLA review and continuity without making Laravel authoritative.
+
+   **Follow-up Decision:** EA-06 defines minimization, retention, deletion, redaction and holds.
+
+3. **Conversation state, assignment and SLA authority**
+
+   **Decision:** Cloud owns the authoritative result/timeline; Laravel authorizes every staff action.
+
+   **Rationale:** Keeps one workflow history while enforcing current employee, branch/team and action permissions locally.
+
+   **Follow-up Decision:** EA-02 defines exact states; E-07/E-08 define retry/conflict handling.
+
+4. **Internal Notes**
+
+   **Decision:** Remain Laravel-only.
+
+   **Rationale:** Public/internal separation and sensitive-note permission must be structural.
+
+   **Follow-up Decision:** EA-06 defines retention and sensitive-access policy.
+
+5. **Offline staff replies**
+
+   **Decision:** Authorized replies may be durable Pending Sync, never Sent, until Cloud acceptance.
+
+   **Rationale:** Preserves staff work without false customer-visible or workflow facts.
+
+   **Follow-up Decision:** E-07 and EA-03 define retry, terminal failure and idempotency.
+
+6. **Accepted Message mutability and supervision**
+
+   **Decision:** The accepted original is immutable; governed Supervisor Intercept/Correction/Redaction and pre-release delivery cancellation are approved with original evidence preserved.
+
+   **Rationale:** Enables safety correction without silent rewriting or loss of actor accountability.
+
+   **Follow-up Decision:** E-08, EA-03 and EA-06 define conflicts, duplicate-safe moderation, roles, windows, presentation and retention.
+
+7. **Ordering and read state**
+
+   **Decision:** Per-conversation sequence and per-participant last-read cursor are approved; unread counts are rebuildable projections.
+
+   **Rationale:** Deterministic aggregate ordering and cursor-based repair work with E-02 at-least-once delivery.
+
+   **Follow-up Decision:** E-07/E-10/EA-03 define gap, reference and replay contracts.
+
+8. **Complaint conversion and classification**
+
+   **Decision:** Link without copied public history; Laravel owns structured Complaint classification and provides authorized Customer 360/Call Center visibility.
+
+   **Rationale:** Preserves one public history and one operational Complaint authority.
+
+   **Follow-up Decision:** E-09/E-10/EA-06 define identity, references and safe field visibility.
+
+9. **MVP attachments**
+
+   **Decision:** The text-only proposal is rejected; Controlled Multi-Type Attachments are approved for MVP, while Payment Proof remains under E-06.
+
+   **Rationale:** Integrated operations require evidence, but purpose-specific security and financial workflows must remain distinct.
+
+   **Follow-up Decision:** E-06, E-10 and EA-06 plus security/design work define proof handling, opaque references, allowlists, limits, scanning and retention.
+
+10. **Communication and delivery semantics**
+
+    **Decision:** System Receipt, Message/Cloud Accepted, Assigned, Human Acknowledgement, Staff Reply, Customer Released and Customer Read are distinct evidence-backed facts.
+
+    **Rationale:** Prevents the UI and operations from claiming human or delivery outcomes prematurely.
+
+    **Follow-up Decision:** EA-02 defines final terms/states; E-04 defines notification semantics without changing these facts.
 
 ## Traceability
 
