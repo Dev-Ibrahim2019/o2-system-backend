@@ -8,6 +8,7 @@
 - [ADR E-01 — Cloud Integration API Location — Approved](architecture/ADR-E-01-CLOUD-INTEGRATION-LOCATION.md)
 - [ADR E-02 — Synchronization Mode — Approved](architecture/ADR-E-02-SYNCHRONIZATION-MODE.md)
 - [ADR E-03 — Conversation and Message Storage — Approved](architecture/ADR-E-03-CONVERSATION-MESSAGE-STORAGE.md)
+- [ADR E-04 — Notification Storage — Proposed](architecture/ADR-E-04-NOTIFICATION-STORAGE.md)
 - [Program Charter](program/PROGRAM_CHARTER.md)
 - [Master Backlog](program/MASTER_BACKLOG.md)
 - [Decision Log](program/DECISION_LOG.md)

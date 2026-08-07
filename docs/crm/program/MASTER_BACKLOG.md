@@ -30,7 +30,7 @@ Status: `[x]` complete, `[R]` drafted and ready for review, `[ ]` not started, `
 | E-01 | E | Cloud Integration API Location | P0 | All | [x] | D | Approved: independent Cloud Integration Service with outbound-only local Sync Agent; dependent transport, identity, order, payment, retry and policy decisions remain pending. |
 | E-02 | E | Synchronization Mode | P0 | All | [x] | E-01 | Approved: Hybrid Durable Synchronization using outbound long polling/durable HTTP pull, Local Outbox HTTP push, adaptive fallback and mandatory reconciliation; WebSocket/SSE is deferred and hint-only. |
 | E-03 | E | Conversation and Message Storage | P0 | All | [x] | E-01 | Approved: Cloud-authoritative conversations/public messages with Laravel operational projection; Laravel-only Internal Notes; governed Pending Sync and moderation semantics; link-based Complaint conversion with Laravel problem classification; controlled multi-type MVP attachments with Payment Proof remaining under E-06. |
-| E-04 | E | Notification Storage | P0 | All | [ ] | E-01 | Pending |
+| E-04 | E | Notification Storage | P0 | All | [R] | E-01 | Proposed — Ready for Architecture Review; see ADR E-04. |
 | E-05 | E | Website Order Pre-Approval Model | P0 | All | [ ] | E-01 | Pending |
 | E-06 | E | Payment Verification | P0 | All | [ ] | E-01 | Pending |
 | E-07 | E | Offline and Retry Policy | P0 | All | [ ] | E-01 | Pending |

@@ -13,6 +13,7 @@ E-01 Status: Approved
 E-02 Status: Approved
 E-03 Status: Approved
 Current Decision: E-04 — Notification Storage
+E-04 Status: Ready for Architecture Review
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
@@ -26,7 +27,7 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01, E-02 and E-03 Approved | E-04 is current but not started; E-04 through E-10 remain pending. |
+| E | In Progress — E-01, E-02 and E-03 Approved | E-04 is current and ready for Architecture Review; E-05 through E-10 remain pending. |
 | F | Not Started / Blocked | Waiting for remaining required architecture approvals |
 | G-Z | Not Started | — |
 
