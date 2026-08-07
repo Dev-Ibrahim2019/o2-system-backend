@@ -2,9 +2,13 @@
 
 ## Status
 
-**[R] Proposed — Ready for Architecture Review**
+**[x] Approved**
 
-This ADR proposes authority and conceptual semantics only. It does not approve schemas, table/class names, identifiers, enums, APIs, queues/workers, templates, providers, channel implementations, WebSocket/SSE, push/service workers, retention periods or Phase F application work.
+Approval Date: **2026-08-07**
+
+Approved Decision: **Option A — Cloud-authoritative Customer Notification Store**
+
+This ADR approves authority and conceptual semantics only. It does not approve schemas, table/class names, identifiers, enums, APIs, queues/workers, templates, providers, channel implementations, WebSocket/SSE, push/service workers, retention periods or Phase F application work.
 
 ## Context
 
@@ -119,7 +123,7 @@ Cloud Authority aligns the inbox with the customer-facing availability boundary 
 
 ## Recommended Authority Model
 
-Use a **Cloud-authoritative Customer Notification Store**.
+Approved: **Option A — Cloud-authoritative Customer Notification Store**.
 
 Cloud owns the logical customer Notification, in-app inbox, deterministic recipient ordering, per-item read state, dismiss/archive state, safe released snapshot, notification/source references, version/state, expiration presentation state and channel delivery-attempt evidence.
 
@@ -337,7 +341,7 @@ E-04 does not resolve any of these decisions.
 
 ## Recommended Option
 
-Choose **Option A — Cloud-authoritative Customer Notification Store**. Use one logical customer Notification with an MVP in-app inbox, authoritative per-item read and dismiss/archive state, future channel-specific attempts, immutable released snapshots and governed correction/supersession. Preserve Laravel authority for operational/financial facts, Cloud Conversation authority for public Conversation facts, minimal Laravel Notification projection, and Laravel/operations authority for separate internal staff alerts.
+**Approved: Option A — Cloud-authoritative Customer Notification Store.** Cloud owns the logical customer Notification, In-App inbox and customer interaction state. Laravel and the Cloud Conversation Store retain their respective domain/source authorities. Laravel keeps only a minimal operational projection. Internal staff alerts remain operationally separate. In-App is the only approved MVP customer delivery channel; Push, WhatsApp, SMS and Email remain deferred.
 
 ## Consequences
 
@@ -356,6 +360,7 @@ Choose **Option A — Cloud-authoritative Customer Notification Store**. Use one
 - Cloud outage blocks new inbox commits and synchronized interaction state.
 - Minimal Laravel projection may omit evidence needed by an unforeseen staff workflow.
 - Future channel providers may report incompatible delivery semantics.
+- Payment notification timing may be wrong until E-06 and EA-05 define the authoritative verification/posting points.
 
 ## Mitigations
 
@@ -366,6 +371,7 @@ Choose **Option A — Cloud-authoritative Customer Notification Store**. Use one
 - Display honest degraded state and use E-07 retries/reconciliation without false delivery claims.
 - Validate staff workflows before projection expansion; retain Cloud authority and least privilege.
 - Normalize channel attempts under one logical Notification without claiming unsupported delivery evidence.
+- Complete E-06 for payment truth, E-07 for retry/outage behavior, E-08 for correction conflicts, E-09 for recipient identity, E-10 for references, EA-01 for Portal/security channels, EA-03 for deduplication, EA-05 for financial timing and EA-06 for consent/privacy/retention. These risks remain open.
 
 ## Rejected Alternatives
 
@@ -379,18 +385,91 @@ Choose **Option A — Cloud-authoritative Customer Notification Store**. Use one
 
 After approval and dependent decisions, Phase F must define versioned source-event and Notification contracts, opaque references, recipient authorization, duplicate handling, safe rendering/versioning, lifecycle evidence, minimal Laravel projection, pagination and reconciliation. Channel/provider implementation remains out of scope. Phase F has not started and no schema follows automatically from this ADR.
 
-## Architecture Review Questions
+## Final EA-06 Deferral
 
-1. **Do we approve a Cloud-authoritative Customer Notification Store?** Recommendation: Yes, to provide one branch-independent customer inbox and multi-device state.
-2. **Is In-App the required MVP delivery channel while Push/WhatsApp/SMS/Email remain later channels?** Recommendation: Yes; do not select a provider in E-04.
-3. **Should Laravel keep a full, minimal or no customer-Notification projection?** Recommendation: Keep a minimal operational projection driven by demonstrated staff/audit needs.
-4. **Do we approve one logical Notification with channel-specific delivery attempts?** Recommendation: Yes; do not create independent channel truths.
-5. **Do we distinguish Source Event, Created, Released, Delivered, Read and Actioned?** Recommendation: Yes, and separately preserve Attempted, Displayed, Dismissed and Corrected/Superseded where applicable.
-6. **Is per-notification read state authoritative with unread counts as projections?** Recommendation: Yes, because inbox items are opened non-sequentially.
-7. **Should released Notifications remain immutable with governed correction/supersession?** Recommendation: Yes; never silently rewrite historical customer communication.
-8. **Do Security, Operational and Marketing categories remain separately governed, with critical security notices not disabled by ordinary preferences?** Recommendation: Yes, subject to EA-01/EA-06 final policy.
-9. **Do internal staff alerts remain Laravel/operations-authoritative and outside the customer Cloud inbox in MVP?** Recommendation: Yes; audience and authority remain separate.
-10. **Do final Marketing consent, retention, deletion and sensitive-content rules remain deferred to EA-06?** Recommendation: Yes; E-04 approves no final period or consent schema.
+EA-06 retains final authority for Marketing consent rules, retention periods, deletion/anonymization, legal/business holds, sensitive-content and channel-specific privacy policies, and Marketing preference schema. E-04 permanently establishes that Portal registration is not Marketing consent, mandatory critical-security notices cannot be suppressed through ordinary preferences, Dismiss is not Delete, previews are minimized, Internal Notes never become customer Notifications, OTP is not ordinary Notification content, and Notification never replaces Domain State.
+
+## Architecture Review Decisions
+
+1. **Do we approve a Cloud-authoritative Customer Notification Store?**
+
+   **Decision:** Approved.
+
+   **Rationale:** It provides one branch-independent customer inbox and authoritative multi-device interaction state without changing source-domain authority.
+
+   **Follow-up Decision:** E-09/E-10 define recipient mapping and external references.
+
+2. **Is In-App the required MVP channel while Push/WhatsApp/SMS/Email remain later?**
+
+   **Decision:** Approved; In-App is the only E-04 MVP customer channel and all listed external channels are deferred.
+
+   **Rationale:** It satisfies the approved D1 MVP while avoiding premature provider/channel architecture.
+
+   **Follow-up Decision:** EA-01/EA-06 govern required security/recovery channels and privacy; later delivery decisions select providers.
+
+3. **Should Laravel keep a full, minimal or no customer-Notification projection?**
+
+   **Decision:** Minimal Operational Notification Projection approved.
+
+   **Rationale:** Demonstrated staff/audit needs can be supported without duplicating the Cloud inbox or unnecessary Marketing/read/archive data.
+
+   **Follow-up Decision:** Phase F validates exact authorized operational fields and freshness evidence.
+
+4. **Do we approve one logical Notification with channel-specific delivery attempts?**
+
+   **Decision:** Approved.
+
+   **Rationale:** One communication history preserves correction, preference and audit semantics across future channels.
+
+   **Follow-up Decision:** E-07/EA-03 define attempt retry and duplicate-safe effects; providers remain later decisions.
+
+5. **Do we distinguish Source Event, Created, Released, Attempted, Delivered, Displayed, Read, Dismissed, Actioned and Corrected/Superseded?**
+
+   **Decision:** Approved as separate evidence-backed lifecycle facts.
+
+   **Rationale:** Available in Inbox does not prove device delivery, and delivery/display/read do not prove customer action or domain outcome.
+
+   **Follow-up Decision:** EA-02 and later channel contracts define exact terms without collapsing these distinctions.
+
+6. **Is per-notification Read State authoritative with unread count as a projection?**
+
+   **Decision:** Approved.
+
+   **Rationale:** Non-sequential inbox access must represent read/unread independently for every item.
+
+   **Follow-up Decision:** EA-03 defines mutation idempotency and Phase F defines rebuild/reconciliation contracts.
+
+7. **Should released Notifications remain immutable with governed correction/supersession?**
+
+   **Decision:** Approved, including Corrected, Superseded, Withdrawn or a new corrective Notification as governed outcomes.
+
+   **Rationale:** Historical customer communication cannot be silently rewritten, especially for financial facts.
+
+   **Follow-up Decision:** E-06/E-08/EA-05/EA-06 define source correction, financial timing, presentation and retention rules.
+
+8. **Do Security, Operational and Marketing remain separately governed, with critical Security not disabled by ordinary preferences?**
+
+   **Decision:** Approved.
+
+   **Rationale:** Their legal basis, urgency, consent, sensitivity and opt-out behavior differ; Portal registration is not Marketing consent.
+
+   **Follow-up Decision:** EA-01/EA-06 define final security-channel, preference, consent and privacy policy.
+
+9. **Do internal staff alerts remain Laravel/operations-authoritative and outside the customer Cloud inbox in MVP?**
+
+   **Decision:** Approved.
+
+   **Rationale:** Staff alerts have different audiences, permissions, escalation, read semantics, workflows and retention.
+
+   **Follow-up Decision:** A later delivery-service decision may distribute them without changing authority.
+
+10. **Do final Marketing consent, retention, deletion and sensitive-content rules remain deferred to EA-06?**
+
+    **Decision:** Approved.
+
+    **Rationale:** E-04 establishes permanent safety boundaries but does not have the policy/legal scope to set final periods or consent evidence.
+
+    **Follow-up Decision:** EA-06 must resolve consent, withdrawal, retention, deletion/anonymization, holds and channel privacy before production.
 
 ## Traceability
 
