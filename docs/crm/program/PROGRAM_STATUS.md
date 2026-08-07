@@ -11,6 +11,7 @@ Completed Decisions:
 E-01 Status: Approved
 E-02 Status: Approved
 Current Decision: E-03 — Conversation and Message Storage
+E-03 Status: Ready for Architecture Review
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
@@ -24,7 +25,7 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01 and E-02 Approved | E-03 is current; E-03 through E-10 remain pending, and no E-03 work starts in the E-02 approval task |
+| E | In Progress — E-01 and E-02 Approved | E-03 is current and ready for Architecture Review; E-04 through E-10 remain pending. |
 | F | Not Started / Blocked | Waiting for remaining required architecture approvals |
 | G-Z | Not Started | — |
 

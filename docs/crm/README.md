@@ -7,6 +7,7 @@
 - [Admin CRM Business Decisions — D2 Approval](requirements/ADMIN_CRM_BUSINESS_DECISIONS.md)
 - [ADR E-01 — Cloud Integration API Location — Approved](architecture/ADR-E-01-CLOUD-INTEGRATION-LOCATION.md)
 - [ADR E-02 — Synchronization Mode — Approved](architecture/ADR-E-02-SYNCHRONIZATION-MODE.md)
+- [ADR E-03 — Conversation and Message Storage — Proposed](architecture/ADR-E-03-CONVERSATION-MESSAGE-STORAGE.md)
 - [Program Charter](program/PROGRAM_CHARTER.md)
 - [Master Backlog](program/MASTER_BACKLOG.md)
 - [Decision Log](program/DECISION_LOG.md)
