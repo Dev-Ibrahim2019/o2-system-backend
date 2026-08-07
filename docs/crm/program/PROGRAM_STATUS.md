@@ -9,13 +9,15 @@ Completed Decisions:
 - E-02 — Synchronization Mode
 - E-03 — Conversation and Message Storage
 - E-04 — Notification Storage
+- E-05 — Website Order Pre-Approval Model
 
 E-01 Status: Approved
 E-02 Status: Approved
 E-03 Status: Approved
 E-04 Status: Approved
-Current Decision: E-05 — Website Order Pre-Approval Model
-E-05 Status: Ready for Architecture Review
+E-05 Status: Approved
+Current Decision: E-06 — Payment Verification
+E-06 Status: Pending
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
@@ -29,8 +31,8 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01 through E-04 Approved | E-05 is current and ready for Architecture Review; E-06 through E-10 remain pending. |
-| F | Not Started / Blocked | Waiting for remaining required architecture approvals |
+| E | In Progress — E-01 through E-05 Approved | E-06 is current and pending; E-07 through E-10 remain pending. |
+| F | Not Started | Waiting for remaining required architecture approvals |
 | G-Z | Not Started | — |
 
 ## Runtime Verification Backlog
@@ -40,4 +42,4 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 - Verify the actual deployment configuration.
 - Verify network connectivity between cloud and local environments.
 
-These items do not change E-01/E-02/E-03/E-04 approval. They prevent the system from being declared production-ready.
+These items do not change E-01/E-02/E-03/E-04/E-05 approval. They prevent the system from being declared production-ready.

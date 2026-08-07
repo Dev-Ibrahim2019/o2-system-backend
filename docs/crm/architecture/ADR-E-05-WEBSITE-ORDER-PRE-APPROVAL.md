@@ -2,9 +2,9 @@
 
 ## Status
 
-**[R] Proposed — Ready for Architecture Review**
+**[x] Approved — 2026-08-07**
 
-This ADR proposes authority, lifecycle and handoff semantics only. It does not approve schemas, tables/classes, identifiers, enums, APIs, queues/jobs, payment verification, financial posting, inventory reservation, UI or Phase F application work.
+This ADR approves authority, lifecycle and handoff semantics only. It does not approve schemas, tables/classes, identifiers, enums, APIs, queues/jobs, payment verification, financial posting, inventory reservation, UI or Phase F application work.
 
 ## Context
 
@@ -133,7 +133,7 @@ Immediate Laravel creation can reuse current APIs but makes an unapproved public
 
 ## Recommended Authority Model
 
-Choose **Option A — Cloud-authoritative Staged Website Order until authorized Laravel acceptance**.
+Approved: **Option A — Cloud-authoritative Staged Website Order until authorized Laravel acceptance**.
 
 ```text
 Before Acceptance: Cloud Staged Website Order = authority
@@ -192,6 +192,8 @@ Before acceptance, customers may edit through a new revision and may cancel in C
 
 After Laravel Order commit, Cloud cancellation is no longer authoritative. The customer submits a request/action against Laravel's accepted Order lifecycle. Pre-acceptance cancellation and post-acceptance Order cancellation are distinct.
 
+An accepted-but-unpaid Order that has not been released to production may remain cancellable under Laravel policy. The existence of a Laravel Order does not mean that the kitchen has started or that cancellation is impossible; Laravel is authoritative for that eligibility after acceptance.
+
 ## Staff Review and Authorization
 
 Laravel authenticates/authorizes reviewer permission, branch scope and actual actor. Every attempt records staged reference/revision, actor, time and applicable reason/context. Cloud cannot promote intent into an operational Order without Laravel validation.
@@ -226,7 +228,7 @@ Double-click submit, website retry, source redelivery, repeated customer confirm
 
 ## Order Approval vs Payment Verification
 
-Recommend creating the real Laravel Order **at authorized order approval**, not waiting for payment verification. This matches the current local model, which creates a pending Order before Invoice/payment and separately gates production.
+The approved model creates the real Laravel Order **at authorized order approval**, not after or waiting for payment verification. This matches the current local model, which creates a pending Order before Invoice/payment and separately gates production.
 
 ```text
 Order Approval ≠ Payment Verification
@@ -302,7 +304,9 @@ The matrix is conceptual and approves no schema.
 
 Audit submission, revision, customer re-consent, staff review/approval/rejection, cancellation, branch/repricing/availability change, Laravel Order creation, acceptance outcome and reconciliation with actual actors and correlation. Never silently overwrite the original snapshot.
 
-Cloud reporting distinguishes Submitted Intents, Accepted Orders, Rejected, Cancelled Before Acceptance, Expired, Needs Review, conversion/approval time, repricing and reconfirmation. Operational sales reporting uses Laravel accepted Orders. Submission counts must never be reported as accepted sales.
+Cloud reporting distinguishes Website Intent Submitted, Website Intent Accepted, Rejected Before Acceptance, Cancelled Before Acceptance, Expired, Needs Review, conversion/approval time, repricing and reconfirmation. Cross-authority reporting also distinguishes Laravel Order Created, Payment Verified, Production Released, Delivered and Cancelled Before Payment. Submission counts must never be reported as accepted sales.
+
+Laravel may intentionally contain accepted-but-unpaid website Orders. Reporting and metrics must distinguish submitted intent, accepted Order, payment verified, completed sale, production released/kitchen started, cancellation before acceptance and cancellation after acceptance; an accepted Order alone is neither a completed sale nor evidence that kitchen production started.
 
 ## Impact on Other Decisions
 
@@ -322,9 +326,9 @@ Cloud reporting distinguishes Submitted Intents, Accepted Orders, Rejected, Canc
 
 E-05 does not resolve these decisions.
 
-## Recommended Option
+## Approved Option
 
-Choose Option A: Cloud owns the Staged Website Order until an authorized Laravel transaction accepts one exact revision and creates/correlates the operational Order. Laravel then owns the Order; its Outbox confirms the handoff to Cloud. Reject dual authority and immediate local creation on public submit.
+Option A is approved: Cloud owns the Staged Website Order until an authorized Laravel transaction accepts one exact revision and creates/correlates the operational Order. Laravel then owns the Order; its Outbox confirms the handoff to Cloud. Dual authority and immediate local creation on public submit are rejected.
 
 ## Consequences
 
@@ -333,6 +337,7 @@ Choose Option A: Cloud owns the Staged Website Order until an authorized Laravel
 - Staff cannot reuse the current Call Center “save real Order” action as website approval without a dedicated acceptance boundary.
 - Customer-visible state must distinguish intent receipt, approval, payment and production.
 - Reporting gains a clear conversion funnel but must correlate two authority eras.
+- Laravel may intentionally contain accepted-but-unpaid Orders; these remain distinct from completed sales and production-released Orders and may remain cancellable under Laravel policy.
 
 ## Risks
 
@@ -367,18 +372,18 @@ Choose Option A: Cloud owns the Staged Website Order until an authorized Laravel
 
 After approval and dependent decisions, Phase F must define versioned staged/revision contracts, Portal authorization, Laravel review projection, transactional acceptance/correlation, Outbox outcome, duplicate recovery, conflict handling, safe tracking projection, audit and tests for every failure scenario. It must reuse local domain services without exposing them directly to public submit. Phase F has not started and no schema is implied.
 
-## Architecture Review Questions
+## Architecture Review Decisions
 
-1. **Do we approve a Cloud-authoritative Staged Website Order until Laravel acceptance?** Recommendation: Yes; it preserves outage intake and keeps unaccepted intent out of operational Orders.
-2. **When should a real Laravel Order be created: authorized order approval or only after payment verification?** Recommendation: At authorized order approval; Payment Verification remains a separate E-06 gate and production remains held by Laravel policy.
-3. **Should approval always reference an exact immutable/revisioned customer snapshot?** Recommendation: Yes; stale/unknown revisions cannot be silently approved.
-4. **Do material pricing, branch, delivery, availability or commercial changes require explicit customer re-consent?** Recommendation: Yes; propose a new revision and record consent.
-5. **May the customer edit/cancel before Laravel acceptance using revisions rather than silent mutation?** Recommendation: Yes, subject to E-08 race resolution.
-6. **Should rejected/cancelled/expired intents remain historical Cloud records without Laravel Orders?** Recommendation: Yes, subject to EA-06 retention/deletion.
-7. **May a Cloud Staged Order directly create financial or production effects?** Recommendation: No; those require separate Laravel-authoritative gates.
-8. **Should Laravel acceptance atomically correlate the staged reference/revision, created Order and acceptance outcome?** Recommendation: Yes; exact implementation follows E-10/EA-03/Phase F.
-9. **Should MVP staging avoid hard inventory reservation and revalidate availability at acceptance?** Recommendation: Yes; inspected code has no safe cross-system reservation/expiry contract.
-10. **Should unsafe ambiguity enter Needs Review instead of silent retry/overwrite?** Recommendation: Yes; ownership/timing follow E-07/E-08 and E-01 failure routing.
+1. **Question:** Do we approve a Cloud-authoritative Staged Website Order until Laravel acceptance? **Decision:** Approved. **Rationale:** It preserves outage intake and keeps unaccepted intent out of operational Orders. **Follow-up Decision:** No open E-05 decision; implementation details remain governed by the listed dependencies.
+2. **Question:** When should a real Laravel Order be created: authorized order approval or only after payment verification? **Decision:** At authorized order approval; approved. **Rationale:** Order approval, Payment Verification and production release are separate gates; Laravel policy may hold an accepted-but-unpaid Order from production and allow cancellation before release. **Follow-up Decision:** No open E-05 decision; E-06 and EA-05 define payment and financial timing without reopening this authority boundary.
+3. **Question:** Should approval always reference an exact immutable/revisioned customer snapshot? **Decision:** Approved. **Rationale:** A stale, changed or unknown revision cannot be silently approved. **Follow-up Decision:** No open E-05 decision; E-08/E-10/EA-03 define conflict, reference and idempotency mechanics.
+4. **Question:** Do material pricing, branch, delivery, availability or commercial changes require explicit customer re-consent? **Decision:** Approved; create a new revision and record explicit consent. **Rationale:** Silent repricing, substitution or rerouting would invalidate the customer's approval. **Follow-up Decision:** No open E-05 decision; EA-04 defines authoritative catalog/pricing rules.
+5. **Question:** May the customer edit/cancel before Laravel acceptance using revisions rather than silent mutation? **Decision:** Approved; Cloud is authoritative before acceptance and Laravel governs cancellation after acceptance. **Rationale:** One authority at each lifecycle era prevents edit/cancel/approve races from silently diverging. **Follow-up Decision:** No open E-05 decision; E-08 defines the concurrency mechanics.
+6. **Question:** Should rejected/cancelled/expired intents remain historical Cloud records without Laravel Orders? **Decision:** Approved; rejected, cancelled-before-acceptance and expired intents create no Laravel Order or downstream effect. **Rationale:** Non-accepted intent must not pollute operational or financial history. **Follow-up Decision:** No open E-05 decision; EA-06 defines retention/deletion.
+7. **Question:** May a Cloud Staged Order directly create financial or production effects? **Decision:** No; approved, including no hard inventory-reservation effect. **Rationale:** Those effects require separate Laravel-authoritative gates and safe policies. **Follow-up Decision:** No open E-05 decision; E-06, E-08 and EA-05 define later payment, fulfillment and financial rules.
+8. **Question:** Should Laravel acceptance atomically correlate the staged reference/revision, created Order and acceptance outcome? **Decision:** Approved. **Rationale:** Partial correlation would make duplicate recovery and authority handoff unsafe. **Follow-up Decision:** No open E-05 decision; E-10/EA-03 and Phase F define exact identifiers and implementation.
+9. **Question:** Should MVP staging avoid hard inventory reservation and revalidate availability at acceptance? **Decision:** Approved. **Rationale:** No safe cross-system reservation/expiry contract exists in inspected code. **Follow-up Decision:** No open E-05 decision; E-08 and later inventory design define change/conflict behavior.
+10. **Question:** Should unsafe ambiguity enter Needs Review instead of silent retry/overwrite? **Decision:** Approved; retries/timeouts must produce at most one Laravel Order and lost acknowledgements are queried/reconciled. **Rationale:** An unknown outcome is not permission to repeat business effects. **Follow-up Decision:** No open E-05 decision; E-07/E-08/E-10/EA-03 define retry timing, reconciliation and ownership mechanics.
 
 ## Traceability
 

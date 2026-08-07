@@ -9,7 +9,7 @@
 - [ADR E-02 — Synchronization Mode — Approved](architecture/ADR-E-02-SYNCHRONIZATION-MODE.md)
 - [ADR E-03 — Conversation and Message Storage — Approved](architecture/ADR-E-03-CONVERSATION-MESSAGE-STORAGE.md)
 - [ADR E-04 — Notification Storage — Approved](architecture/ADR-E-04-NOTIFICATION-STORAGE.md)
-- [ADR E-05 — Website Order Pre-Approval Model — Proposed](architecture/ADR-E-05-WEBSITE-ORDER-PRE-APPROVAL.md)
+- [ADR E-05 — Website Order Pre-Approval Model — Approved](architecture/ADR-E-05-WEBSITE-ORDER-PRE-APPROVAL.md)
 - [Program Charter](program/PROGRAM_CHARTER.md)
 - [Master Backlog](program/MASTER_BACKLOG.md)
 - [Decision Log](program/DECISION_LOG.md)
