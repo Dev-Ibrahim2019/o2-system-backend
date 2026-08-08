@@ -23,6 +23,7 @@ E-06 Status: Approved
 E-07 Status: Approved
 E-08 Status: Approved
 Current Decision: E-09 — Unified Customer Identity
+E-09 Status: Ready for Architecture Review
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
@@ -36,7 +37,7 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01 through E-08 Approved | E-09 is current and pending; E-10 remains pending. No E-09 work has begun. |
+| E | In Progress — E-01 through E-08 Approved | E-09 is current and ready for Architecture Review; E-10 remains pending. No E-10 work has begun. |
 | F | Not Started | Waiting for remaining required architecture approvals |
 | G-Z | Not Started | — |
 
