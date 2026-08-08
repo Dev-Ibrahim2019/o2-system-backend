@@ -2,15 +2,17 @@
 
 ## Status
 
-**[R] Proposed — Ready for Architecture Review**
+**[x] Approved — 2026-08-08**
 
-This ADR proposes business conflict behavior, authority handoff, conditional transition, loser outcome, and audit semantics only. It does not approve schemas, version fields, locks, APIs, acceptance-token mechanisms, queues, financial/production implementation, UI, or Phase F application work.
+Approved decision: **Option A — Authority-Aware Conditional Conflict Resolution + Exact Version/Revision Preconditions + Single Valid Authoritative Commit + Explicit Conflict Outcome**.
+
+This ADR approves business conflict behavior, authority handoff, conditional transition, loser outcome, and audit semantics only. It does not approve schemas, version fields, locks, APIs, acceptance-token mechanisms, queues, financial/production implementation, UI, or Phase F application work.
 
 ## Context
 
 Offline, asynchronous work allows individually valid-looking actions to compete: customer cancel versus staff approval, V2 versus approval of V1, Payment versus cancellation, and production release versus cancellation. E-07 safely delivers/reconciles work but explicitly does not choose business winners. E-08 defines how authority, exact input, preconditions, and one authoritative commit produce one auditable result.
 
-Recommended model:
+Approved model:
 
 ```text
 Authority-Aware Conditional Conflict Resolution
@@ -136,9 +138,9 @@ Cloud and Laravel apply competing actions independently, then attempt a later me
 
 Option A costs explicit versions, conditional contracts, handoff evidence, richer errors, and audit, but it prevents incompatible effects instead of repairing damage. LWW is simple but unsafe across clocks and authorities. Dual apply is unacceptable for Order, Payment, production and refund effects.
 
-## Recommended Conflict Model
+## Approved Conflict Model
 
-Recommend **Option A — Authority-Aware Conditional Conflict Resolution**.
+Approved: **Option A — Authority-Aware Conditional Conflict Resolution**.
 
 ```text
 Identify authority
@@ -375,9 +377,9 @@ Staff may see Order changed/refresh required, Customer cancelled, Payment alread
 
 E-08 does not resolve these decisions.
 
-## Recommended Option
+## Approved Option
 
-Recommend Option A. Authority first, exact revision/version and expected state second, one conditional authoritative commit third, then explicit conflict or governed alternative. It rejects timestamp LWW and dual irreversible effects.
+Approved: **Option A — Authority-Aware Conditional Conflict Resolution**. Authority first, exact revision/version and expected state second, one conditional authoritative commit third, then explicit conflict or governed alternative. Timestamp LWW and dual irreversible effects are rejected.
 
 ## Consequences
 
@@ -424,20 +426,107 @@ Authority mapping, expected versions, conditional state transitions, exact revis
 
 Phase F will require stable references, exact revision/version/state preconditions, authoritative conditional APIs/transactions, Cloud acceptance fence and recovery, Laravel locking/CAS as appropriate, domain conflict responses, audit, projection repair, and staff/customer conflict presentation. Exact columns, token/lease mechanism, status codes/names, endpoints and UI remain unapproved.
 
-## Architecture Review Questions
+## Architecture Review Decisions
 
-The following **10 questions** are recommendations for review and are not approved answers:
+### Decision 1
 
-1. Do we approve Authority-Aware Conditional Conflict Resolution instead of global Last Write Wins? **Recommendation:** Yes.
-2. Should every race-prone state-changing command use exact expected revision/version/state preconditions so stale commands fail rather than silently apply to newer state? **Recommendation:** Yes.
-3. For Website Order acceptance, should Laravel require proof from Cloud that the exact staged revision remains eligible through a conceptual conditional acceptance fence/claim before creating the Order? **Recommendation:** Yes; exact mechanism deferred.
-4. If current Cloud staged eligibility cannot be validated because Cloud is unreachable, should final Website Order acceptance wait instead of using a potentially stale local projection, without affecting local-native POS/Call Center Orders? **Recommendation:** Yes.
-5. For Laravel-authoritative mutually exclusive transitions such as Cancellation vs Payment Verification and Cancellation vs Kitchen Release, should the first valid authoritative commit after state/version/precondition validation determine what later actions may do? **Recommendation:** Yes.
-6. Should stale customer, Order, and Payment-Proof revisions always produce explicit conflict/review rather than automatically applying the action to the newest revision? **Recommendation:** Yes.
-7. Should projection-versus-authority conflicts always be repaired from domain authority rather than newest timestamp? **Recommendation:** Yes.
-8. Should deterministic conflicts return explicit business conflict/denial requiring a new valid action, while only ambiguous/unprovable conflicts enter Needs Review/Needs Finance Review? **Recommendation:** Yes.
-9. Should generic supervisor force overwrite be prohibited, with exceptional corrections represented as separate permissioned, reasoned and audited domain operations? **Recommendation:** Yes.
-10. Should exact version/reference formats, idempotency details, identity conflict rules, financial posting implications and final status names remain deferred respectively to E-10/Phase F, EA-03, E-09, EA-05 and EA-02 while E-08 approves business conflict behavior? **Recommendation:** Yes.
+**Question:** Do we approve Authority-Aware Conditional Conflict Resolution instead of global Last Write Wins?
+
+**Decision:** Approved. Global/timestamp/client Last Write Wins is rejected.
+
+**Rationale:** Business authority, exact versions and valid authoritative commits—not `updated_at`, clock, request arrival or browser click order—must determine the winner.
+
+**Follow-up Decision:** Exact version/reference representation remains E-10/Phase F.
+
+### Decision 2
+
+**Question:** Should every race-prone state-changing command use exact expected revision/version/state preconditions?
+
+**Decision:** Approved. Commands bind target reference, expected revision/version/state, exact business input, actor/scope, stable identity where applicable and operation-specific preconditions.
+
+**Rationale:** A stale decision must fail visibly rather than silently apply to changed state.
+
+**Follow-up Decision:** Exact fields/protocol belong to E-10/Phase F; duplicate semantics belong to EA-03.
+
+### Decision 3
+
+**Question:** Does Website Order acceptance require a conceptual Cloud conditional acceptance fence/claim for the exact staged revision before Laravel creates the Order?
+
+**Decision:** Approved; the fence proves the revision is current, eligible, not cancelled/superseded and not in an incompatible transition.
+
+**Rationale:** Cloud remains pre-acceptance authority, so a stale local projection cannot safely authorize the handoff.
+
+**Follow-up Decision:** Exact fence/token/lease/API mechanism remains E-10/Phase F and EA-03 where idempotency applies.
+
+### Decision 4
+
+**Question:** If Cloud eligibility cannot be proven because Cloud is unavailable, must final Website Order acceptance wait?
+
+**Decision:** Approved. Laravel may retain an approval intent but cannot create the authoritative Website Order from stale projection. Local-native POS/Call Center Orders are unaffected.
+
+**Rationale:** Availability cannot override the system that still owns staged eligibility.
+
+**Follow-up Decision:** Phase F defines the Pending/Awaiting Cloud Validation workflow; EA-02 finalizes its name.
+
+### Decision 5
+
+**Question:** For Laravel-authoritative competing transitions, does the first valid authoritative commit after locking/version/state/precondition validation govern later actions?
+
+**Decision:** Approved for Cancellation vs Payment Verification, Cancellation vs Kitchen Release, Modification vs Release and other mutually exclusive transitions.
+
+**Rationale:** The first valid commit changes authoritative state; the later action must revalidate and follow the new legal path rather than rely on click/arrival time.
+
+**Follow-up Decision:** EA-05 defines paid-cancellation/financial consequences; Phase F defines locking/CAS transactions.
+
+### Decision 6
+
+**Question:** Must stale customer, Order and Payment-Proof revisions return explicit conflict and require a new valid decision?
+
+**Decision:** Approved. No automatic latest-revision or latest-proof substitution.
+
+**Rationale:** Approve(V1) cannot mean Approve(latest), and Verify Proof V1 cannot mean Verify(latest proof); consent and reviewed evidence must remain exact.
+
+**Follow-up Decision:** E-10 defines revision references; EA-05/Phase F defines evidence eligibility/cardinality.
+
+### Decision 7
+
+**Question:** Should projection-versus-authority conflicts always be repaired from domain authority rather than newest timestamp?
+
+**Decision:** Approved. Domain authority wins and the projection is repaired.
+
+**Rationale:** Projections are caches/views, not competing truth, and clocks/network delay cannot transfer authority.
+
+**Follow-up Decision:** E-07 governs repair delivery; EA-02 defines stale/conflict projection statuses.
+
+### Decision 8
+
+**Question:** Should deterministic conflicts return explicit denial/stale/refresh while only ambiguous conflicts enter review?
+
+**Decision:** Approved. Deterministic conflict gets an explicit business outcome; unprovable business ambiguity enters Needs Review; financial ambiguity enters Needs Finance Review.
+
+**Rationale:** Known stale or illegal actions do not require manual investigation, while unknown authority/effects must never be guessed.
+
+**Follow-up Decision:** EA-02 finalizes vocabulary; E-07 governs reconciliation; EA-05 governs financial resolution.
+
+### Decision 9
+
+**Question:** Should generic supervisor/super-admin force overwrite be prohibited?
+
+**Decision:** Approved. No generic `force=true`; exceptional correction is a separate permissioned, reasoned, audited domain operation that revalidates current authority.
+
+**Rationale:** Administrative privilege does not permit erasing Payment, production, consent, accepted-revision or other historical truth.
+
+**Follow-up Decision:** Phase F and later security/business policy define exact exceptional commands and permissions.
+
+### Decision 10
+
+**Question:** Should exact formats, idempotency, identity rules, financial consequences and final status vocabulary remain deferred?
+
+**Decision:** Approved.
+
+**Rationale:** E-08 fixes conflict behavior without prematurely selecting fields, tokens, merge policy, posting mechanics or enums.
+
+**Follow-up Decision:** Version/reference/fence formats → E-10/Phase F; idempotency → EA-03; identity conflicts → E-09; financial consequences → EA-05; final conflict/status vocabulary → EA-02.
 
 ## Traceability
 
@@ -447,4 +536,5 @@ The following **10 questions** are recommendations for review and are not approv
 - E-07: unknown-outcome reconciliation, conflict-not-retry, targeted recovery and review routing.
 - D1/D2: customer consent, staff authorization, audit, truthful states and no silent business effects.
 - Current code: partial Laravel transactions/locks/state checks/idempotency/uniqueness, locked release versus unlocked cancellation gap, client caches/actions without expected versions, and no current staged acceptance fence.
+- Approved on 2026-08-08: all ten Architecture Review Decisions above.
 - Deferred: E-09/E-10 and EA-01 through EA-06 remain pending; Phase F remains not started.
