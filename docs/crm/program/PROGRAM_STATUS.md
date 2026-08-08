@@ -4,7 +4,7 @@
 Current Milestone: M0
 Current Phase: E — Architecture Decisions
 Previous Phase: D — Complete
-Completed Decisions:
+Completed:
 - E-01 — Cloud Integration API Location
 - E-02 — Synchronization Mode
 - E-03 — Conversation and Message Storage
@@ -17,11 +17,11 @@ E-03 Status: Approved
 E-04 Status: Approved
 E-05 Status: Approved
 Current Decision: E-06 — Payment Verification
-E-06 Status: Pending
+E-06 Status: Ready for Architecture Review
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
-Implementation Status: Not Started
+Implementation: Not Started
 Phase F Status: Not Started — Waiting for remaining required architecture approvals
 ```
 
@@ -31,7 +31,7 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01 through E-05 Approved | E-06 is current and pending; E-07 through E-10 remain pending. |
+| E | In Progress — E-01 through E-05 Approved | E-06 is current and ready for architecture review; E-07 through E-10 remain pending. |
 | F | Not Started | Waiting for remaining required architecture approvals |
 | G-Z | Not Started | — |
 
