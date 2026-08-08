@@ -2,15 +2,17 @@
 
 ## Status
 
-**[R] Proposed — Ready for Architecture Review**
+**[x] Approved — 2026-08-08**
 
-This ADR proposes authority, evidence, verification, clearance, failure, cancellation, and production-boundary semantics only. It does not approve schemas, names of fields or enums, APIs, storage products, queues/jobs, UI, notifications, financial posting timing, refunds, or Phase F application work.
+Approved decision: **Option A — Cloud Private Payment Evidence Store + Laravel-authoritative Payment Verification**.
+
+This ADR approves authority, evidence, verification, clearance, failure, cancellation, and production-boundary semantics only. It does not approve schemas, names of fields or enums, APIs, storage products, queues/jobs, UI, notifications, financial posting timing, refunds, or Phase F application work.
 
 ## Context
 
 E-05 creates a Laravel `Order` at authorized website-order approval but deliberately separates Order approval, payment verification, and production release. E-06 must decide where customer-supplied Payment Proof lives, who may establish payment truth, what a verified payment means, and how uncertain or repeated operations remain safe under E-02 at-least-once synchronization.
 
-The central recommendation is:
+The approved boundary is:
 
 ```text
 Cloud = private evidence custody
@@ -130,7 +132,7 @@ Cloud receives evidence and establishes final verification. This improves intake
 
 ## Recommended Authority Model
 
-Recommend **Option A — Cloud Private Payment Evidence Store + Laravel-authoritative Payment Verification**.
+Approved: **Option A — Cloud Private Payment Evidence Store + Laravel-authoritative Payment Verification**.
 
 ```text
 Customer uploads proof
@@ -139,12 +141,13 @@ Customer uploads proof
 → E-02 durable synchronization
 → authorized Laravel review
 → authoritative Laravel payment result
+→ Laravel determines Payment Clearance
 → Laravel Outbox
 → Cloud customer-safe projection
 → Laravel separately evaluates production release
 ```
 
-Only Laravel may establish `Payment Verified`, `Payment Rejected`, or `Payment Needs Review`. Future OCR/provider automation may supply review input but cannot bypass Laravel's approved verification contract.
+Only Laravel may establish `Payment Verified`, `Payment Rejected`, `Payment Needs Finance Review`, or `Payment Cleared`. Future OCR/provider automation may supply review input but cannot bypass Laravel's approved verification contract.
 
 ## Payment Proof Storage
 
@@ -170,7 +173,7 @@ Alternative outcomes include Rejected, Needs Customer Action, Needs Finance Revi
 
 ## Proof Receipt vs Verification
 
-Cloud may immediately communicate “We received your payment evidence and it is under review” after durable acceptance. It must not communicate “Payment confirmed” until Laravel commits or recoverably identifies the required local result and publishes that authoritative outcome.
+Cloud may immediately communicate “We received your payment evidence and it is under review�? after durable acceptance. It must not communicate “Payment confirmed�? until Laravel commits or recoverably identifies the required local result and publishes that authoritative outcome.
 
 ```text
 Payment Proof Uploaded ≠ Payment Received as a financial fact
@@ -178,7 +181,16 @@ Payment Proof Uploaded ≠ Payment Verified
 Payment Proof Uploaded ≠ Laravel Payment record
 Payment Proof Uploaded ≠ Invoice settled
 Payment Proof Uploaded ≠ Accounting posted
+Payment Proof Uploaded ≠ Payment Cleared
 Payment Proof Uploaded ≠ Kitchen release
+```
+
+The following distinctions are also binding:
+
+```text
+Payment Verified ≠ Accounting Posted
+Payment Verified ≠ necessarily Payment Cleared
+Payment Verified ≠ Production Released
 ```
 
 ## Verification Authority
@@ -268,6 +280,21 @@ Laravel Order
 
 `Paid + not production-released` is no longer the simple unpaid cancellation allowed by E-05. Laravel may permit cancellation only through a controlled, authorized cancellation plus refund/void workflow that records reason, actor, Payment/Invoice consequences, and reconciliation. Cancellation must not delete the Payment or silently mark it unpaid. Whether the correct financial action is refund, void, credit, reversal, or another treatment remains EA-05.
 
+The three cancellation situations are permanently distinct:
+
+```text
+Unpaid + not production-released
+? normal operational cancellation may be allowed by Laravel policy
+
+Paid + not production-released
+? controlled cancellation
+? financial disposition required
+
+Production released
+? ordinary cancellation blocked
+? operational exception / manager review
+```
+
 ## Post-Production Cancellation
 
 Once production is released, ordinary cancellation is blocked or escalated into an exception/waste/service-recovery workflow under Laravel policy. Payment reversal alone cannot erase production history. E-08 will define concurrent cancellation/release conflict rules.
@@ -319,7 +346,7 @@ If Laravel commits the Payment but the acknowledgement is lost, retry must query
 
 ## Notifications
 
-Proof receipt may trigger an immediate Cloud receipt notification. Verified, Rejected, Needs Customer Action, refund/void, and clearance communications require the corresponding authoritative fact. Cloud must deduplicate at-least-once outcomes and must not turn stale/unknown state into “Payment confirmed.” E-04 remains the Notification-store authority.
+Proof receipt may trigger an immediate Cloud receipt notification. Verified, Rejected, Needs Customer Action, refund/void, and clearance communications require the corresponding authoritative fact. Cloud must deduplicate at-least-once outcomes and must not turn stale/unknown state into “Payment confirmed.�? E-04 remains the Notification-store authority.
 
 ## Reporting
 
@@ -347,6 +374,12 @@ Payment Proof is high-sensitivity, purpose-limited private evidence. Least privi
 ## Consequences
 
 Option A permits durable customer uploads during branch outages and keeps sensitive binary evidence out of routine Laravel storage while preserving one financial authority. It requires secure Cloud evidence infrastructure, purpose-bound access from Laravel, durable cross-system correlation, review tooling, and reconciliation. Customer confirmation may wait for local availability; that delay is preferable to false financial truth.
+
+- **Operational:** the normal Call Center employee may approve the Website Order and verify routine payment when explicitly authorized for both capabilities, avoiding an unnecessary routine handoff.
+- **Security:** Order approval and Payment verification remain independently permissioned, checked, timestamped, and audited.
+- **Financial:** ambiguous cases escalate to Finance Review; Finance is not a mandatory stop for every routine payment.
+- **Production:** successful Payment Verification does not guarantee successful Kitchen Release. If verification commits and release fails, Payment remains committed while release is failed/pending retry.
+- **Cancellation:** a paid pre-production cancellation requires a controlled financial disposition workflow.
 
 ## Risks
 
@@ -383,20 +416,77 @@ The invariant set, private evidence controls, Laravel-only authority, independen
 
 Phase F will need private evidence intake/access, stable opaque references, evidence-version and review projections, explicit Laravel authorization, a transactional verification-to-financial contract aligned with EA-05, Inbox/Outbox/idempotency/reconciliation aligned with E-07/E-10/EA-03, safe customer projections, and separate production/cancellation/refund operations. No class, table, endpoint, job, storage provider, UI, or enum is approved here.
 
-## Architecture Review Questions
+## Architecture Review Decisions
 
-The following **10 questions** are recommendations for review and are not approved answers:
+### Decision 1
 
-1. Do we approve Cloud private Payment Proof storage plus Laravel-authoritative Payment Verification? **Recommendation:** Yes.
-2. Does durable Proof upload mean only Proof Received / Under Review and never Payment Verified? **Recommendation:** Yes.
-3. May routine Payment Verification be performed by a specifically authorized Call Center/operations employee, while financially ambiguous cases go to Finance Review? **Recommendation:** Yes, with independent payment-verification permission and actor audit.
-4. May the same employee both approve the Website Order and verify payment if they possess both permissions? **Recommendation:** Yes for routine cases, but treat them as two distinct audited decisions; do not approve thresholds or maker-checker rules yet.
-5. Should Payment verification and production release remain separate domain operations even when the UI coordinates them? **Recommendation:** Yes.
-6. For website/call-center-style Orders, must full required payment be verified before production release? **Recommendation:** Yes; an accepted partial Payment remains uncleared and held.
-7. Should ambiguous reference, amount, or commit outcomes enter Needs Finance Review / Needs Review instead of being silently verified, rejected, or retried into another Payment? **Recommendation:** Yes.
-8. Should Payment Proof revisions/replacements preserve original evidence and audit history rather than overwrite it? **Recommendation:** Yes.
-9. If a Payment is verified but production has not started, may Order cancellation occur only through a controlled cancellation plus refund/void financial workflow? **Recommendation:** Yes; this is not the simple unpaid cancellation from E-05.
-10. Should exact Invoice, Payment, accounting, and refund posting timing remain deferred to EA-05 while E-06 defines Payment Verification and Payment Clearance only? **Recommendation:** Yes.
+**Question:** Do we approve Cloud private Payment Proof storage plus Laravel-authoritative Payment Verification?
+**Decision:** Approved.
+**Rationale:** Cloud provides durable private evidence custody while Laravel remains the sole financial authority.
+**Follow-up Decision:** EA-06 defines retention/privacy; Phase F selects security and storage implementation details.
+
+### Decision 2
+
+**Question:** Does durable Proof upload mean only Proof Received / Under Review and never Payment Verified?
+**Decision:** Approved; Proof upload never establishes Payment Verified.
+**Rationale:** Durable evidence receipt is not a financial fact. Customer confirmation requires a committed or recoverably identified Laravel outcome.
+**Follow-up Decision:** EA-02 finalizes vocabulary; E-07 defines delayed-result reconciliation timing.
+
+### Decision 3
+
+**Question:** May routine Payment Verification be performed by a specifically authorized Call Center/operations employee, while ambiguous cases go to Finance Review?
+**Decision:** Approved. Routine Payment Verification belongs to an authorized Call Center/operations employee; ambiguous, conflicting, duplicate, or financially indeterminate cases go to Finance Review. The normal O2 Call Center employee who approves the Website Order is also expected to verify routine payment when explicitly authorized for both capabilities.
+**Rationale:** Routine handling avoids an unnecessary Finance handoff while financial uncertainty receives specialist review.
+**Follow-up Decision:** Phase F defines exact permission names/scopes; later security policy may define exceptional escalation without changing this base model.
+
+### Decision 4
+
+**Question:** May the same employee approve the Website Order and verify Payment?
+**Decision:** Approved for routine cases when the employee possesses both independent capabilities. Two employees are not required. The actions remain separate authorization checks, domain decisions, timestamps, inputs, and audit evidence.
+**Rationale:** This matches the O2 operating model without collapsing authority or accountability.
+**Follow-up Decision:** No maker-checker or amount threshold is approved here; any exceptional threshold belongs to later business/security policy.
+
+### Decision 5
+
+**Question:** Should Payment Verification and Production Release remain separate domain operations even when the UI coordinates them?
+**Decision:** Approved.
+**Rationale:** A valid Payment must remain committed if the separate release operation fails; Cloud never releases production.
+**Follow-up Decision:** E-08 defines release/payment conflict handling; Phase F defines coordinated UI/API behavior.
+
+### Decision 6
+
+**Question:** Must full required verified payment precede production for website/call-center-style Orders?
+**Decision:** Approved. A valid verified partial Payment remains uncleared and held.
+**Rationale:** Partial financial value is not satisfaction of the Order payment policy and cannot clear production.
+**Follow-up Decision:** EA-05 defines financial posting treatment; EA-02 finalizes statuses.
+
+### Decision 7
+
+**Question:** Should ambiguous reference, amount, or commit outcomes enter Needs Finance Review / Needs Review?
+**Decision:** Approved; never silently verify, reject, or retry uncertainty into another Payment.
+**Rationale:** Unknown is neither Verified nor Rejected, and replay must not duplicate a financial effect.
+**Follow-up Decision:** E-07 defines retry timing; EA-03/E-10 define exact idempotency and reference contracts.
+
+### Decision 8
+
+**Question:** Should Payment Proof replacement preserve original evidence and audit history?
+**Decision:** Approved; use immutable revision/history semantics with no silent overwrite.
+**Rationale:** Each verifier decision must remain attributable to the exact evidence version reviewed.
+**Follow-up Decision:** EA-06 defines retention, deletion eligibility, and holds.
+
+### Decision 9
+
+**Question:** May a paid, not production-released Order be cancelled only through controlled cancellation plus financial disposition?
+**Decision:** Approved. Refund/void/reversal/credit treatment as applicable is separate, governed, and audited; the original Payment is not deleted.
+**Rationale:** Paid cancellation is financially different from the simple unpaid cancellation approved in E-05.
+**Follow-up Decision:** EA-05 defines exact refund/void/reversal mechanics and posting timing; E-08 defines cancellation/release races.
+
+### Decision 10
+
+**Question:** Should exact Invoice, Payment, accounting, and refund posting timing remain deferred to EA-05?
+**Decision:** Approved; E-06 defines Payment Verification and Payment Clearance only.
+**Rationale:** Approval of financial authority and safety invariants does not settle officialization, Journal, receivable, settlement, refund, void, or reversal timing.
+**Follow-up Decision:** EA-05 — Financial Posting Timing.
 
 ## Traceability
 
@@ -406,4 +496,5 @@ The following **10 questions** are recommendations for review and are not approv
 - E-05: accepted Laravel Order precedes the separate payment and production gates.
 - D1/D2: private proof handling, authorized staff review, full-payment production safety, audit, and financially safe ambiguity.
 - Current code: `Payment`, `Invoice`, `PaymentConfirmation`, `InvoiceFromOrderService`, `InvoicePaymentService`, `CallCenterOrderExecutionService`, `OrderConfirmationService`, idempotency and reference migrations, Call Center Admin payment collection, and website WhatsApp checkout.
+- Approved on 2026-08-08: all ten Architecture Review Decisions above.
 - Deferred: E-07 through E-10 and EA-01 through EA-06 remain pending; Phase F remains not started.

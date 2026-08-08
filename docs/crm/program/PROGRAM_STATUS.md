@@ -4,24 +4,25 @@
 Current Milestone: M0
 Current Phase: E — Architecture Decisions
 Previous Phase: D — Complete
-Completed:
+Completed Decisions:
 - E-01 — Cloud Integration API Location
 - E-02 — Synchronization Mode
 - E-03 — Conversation and Message Storage
 - E-04 — Notification Storage
 - E-05 — Website Order Pre-Approval Model
+- E-06 — Payment Verification
 
 E-01 Status: Approved
 E-02 Status: Approved
 E-03 Status: Approved
 E-04 Status: Approved
 E-05 Status: Approved
-Current Decision: E-06 — Payment Verification
-E-06 Status: Ready for Architecture Review
+E-06 Status: Approved
+Current Decision: E-07 — Offline and Retry Policy
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
-Implementation: Not Started
+Implementation Status: Not Started
 Phase F Status: Not Started — Waiting for remaining required architecture approvals
 ```
 
@@ -31,7 +32,7 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01 through E-05 Approved | E-06 is current and ready for architecture review; E-07 through E-10 remain pending. |
+| E | In Progress — E-01 through E-06 Approved | E-07 is current and pending; E-08 through E-10 remain pending. No E-07 work has begun. |
 | F | Not Started | Waiting for remaining required architecture approvals |
 | G-Z | Not Started | — |
 
@@ -42,4 +43,4 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 - Verify the actual deployment configuration.
 - Verify network connectivity between cloud and local environments.
 
-These items do not change E-01/E-02/E-03/E-04/E-05 approval. They prevent the system from being declared production-ready.
+These items do not change E-01/E-02/E-03/E-04/E-05/E-06 approval. They prevent the system from being declared production-ready.
