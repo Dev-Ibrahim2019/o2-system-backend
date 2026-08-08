@@ -19,10 +19,11 @@ E-04 Status: Approved
 E-05 Status: Approved
 E-06 Status: Approved
 Current Decision: E-07 — Offline and Retry Policy
+E-07 Status: Ready for Architecture Review
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
-Implementation Status: Not Started
+Implementation: Not Started
 Phase F Status: Not Started — Waiting for remaining required architecture approvals
 ```
 
@@ -32,7 +33,7 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01 through E-06 Approved | E-07 is current and pending; E-08 through E-10 remain pending. No E-07 work has begun. |
+| E | In Progress — E-01 through E-06 Approved | E-07 is current and ready for architecture review; E-08 through E-10 remain pending. |
 | F | Not Started | Waiting for remaining required architecture approvals |
 | G-Z | Not Started | — |
 
