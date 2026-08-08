@@ -21,10 +21,11 @@ E-05 Status: Approved
 E-06 Status: Approved
 E-07 Status: Approved
 Current Decision: E-08 — Conflict Resolution Policy
+E-08 Status: Ready for Architecture Review
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
-Implementation Status: Not Started
+Implementation: Not Started
 Phase F Status: Not Started — Waiting for remaining required architecture approvals
 ```
 
@@ -34,7 +35,7 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01 through E-07 Approved | E-08 is current and pending; E-09 and E-10 remain pending. No E-08 work has begun. |
+| E | In Progress — E-01 through E-07 Approved | E-08 is current and ready for architecture review; E-09 and E-10 remain pending. |
 | F | Not Started | Waiting for remaining required architecture approvals |
 | G-Z | Not Started | — |
 
