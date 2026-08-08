@@ -2,9 +2,11 @@
 
 ## Status
 
-**[R] Proposed — Ready for Architecture Review**
+**[x] Approved — 2026-08-08**
 
-This ADR proposes behavioral failure, retry, recovery, acknowledgement, cursor, backlog, and review semantics only. It does not approve schemas, queue technology, APIs, jobs, schedulers, monitoring infrastructure, final status names, exact idempotency keys, or Phase F application work.
+Approved decision: **Option A — Durable Adaptive Retry + Targeted Reconciliation**, using exponential backoff with jitter, priority-aware scheduling, idempotent replay, and governed review for unresolved ambiguity.
+
+This ADR approves behavioral failure, retry, recovery, acknowledgement, cursor, backlog, and review semantics only. It does not approve schemas, queue technology, APIs, jobs, schedulers, monitoring infrastructure, final status names, exact idempotency keys, or Phase F application work.
 
 ## Context
 
@@ -123,7 +125,7 @@ Fixed N cannot distinguish a five-hour outage from permanent validation failure 
 
 ## Recommended Retry Model
 
-Recommend **Option A — Durable Adaptive Retry + Targeted Reconciliation**.
+Approved: **Option A — Durable Adaptive Retry + Targeted Reconciliation**.
 
 ```text
 Durable Work Item
@@ -459,7 +461,7 @@ E-07 does not resolve any of these decisions.
 
 ## Recommended Option
 
-Recommend Option A. It treats connectivity failure as durable scheduling evidence, not proof of business failure; reserves blind replay for duplicate-safe operations; and makes targeted authority-aware reconciliation the first response to unknown side effects.
+Approved: **Option A — Durable Adaptive Retry + Targeted Reconciliation**. It treats connectivity failure as durable scheduling evidence, not proof of business failure; reserves replay for duplicate-safe operations; and makes targeted authority-aware reconciliation the first response to unknown side effects.
 
 ## Consequences
 
@@ -469,6 +471,7 @@ Recommend Option A. It treats connectivity failure as durable scheduling evidenc
 - Customer/staff state becomes more truthful but may remain Pending/Awaiting Outcome while authority is unavailable.
 - Recovery prioritizes live critical outcomes without abandoning aged lower-priority work.
 - Exact numerical tuning remains operational configuration, allowing safe load-test adjustment without changing the ADR.
+- Duplicate/loss risk is substantially reduced at the cost of increased operational complexity and mandatory durable Agent state.
 
 ## Risks
 
@@ -506,20 +509,107 @@ The durable ownership rule, class-aware retry, acknowledgement separation, opera
 
 Phase F will need durable Cloud command and Laravel Outbox/Inbox mechanisms, stable references, versioned contracts, bounded claims, per-lane scheduling/backpressure, error classification, targeted/baseline reconciliation, health/metrics, quarantine/replay controls, secure audit, and authority-aware status projections. Technology, schemas, jobs, APIs, retry curves, lease durations, weights, and retention are deliberately unapproved here.
 
-## Architecture Review Questions
+## Architecture Review Decisions
 
-The following **10 questions** are recommendations for review and are not approved answers:
+### Decision 1
 
-1. Do we approve Durable Adaptive Retry + Exponential Backoff with Jitter + Targeted Reconciliation instead of a universal fixed retry count? **Recommendation:** Yes.
-2. Should retry policy be classified by operation type and business safety rather than one global retry rule? **Recommendation:** Yes.
-3. When a side-effecting operation has an unknown outcome, should the system query/reconcile durable correlation before any re-execution, specifically for Order Acceptance and Payment Verification? **Recommendation:** Yes.
-4. Should unresolved unknown business outcomes become Needs Review, and financial unknown outcomes become Needs Finance Review, instead of retrying indefinitely? **Recommendation:** Yes.
-5. Should permanent validation, schema, authorization, and poison failures stop normal retry and become Blocked/Needs Review with explicit alerting? **Recommendation:** Yes.
-6. Should durable work use bounded leases/claims so worker/Agent crashes can recover items, with exact durations configured later? **Recommendation:** Yes.
-7. Should cursor gaps/out-of-order delivery trigger targeted backfill/reconciliation for the affected scope rather than skipping the gap or globally blocking unrelated lanes? **Recommendation:** Yes.
-8. Should Agent recovery process critical lanes first with bounded fast catch-up, independent lane budgets, and fairness/no starvation? **Recommendation:** Yes.
-9. Should completed delivery/work evidence be retained long enough for duplicate detection, reconciliation, and audit rather than immediately deleted, with exact retention deferred to EA-03/EA-06? **Recommendation:** Yes.
-10. Should exact idempotency design, final status names, retry numeric tuning, and conflict winner rules remain deferred respectively to EA-03, EA-02, Phase F configuration/load testing, and E-08 while E-07 approves behavioral policy? **Recommendation:** Yes.
+**Question:** Do we approve Durable Adaptive Retry + Exponential Backoff with Jitter + Targeted Reconciliation instead of a universal fixed retry count?
+
+**Decision:** Approved. No universal fixed retry count and no blind infinite retry.
+
+**Rationale:** A long network outage and a permanent validation failure require different safe terminal behavior; unknown side effects require reconciliation rather than another execution.
+
+**Follow-up Decision:** Exact seconds, caps, cadence, concurrency, lane weights, and age thresholds remain Phase F configuration validated through staging/load testing.
+
+### Decision 2
+
+**Question:** Should retry policy be classified by operation type and business safety rather than one global rule?
+
+**Decision:** Approved using conceptual Classes A/B/C/D: safe projection replay, idempotent business commands, unknown side-effect outcomes, and permanent/poison failures.
+
+**Rationale:** Automatic replay safety depends on business effect, stable identity, error class, and whether the outcome is known.
+
+**Follow-up Decision:** EA-03 defines exact duplicate-safe identity and replay contracts; EA-02 finalizes state names.
+
+### Decision 3
+
+**Question:** When Order Acceptance or Payment Verification has an unknown side-effect outcome, must durable correlation be queried/reconciled before re-execution?
+
+**Decision:** Approved. No blind Order recreation or repeated Payment execution.
+
+**Rationale:** Timeout or lost acknowledgement may occur after Laravel committed the authoritative result.
+
+**Follow-up Decision:** E-10 defines stable references; EA-03 defines idempotency; EA-05 defines financially recoverable outcome boundaries.
+
+### Decision 4
+
+**Question:** Should unresolved business ambiguity become Needs Review and unresolved financial ambiguity become Needs Finance Review?
+
+**Decision:** Approved; neither ambiguity retries indefinitely or becomes guessed success/failure.
+
+**Rationale:** Automated execution must stop when it cannot safely determine the authoritative outcome.
+
+**Follow-up Decision:** EA-02 defines final vocabulary; E-08 defines business conflict winners and resolution paths.
+
+### Decision 5
+
+**Question:** Should permanent validation, schema, authorization, and poison failures stop normal retry?
+
+**Decision:** Approved. Preserve and quarantine/block the durable item, route to Needs Review, record an explicit reason, and alert the responsible owner. Do not delete the work.
+
+**Rationale:** Repeated attempts waste capacity, can create security pressure, and may block unrelated work without changing a permanent condition.
+
+**Follow-up Decision:** Phase F defines quarantine tooling; EA-06 defines payload/audit retention and redaction.
+
+### Decision 6
+
+**Question:** Should durable workers use bounded leases/claims so crashes can recover work?
+
+**Decision:** Approved, including conceptual fencing/generation protection. Lease expiry does not prove the business operation failed.
+
+**Rationale:** Claims coordinate workers, while stable identity/reconciliation protects against effects committed before a lease expired or a stale worker returned.
+
+**Follow-up Decision:** Exact lease duration, renewal, clock-skew tolerance, and fencing mechanism remain Phase F configuration/design.
+
+### Decision 7
+
+**Question:** Should cursor gaps and out-of-order delivery trigger targeted affected-scope recovery?
+
+**Decision:** Approved. Do not skip gaps, use reset-to-latest as a generic shortcut, overwrite a newer authoritative version, or globally block unrelated lanes where isolation is safe.
+
+**Rationale:** Contiguous durable progress and scope isolation prevent silent loss while protecting critical/unrelated work.
+
+**Follow-up Decision:** E-10 defines cursor/reference structure; E-08 defines conflict winners; Phase F defines snapshot/backfill mechanics.
+
+### Decision 8
+
+**Question:** Should Agent recovery process critical lanes first with bounded fast catch-up, independent budgets, fairness, and age promotion?
+
+**Decision:** Approved, with no starvation and without allowing promotion to bypass business safety.
+
+**Rationale:** Recovery must protect live Orders/Payments and dependencies without abandoning aged lower-priority durable work.
+
+**Follow-up Decision:** Exact lane budgets, weights, age thresholds, batches, and concurrency remain Phase F/load-test configuration.
+
+### Decision 9
+
+**Question:** Should completed delivery/outcome evidence be retained for duplicate detection, reconciliation, audit, incident investigation, and replay protection?
+
+**Decision:** Approved; do not immediately delete evidence after HTTP success.
+
+**Rationale:** At-least-once recovery and lost-acknowledgement investigation depend on durable prior outcomes.
+
+**Follow-up Decision:** Exact retention/idempotency window belongs to EA-03; privacy, redaction, deletion, and holds belong to EA-06.
+
+### Decision 10
+
+**Question:** Should exact idempotency design, status names, retry tuning, and conflict winner rules remain deferred while E-07 approves behavioral policy?
+
+**Decision:** Approved.
+
+**Rationale:** Retry/recovery invariants can be fixed without prematurely selecting identifiers, enums, magic numbers, or concurrent business winners.
+
+**Follow-up Decision:** Idempotency design → EA-03; final status vocabulary → EA-02; retry numeric tuning → Phase F/staging/load testing; conflict winner rules → E-08.
 
 ## Traceability
 
@@ -529,4 +619,5 @@ The following **10 questions** are recommendations for review and are not approv
 - E-06: stable Payment verification outcome, Finance Review, and separate release retry.
 - D1/D2: durable Portal intake, safe staff actions, transparent degraded states, authorization and audit.
 - Current code: Laravel queue/failed-job framework configuration, partial idempotency records, row locks/transactions/uniqueness, Call Center financial/release phase separation, PBX timeouts, manual Admin retries/polling, and no inspected cross-system Sync Agent/Inbox/Outbox/cursor/reconciliation implementation.
+- Approved on 2026-08-08: all ten Architecture Review Decisions above.
 - Deferred: E-08 through E-10 and EA-01 through EA-06 remain pending; Phase F remains not started.

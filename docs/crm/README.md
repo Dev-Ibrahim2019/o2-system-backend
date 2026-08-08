@@ -11,7 +11,7 @@
 - [ADR E-04 — Notification Storage — Approved](architecture/ADR-E-04-NOTIFICATION-STORAGE.md)
 - [ADR E-05 — Website Order Pre-Approval Model — Approved](architecture/ADR-E-05-WEBSITE-ORDER-PRE-APPROVAL.md)
 - [ADR E-06 — Payment Verification — Approved](architecture/ADR-E-06-PAYMENT-VERIFICATION.md)
-- [ADR E-07 — Offline and Retry Policy — Proposed](architecture/ADR-E-07-OFFLINE-RETRY-POLICY.md)
+- [ADR E-07 — Offline and Retry Policy — Approved](architecture/ADR-E-07-OFFLINE-RETRY-POLICY.md)
 - [Program Charter](program/PROGRAM_CHARTER.md)
 - [Master Backlog](program/MASTER_BACKLOG.md)
 - [Decision Log](program/DECISION_LOG.md)
