@@ -2,7 +2,7 @@
 
 ```text
 Current Milestone: M0
-Current Phase: F — Implementation Planning / Execution
+Current Phase: F — Implementation
 Previous Phase: E — Complete
 Completed Decisions:
 - E-01 — Cloud Integration API Location
@@ -44,7 +44,10 @@ D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
 Implementation Status: Not Started
-Phase F Status: Not Started — Implementation Planning is the next program action
+Implementation Planning: Complete
+Implementation: Ready to Start
+Current Workstream: F-01 — Integration Foundation
+Current Task: F-01A — Stable Laravel Integration Identity and Outbox Foundation
 ```
 
 | Phase | Status | Outcome |
@@ -54,7 +57,7 @@ Phase F Status: Not Started — Implementation Planning is the next program acti
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
 | E | Complete — E-01 through E-10 and EA-01 through EA-06 Approved | Architecture Gate complete on 2026-08-09. |
-| F | Not Started | Next action: Implementation Planning. No implementation began in the architecture approval run. |
+| F | Ready to Start | Implementation planning complete; F-01A is the first coding run. No application implementation has begun. |
 | G-Z | Not Started | — |
 
 ## Runtime Verification Backlog

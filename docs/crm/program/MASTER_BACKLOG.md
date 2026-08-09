@@ -43,7 +43,16 @@ Status: `[x]` complete, `[R]` drafted and ready for review, `[ ]` not started, `
 | EA-04 | E | Catalog and Pricing Authority | P0 | All | [x] | E-05,E-08 | Approved 2026-08-09: Laravel authority, Cloud read projection, normal price synchronization before commitment, immutable submitted snapshots, and re-consent for material changes. |
 | EA-05 | E | Financial Posting Timing | P0 | Backend | [x] | E-05,E-06,E-08 | Approved 2026-08-09: Laravel financial authority, Invoice at Financial Commitment, Payment/Account-Credit settlement, separate clearance/release, preserved financial history, and reconciliation. |
 | EA-06 | E | Privacy, Consent and Retention | P0 | All | [x] | E-03,E-04,E-09 | Approved 2026-08-09: separate consent, minimized/private data, configurable governed retention, no default destructive financial TTL, holds, access audit, and reference non-reuse. |
-| F-01..F-25 | F | Foundation and integration contracts | P0 | All | [ ] | E | Not started |
+| F-01 | F | Integration Foundation | P0 | Backend/Cloud/Agent | [R] | E | Planned; F-01A is ready as the first coding run. See [Phase F Backlog](../implementation/PHASE_F_BACKLOG.md). |
+| F-02 | F | Portal Identity & Authentication | P0 | Cloud/Website/Backend | [ ] | F-01 | Planned for M2. |
+| F-03 | F | Catalog / Pricing Synchronization | P1 | All | [ ] | F-01 | Planned for M3. |
+| F-04 | F | Website Orders | P1 | All | [ ] | F-01,F-02,F-03 | Planned for M4. |
+| F-05 | F | Payment & Settlement | P1 | All | [ ] | F-04 | Planned for M5. |
+| F-06 | F | Customer Portal | P1 | Website/Cloud | [ ] | F-02,F-03,F-04 | Planned across M4/M6. |
+| F-07 | F | Admin CRM / Call Center | P1 | Backend/Admin | [ ] | F-02,F-04,F-05 | Planned across M4–M6. |
+| F-08 | F | Reliability / Reconciliation | P0 | All | [ ] | F-01 | Foundation begins in M1; completion in M7. |
+| F-09 | F | Security / Observability | P0 | All | [ ] | F-01 | Applied continuously; rollout hardening in M7. |
+| F-10 | F | Migration / Staging / Rollout | P2 | All | [ ] | F-01..F-09 | Planned for M7; no big-bang replacement. |
 | G-01..G-25 | G | Customer identity and profile | P1 | All | [ ] | F | Not started |
 | H-01..H-25 | H | Customer interactions and call center | P1 | Backend/Admin | [ ] | G | Not started |
 | I-01..I-25 | I | Portal identity and access | P1 | Website/Backend | [ ] | E,F | Not started |

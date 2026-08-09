@@ -21,6 +21,8 @@
 - [ADR EA-04 — Catalog and Pricing Authority — Approved](architecture/ADR-EA-04-CATALOG-PRICING-AUTHORITY.md)
 - [ADR EA-05 — Financial Posting Timing — Approved](architecture/ADR-EA-05-FINANCIAL-POSTING-TIMING.md)
 - [ADR EA-06 — Privacy, Consent and Retention — Approved](architecture/ADR-EA-06-PRIVACY-CONSENT-RETENTION.md)
+- [Phase F Implementation Plan](implementation/PHASE_F_IMPLEMENTATION_PLAN.md)
+- [Phase F Executable Backlog](implementation/PHASE_F_BACKLOG.md)
 - [Program Charter](program/PROGRAM_CHARTER.md)
 - [Master Backlog](program/MASTER_BACKLOG.md)
 - [Decision Log](program/DECISION_LOG.md)
