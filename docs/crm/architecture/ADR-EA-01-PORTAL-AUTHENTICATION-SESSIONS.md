@@ -2,9 +2,11 @@
 
 ## Status
 
-**[R] Proposed — Ready for Architecture Review**
+**[x] Approved**
 
-Recommended: **Option A — Cloud-Authoritative Portal Authentication + Server-Managed Opaque Sessions + Secure HttpOnly Browser Cookies + Risk-Aware OTP Step-Up**.
+Approval Date: **2026-08-09**
+
+Approved Decision: **Cloud-Authoritative Portal Authentication + Server-Managed Opaque Sessions + Secure HttpOnly Browser Cookies + Phone + Password Normal Login + Risk-Aware OTP Step-Up + Multi-Device Session Registry + Immediate Security Revocation**.
 
 This proposal defines authentication/session authority and behavior only. It does not approve an identity provider, OTP vendor, framework, schema, API, cookie configuration, timeout, device algorithm, service credential, UI, or Phase F implementation.
 
@@ -25,6 +27,8 @@ Knowing a Portal/Customer/Order Ref ≠ authorization.
 Password never reaches Laravel.
 Session revocation is server-authoritative.
 ```
+
+These are permanent, binding Phase F constraints.
 
 ## Approved E-01 through E-10 Constraints
 
@@ -306,9 +310,9 @@ These are conceptual states; EA-02 owns final shared vocabulary.
 | EA-05 Financial Posting | Sensitive financial actions may require EA-01 assurance. |
 | EA-06 Privacy/Retention | Auth/session/device/recovery audit retention and privacy. |
 
-## Recommended Option
+## Approved Option
 
-Recommend **Option A — Cloud-Authoritative Portal Authentication + Server-Managed Opaque Sessions + Secure HttpOnly Browser Cookies + Phone + Password Normal Login + Risk-Aware OTP Step-Up + Multi-Device Session Registry + Immediate Security Revocation**.
+Approved: **Option A — Cloud-Authoritative Portal Authentication + Server-Managed Opaque Sessions + Secure HttpOnly Browser Cookies + Phone + Password Normal Login + Risk-Aware OTP Step-Up + Multi-Device Session Registry + Immediate Security Revocation**.
 
 ## Consequences
 
@@ -357,69 +361,109 @@ Cloud-only adaptive password hashing, opaque revocable sessions, current authori
 
 Phase F must select Cloud auth technology, adaptive hashing configuration, OTP provider/challenge controls, session store/HA, opaque credential and cookie topology, CSRF/CORS/origin policy, timeouts, device-risk model, recovery governance, service authentication, schemas/APIs/UI, audit/notifications, monitoring, backup, and incident controls. EA-02/EA-03/EA-06 retain their listed decisions.
 
-## Architecture Review Questions
+## Architecture Review Decisions
 
 ### Question 1
 
 Do we approve Cloud-Authoritative Portal Authentication + Server-Managed Opaque Sessions instead of direct public Laravel authentication or long-lived stateless browser JWTs?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** Cloud authority preserves E-01/E-09 and enables revocable session security.
+
+**Deferred / Follow-up:** Exact technology and persistence remain Phase F.
 
 ### Question 2
 
 Should the primary Portal web session use a secure HttpOnly browser credential backed by server-side Cloud session state, with exact cookie/domain/CSRF/CORS configuration deferred to Phase F?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** An opaque HttpOnly credential reduces bearer-token exposure while Cloud retains current session state.
+
+**Deferred / Follow-up:** Cookie, SameSite, CSRF, CORS, domain, and path details remain Phase F.
 
 ### Question 3
 
 Should normal returning login use Phone + Password while OTP is required for initial registration, new/suspicious devices, selected sensitive actions, and recovery rather than every routine login?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** Phone + Password balances routine usability while purpose-bound OTP protects registration, risk, recovery, and sensitive actions.
+
+**Deferred / Follow-up:** OTP provider, risk rules, and exact challenges remain Phase F.
 
 ### Question 4
 
 Should the Portal support multiple independent device sessions with approximately the approved 30-day remembered-session horizon, while retaining idle/absolute expiration, per-session revocation, logout-all, and immediate security revocation?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** Independent server sessions meet multi-device convenience without creating an unrevocable 30-day token.
+
+**Deferred / Follow-up:** Idle/absolute timeout tuning and UI remain Phase F.
 
 ### Question 5
 
 Should sensitive actions support recent OTP-based step-up authentication, with assurance freshness/scope enforced separately from the ordinary logged-in session?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** Bounded recent assurance prevents registration-time verification from authorizing sensitive actions forever.
+
+**Deferred / Follow-up:** Exact freshness, scope, and action mapping remain Phase F.
 
 ### Question 6
 
 Should Security Suspension block login and revoke active sessions immediately, while Business Restriction remains a separate Laravel/business authorization concern that may still permit login?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** Security compromise requires immediate Cloud action, while business eligibility remains a distinct Laravel concern.
+
+**Deferred / Follow-up:** Shared state vocabulary remains EA-02; enforcement implementation remains Phase F.
 
 ### Question 7
 
 Should normal password recovery use verified phone OTP and revoke existing sessions according to recovery policy, while lost-phone recovery requires a governed audited internal exception rather than weak fallback?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** Recovery replaces credentials and therefore requires strong proof, session revocation, and governed lost-phone handling.
+
+**Deferred / Follow-up:** Exact evidence, roles, provider controls, and workflows remain Phase F/EA-06.
 
 ### Question 8
 
 Should Portal phone changes require recent step-up plus new-phone verification and trigger E-09 Link re-evaluation, while never silently relinking another Laravel Customer?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** A major login/recovery-factor change requires fresh proof without transferring Customer history by phone coincidence.
+
+**Deferred / Follow-up:** Session effects remain Phase F; Link consequences remain E-09.
 
 ### Question 9
 
 Should Laravel never receive the Portal password or browser session as its authentication authority, preserving browser→Cloud auth and separate trusted Cloud/Agent/Laravel service communication?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** Portal customer secrets must remain at the Cloud boundary; machine trust is a separate security contract.
+
+**Deferred / Follow-up:** Service credential/signature design remains Phase F.
 
 ### Question 10
 
 Should exact OTP provider/timing/limits, password parameters, cookie names/domains/SameSite, timeout tuning, device algorithm, service-token implementation, schema, APIs, and UI remain Phase F/EA-06 work while EA-01 approves behavior?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
 
-These are recommendations for Architecture Review. None is approved by this proposal.
+**Rationale:** EA-01 fixes behavioral authority while avoiding premature coupling to security providers and deployment topology.
+
+**Deferred / Follow-up:** Listed implementation details remain Phase F; privacy/retention remains EA-06 and shared vocabulary remains EA-02.
+
+All ten Architecture Review Decisions above were explicitly approved on **2026-08-09**. EA-02 through EA-06 and Phase F remain pending; this approval does not begin EA-02 or implementation.
 
 ## Traceability
 

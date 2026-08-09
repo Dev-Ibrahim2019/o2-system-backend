@@ -25,14 +25,14 @@ Supporting topics refine the canonical decisions but do not replace or renumber 
 
 | Topic ID | Supporting Topic | Related canonical E decision | Related later phase | Status | D1/D2 constraints | Separate ADR later? |
 | --- | --- | --- | --- | --- | --- | --- |
-| EA-01 | [Portal Authentication and Sessions](../architecture/ADR-EA-01-PORTAL-AUTHENTICATION-SESSIONS.md) | E-01,E-09 | I,U | [R] Proposed — Ready for Architecture Review | Recommended Cloud-authoritative Portal credentials/verified-phone/session authority, server-managed opaque multi-device sessions, secure HttpOnly cookie, Phone + Password normal login, risk-aware OTP step-up/recovery, immediate security revocation, and strict separation from Laravel Customer/Link/business authorization. | Yes — proposal ready for Architecture Review. |
+| EA-01 | [Portal Authentication and Sessions](../architecture/ADR-EA-01-PORTAL-AUTHENTICATION-SESSIONS.md) | E-01,E-09 | I,U | [x] Approved — 2026-08-09 | Approved Cloud-authoritative Portal authentication with server-managed opaque sessions, secure HttpOnly browser credential, Phone+Password normal login, OTP for registration/new or suspicious devices/recovery/sensitive step-up, multi-device revocable sessions, immediate Security Suspension, governed lost-phone recovery, and strict separation of authentication, Customer Link, authorization, and business restriction. | Phase F implements; EA-02/EA-06 retain vocabulary/privacy. |
 | EA-02 | Canonical Status Dictionary | E-05,E-08 | K,L,M,N,T | Pending | Business actions govern transitions; tracking is consistent; production cannot precede payment confirmation. | Yes — lifecycle mapping and transition contract. |
 | EA-03 | Idempotency Contract | E-07,E-10 | F,K,L,O,V | Pending | Duplicate order, invoice, payment, production ticket, notification, and interaction effects must be prevented or reconciled. | Yes — keys, scope, retention, and replay semantics. |
 | EA-04 | Catalog and Pricing Authority | E-05,E-08 | J,K | Pending | Prices should not normally diverge; differences require repricing and recorded customer approval before order approval. | Yes — menu, branch, delivery-zone, and price ownership. |
 | EA-05 | Financial Posting Timing | E-05,E-06,E-08 | O,P,Q | Pending | Verification and approval are distinct; no orphan financial records; refunds/reversals and loyalty changes remain traceable. | Yes — invoice, payment, accounting, and loyalty posting points. |
 | EA-06 | Privacy, Consent and Retention | E-03,E-04,E-09 | R,S,U | Pending | Minimize PII, protect proof/internal notes/family data, separate operational notices from marketing, and retain consent/audit evidence. | Yes — lawful purpose, retention, deletion, and channel policy. |
 
-EA-01 is **[R] Proposed — Ready for Architecture Review**. EA-02 through EA-06 remain **Pending**.
+EA-01 is **[x] Approved — 2026-08-09**. EA-02 through EA-06 remain **Pending**.
 
 ## Traceability Guidance
 
