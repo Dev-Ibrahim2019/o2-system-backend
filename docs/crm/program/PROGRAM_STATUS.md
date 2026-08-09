@@ -2,8 +2,8 @@
 
 ```text
 Current Milestone: M0
-Current Phase: E — Architecture Decisions
-Previous Phase: D — Complete
+Current Phase: F — Implementation Planning / Execution
+Previous Phase: E — Complete
 Completed Decisions:
 - E-01 — Cloud Integration API Location
 - E-02 — Synchronization Mode
@@ -15,6 +15,12 @@ Completed Decisions:
 - E-08 — Conflict Resolution Policy
 - E-09 — Unified Customer Identity
 - E-10 — External Order Identifier and Reference Contract
+- EA-01 — Portal Authentication and Sessions
+- EA-02 — Canonical Status Dictionary
+- EA-03 — Idempotency Contract
+- EA-04 — Catalog and Pricing Authority
+- EA-05 — Financial Posting Timing
+- EA-06 — Privacy, Consent and Retention
 
 E-01 Status: Approved
 E-02 Status: Approved
@@ -27,13 +33,18 @@ E-08 Status: Approved
 E-09 Status: Approved — 2026-08-09
 E-10 Status: Approved — 2026-08-09
 EA-01 Status: Approved — 2026-08-09
-Current Decision: EA-02 — Canonical Status Dictionary
-EA-02 Status: Ready for Architecture Review
+EA-02 Status: Approved — 2026-08-09
+EA-03 Status: Approved — 2026-08-09
+EA-04 Status: Approved — 2026-08-09
+EA-05 Status: Approved — 2026-08-09
+EA-06 Status: Approved — 2026-08-09
+Phase E Status: Complete
+Architecture Gate: Complete
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
 Implementation Status: Not Started
-Phase F Status: Not Started — Supporting architecture decisions remain pending
+Phase F Status: Not Started — Implementation Planning is the next program action
 ```
 
 | Phase | Status | Outcome |
@@ -42,8 +53,8 @@ Phase F Status: Not Started — Supporting architecture decisions remain pending
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01 through E-10 and EA-01 Approved | EA-02 is current and ready for Architecture Review; EA-03 through EA-06 remain pending. No implementation has begun. |
-| F | Not Started | Waiting for remaining required architecture approvals |
+| E | Complete — E-01 through E-10 and EA-01 through EA-06 Approved | Architecture Gate complete on 2026-08-09. |
+| F | Not Started | Next action: Implementation Planning. No implementation began in the architecture approval run. |
 | G-Z | Not Started | — |
 
 ## Runtime Verification Backlog
@@ -54,3 +65,5 @@ Phase F Status: Not Started — Supporting architecture decisions remain pending
 - Verify network connectivity between cloud and local environments.
 
 These items do not change E-01/E-02/E-03/E-04/E-05/E-06/E-07/E-08/E-09/E-10 approval. They prevent the system from being declared production-ready.
+
+No additional Architecture Decision is required before beginning Phase F unless implementation discovers a genuine blocking architecture conflict.

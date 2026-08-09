@@ -2,11 +2,11 @@
 
 ## Status
 
-**[R] Proposed — Ready for Architecture Review**
+**[x] Approved — 2026-08-09**
 
-Recommended: **Option A — Domain-Specific Canonical Status Dictionaries**.
+Approved: **Option A — Domain-Specific Canonical Status Dictionaries**.
 
-This proposal defines semantic vocabulary only. It does not approve enums, constraints, migrations, APIs, TypeScript types, UI changes, or Phase F implementation.
+This ADR approves semantic vocabulary only. It does not approve enums, constraints, migrations, APIs, TypeScript types, UI changes, or Phase F implementation.
 
 ## Context
 
@@ -62,7 +62,7 @@ Use separate, typed dictionaries. Not every dictionary requires a database colum
 | Cloud Staged Website Order | `draft`, `submitted`, `awaiting_review`, `awaiting_payment_evidence`, `acceptance_pending`, `accepted`, `rejected`, `cancelled_before_acceptance`, `expired`, `needs_review` | Cloud-only pre-acceptance authority; keep only states required by E-05–E-08. |
 | Laravel Operational Order | `pending`, `accepted`, `preparing`, `ready`, `completed`, `cancelled` | Source-neutral operational summary; delivery detail remains separate. Exact transition mapping remains Phase F. |
 | Payment Proof / Verification | `no_proof`, `under_review`, `verified`, `rejected`, `needs_finance_review` | Proof uploaded/received ≠ verified. |
-| Payment Clearance | `not_cleared`, `partially_cleared`, `cleared` | Verification ≠ clearance; EA-05 owns financial effects. |
+| Settlement Clearance | `not_cleared`, `partially_cleared`, `cleared` | Authoritative financial permission for the Order to proceed; it may result from fully verified Payment or authorized Account/Credit settlement under EA-05. Payment Verification remains separate. |
 | Production Release / Work | `not_released`, `releasing`, `released`, `preparing`, `ready`, `release_failed`, `cancelled` | Explicit release is not Order acceptance. Phase F may split release and work into two typed subdomains. |
 | Delivery | `not_assigned`, `assigned`, `out_for_delivery`, `delivered`, `delivery_exception`, `cancelled` | Never represents kitchen preparation. |
 | Identity Link | `unlinked`, `limited`, `linked`, `unlink_pending` | Security Suspension and business restriction are separate. |
@@ -86,8 +86,8 @@ Use separate, typed dictionaries. Not every dictionary requires a database colum
 | `ASSEMBLING` | Order/delivery workflow | Fulfillment assembly | Map explicitly during Phase F; do not alias blindly to kitchen preparation |
 | `ready` / `READY_FOR_DELIVERY` | Order | Ready for service/delivery | Map using order type plus production/delivery domain |
 | `served` / `completed` / `DELIVERED` | Order/reporting | Different completion facts | Map `DELIVERED` to delivery; `served` to dine-in completion; define Order projection intentionally |
-| `paid` | Order | Payment/closure overloaded | Map to Payment Clearance `cleared`; do not use as operational Order state automatically |
-| `pending_payment` / `PENDING_PAYMENT` | Order | Payment not cleared | Map to Payment Clearance `not_cleared`; retire case duplicates |
+| `paid` | Order | Payment/closure overloaded | Map through authoritative financial facts to Settlement Clearance; do not use as operational Order state automatically |
+| `pending_payment` / `PENDING_PAYMENT` | Order | Settlement not cleared | Map to Settlement Clearance `not_cleared`; retire case duplicates |
 | `cancelled` / `CANCELLED` / `canceled` | Multiple | Cancelled | Canonical `cancelled`; compatibility mapping then retire aliases |
 | `OUT_FOR_DELIVERY` | Order | Courier en route | Map to Delivery `out_for_delivery` |
 | `FAILED_DELIVERY` | Order | Delivery exception | Map to Delivery `delivery_exception` |
@@ -123,8 +123,9 @@ An event records occurrence; a state describes current condition; a timestamp is
 
 ```text
 Order Status ≠ Payment Status.
-Payment Verification ≠ Payment Clearance.
-Payment Clearance ≠ Production Release.
+Payment Verification ≠ Settlement Clearance.
+Settlement Clearance ≠ Production State.
+Production State ≠ Delivery State.
 Production Status ≠ Delivery Status.
 Authentication State ≠ Business Restriction.
 Transport State ≠ Business State.
@@ -155,61 +156,51 @@ Timestamp ≠ State.
 
 Phase F must inventory deployed values/constraints, finalize transition tables and ownership, decide persisted versus derived states, implement compatibility mappings/versioned APIs, align Laravel constraints and TypeScript types, migrate data safely, update translations, test illegal transitions, and reconcile projections. No implementation begins here.
 
-## Architecture Review Questions
+## Architecture Review Decisions
 
-### Question 1
+### Decision 1
 
-Do we approve domain-specific canonical status dictionaries instead of one universal status enum?
+**Decision:** Approved — use domain-specific canonical status dictionaries, never one universal system-wide `status` enum.
+**Rationale:** A status has meaning only inside its owning authority and lifecycle.
 
-**Recommendation:** Yes.
+### Decision 2
 
-### Question 2
+**Decision:** Approved — Cloud Staged Website Order State and Laravel Operational Order State remain separate because authority changes at acceptance.
+**Rationale:** Staged customer intent is not an operational Laravel Order.
 
-Should Cloud Staged Website Order and Laravel Operational Order have separate status vocabularies because authority changes at acceptance?
+### Decision 3
 
-**Recommendation:** Yes.
+**Decision:** Approved — Order State, Payment Verification, Settlement Clearance, Production, and Delivery remain separate domains.
+**Rationale:** Verification is evidence review; Settlement Clearance is authoritative financial permission and may arise from verified Payment or authorized Account/Credit settlement; it never implies production or delivery.
 
-### Question 3
+### Decision 4
 
-Should Payment Verification, Payment Clearance, Production, and Delivery remain separate state domains?
+**Decision:** Approved — canonical machine values use lowercase `snake_case`; Arabic strings are presentation labels only.
+**Rationale:** Stable contracts cannot depend on translated UI text.
 
-**Recommendation:** Yes.
+### Decision 5
 
-### Question 4
+**Decision:** Approved — legacy values are mapped explicitly during Phase F rather than silently changing database semantics.
+**Rationale:** Values including `PREPARATION`, `preparing`, `confirmed`, `cancelled`, `canceled`, `OUT_FOR_DELIVERY`, and `processing` need compatibility and migration analysis.
 
-Should canonical machine values consistently use lowercase `snake_case`, while Arabic labels remain UI presentation only?
+### Decision 6
 
-**Recommendation:** Yes.
+**Decision:** Approved — `stale_revision`, `conflict`, `needs_refresh`, `already_completed`, and `no_longer_allowed` are command outcomes unless a domain genuinely requires durable aggregate state.
+**Rationale:** Persisting every action result as business state creates false lifecycle semantics.
 
-### Question 5
+### Decision 7
 
-Should legacy/current values be mapped explicitly during Phase F rather than silently changing database semantics?
+**Decision:** Approved — State, Event, Timestamp, and Transport/Retry State remain separate concepts; Authentication State also remains separate from Business Restriction.
+**Rationale:** Evidence and delivery mechanics must not impersonate current authoritative business state.
 
-**Recommendation:** Yes.
+### Decision 8
 
-### Question 6
-
-Should command outcomes such as `stale_revision`, `conflict`, and `needs_refresh` remain distinct from aggregate statuses unless a domain genuinely needs durable review state?
-
-**Recommendation:** Yes.
-
-### Question 7
-
-Should state, event, timestamp, and transport status remain separate concepts?
-
-**Recommendation:** Yes.
-
-### Question 8
-
-Should exact DB enum/check migration, API compatibility, TypeScript enums/types, and rollout remain Phase F implementation work?
-
-**Recommendation:** Yes.
-
-These are recommendations for Architecture Review. None is approved by this proposal.
+**Decision:** Approved — exact database enums/checks, compatibility, TypeScript types, APIs, migration strategy, and rollout remain Phase F work.
+**Rationale:** Architecture fixes semantics; implementation must first inventory deployed values and preserve compatibility.
 
 ## Traceability
 
 - E-01 through E-10 and EA-01 remain approved and unchanged.
 - E-05/E-06 preserve Order, Payment Verification, Clearance, and Production separation.
 - E-07/E-08 preserve transport state and command outcome separation.
-- EA-03 through EA-06 remain pending. Phase F remains not started.
+- EA-03 through EA-06 were approved with this consolidated package on 2026-08-09. Phase F remains not started.
