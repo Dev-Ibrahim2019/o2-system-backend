@@ -4,6 +4,7 @@ namespace App\Services\CallCenter;
 
 use App\Models\{CallTicket, Customer, CustomerAddress, Item, Order, OrderItem, User};
 use App\Services\CustomerIdentityService;
+use App\Services\Integration\IntegrationOutboxWriter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -12,6 +13,7 @@ class CallCenterOrderCreationService
     public function __construct(
         private readonly CustomerResolutionService $resolution,
         private readonly CustomerIdentityService $identity,
+        private readonly IntegrationOutboxWriter $outbox,
     ) {}
 
     public function create(array $data, User $agent): array
@@ -75,6 +77,17 @@ class CallCenterOrderCreationService
                 $this->createItem($order, $row);
             }
             $order->recalculateTotals();
+
+            $this->outbox->record(
+                eventType: 'order.created',
+                aggregateType: 'order',
+                aggregateRef: $order->public_ref,
+                payload: [
+                    'public_order_ref' => $order->public_ref,
+                    'order_number' => $order->order_number,
+                    'source' => $order->source,
+                ],
+            );
 
             $ticket?->update([
                 'branch_id' => $data['branch_id'],

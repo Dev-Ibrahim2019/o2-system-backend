@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\Accounting\SubledgerService;
+use App\Support\Integration\IntegrationReference;
 use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,12 +11,30 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\App;
+use LogicException;
 
 class Customer extends Model
 {
     use SoftDeletes, Auditable;
 
     private ?float $balanceCache = null;
+
+    protected static function booted(): void
+    {
+        static::creating(function (Customer $customer): void {
+            if (blank($customer->external_ref)) {
+                $customer->external_ref = IntegrationReference::customer();
+            } elseif (! IntegrationReference::isValid($customer->external_ref, IntegrationReference::CUSTOMER_PREFIX)) {
+                throw new LogicException('Customer external_ref must be a typed Customer integration reference.');
+            }
+        });
+
+        static::updating(function (Customer $customer): void {
+            if ($customer->isDirty('external_ref') && filled($customer->getOriginal('external_ref'))) {
+                throw new LogicException('Customer external_ref is immutable once issued.');
+            }
+        });
+    }
 
     protected $fillable = [
         'name',

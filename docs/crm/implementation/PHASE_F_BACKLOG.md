@@ -4,8 +4,8 @@ Status: `[ ]` ready, `[>]` current, `[x]` complete, `[!]` blocked. Priorities: P
 
 | ID | Priority | Milestone | Repository | Executable task | Dependencies | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| F-01A | P0 | M1 | Backend | Add stable Laravel Order/Customer integration refs and transaction-safe Outbox foundation with tests. | Architecture Gate | [>] |
-| F-01B | P0 | M1 | New Cloud repo | Create `o2-cloud-integration` service/database/test/deploy foundation and versioned contract envelope. | F-01A contract | [ ] |
+| F-01A | P0 | M1 | Backend | Add stable Laravel Order/Customer integration refs and transaction-safe Outbox foundation with tests. | Architecture Gate | [x] |
+| F-01B | P0 | M1 | New Cloud repo | Create `o2-cloud-integration` service/database/test/deploy foundation and versioned contract envelope. | F-01A contract | [>] |
 | F-01C | P0 | M1 | Backend `sync-agent/` | Create outbound Agent, durable cursor/checkpoint store, machine identity, health and narrow Laravel integration boundary. | F-01A,F-01B | [ ] |
 | F-01D | P0 | M1 | Backend/Cloud/Agent | Prove durable command→Laravel receipt→Outbox result→Cloud ACK and idempotent replay. | F-01A..C | [ ] |
 | F-01E | P0 | M1 | All service repos | Establish canonical status/reference/contract packages, structured logs and baseline metrics. | F-01D | [ ] |

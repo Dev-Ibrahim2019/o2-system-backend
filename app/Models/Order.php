@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\BranchScope;
+use App\Support\Integration\IntegrationReference;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use App\Models\Scopes\BranchScope;
+use LogicException;
 
 /**
  * تسلسل العمل:
@@ -62,6 +64,20 @@ class Order extends Model
     protected static function booted(): void
     {
         static::addGlobalScope(new BranchScope);
+
+        static::creating(function (Order $order): void {
+            if (blank($order->public_ref)) {
+                $order->public_ref = IntegrationReference::order();
+            } elseif (! IntegrationReference::isValid($order->public_ref, IntegrationReference::ORDER_PREFIX)) {
+                throw new LogicException('Order public_ref must be a typed Order integration reference.');
+            }
+        });
+
+        static::updating(function (Order $order): void {
+            if ($order->isDirty('public_ref') && filled($order->getOriginal('public_ref'))) {
+                throw new LogicException('Order public_ref is immutable once issued.');
+            }
+        });
     }
 
     protected $fillable = [
