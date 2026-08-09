@@ -13,7 +13,7 @@
 - [ADR E-06 — Payment Verification — Approved](architecture/ADR-E-06-PAYMENT-VERIFICATION.md)
 - [ADR E-07 — Offline and Retry Policy — Approved](architecture/ADR-E-07-OFFLINE-RETRY-POLICY.md)
 - [ADR E-08 — Conflict Resolution Policy — Approved](architecture/ADR-E-08-CONFLICT-RESOLUTION-POLICY.md)
-- [ADR E-09 — Unified Customer Identity — Proposed](architecture/ADR-E-09-UNIFIED-CUSTOMER-IDENTITY.md)
+- [ADR E-09 — Unified Customer Identity — Approved](architecture/ADR-E-09-UNIFIED-CUSTOMER-IDENTITY.md)
 - [Program Charter](program/PROGRAM_CHARTER.md)
 - [Master Backlog](program/MASTER_BACKLOG.md)
 - [Decision Log](program/DECISION_LOG.md)

@@ -13,6 +13,7 @@ Completed Decisions:
 - E-06 — Payment Verification
 - E-07 — Offline and Retry Policy
 - E-08 — Conflict Resolution Policy
+- E-09 — Unified Customer Identity
 
 E-01 Status: Approved
 E-02 Status: Approved
@@ -22,8 +23,9 @@ E-05 Status: Approved
 E-06 Status: Approved
 E-07 Status: Approved
 E-08 Status: Approved
-Current Decision: E-09 — Unified Customer Identity
-E-09 Status: Ready for Architecture Review
+E-09 Status: Approved — 2026-08-09
+Current Decision: None — E-09 approval complete
+Next Pending Decision: E-10 — External Order Identifier and Reference Contract (Not Started)
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
@@ -37,7 +39,7 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01 through E-08 Approved | E-09 is current and ready for Architecture Review; E-10 remains pending. No E-10 work has begun. |
+| E | In Progress — E-01 through E-09 Approved | E-09 was approved on 2026-08-09; E-10 remains pending. No E-10 work has begun. |
 | F | Not Started | Waiting for remaining required architecture approvals |
 | G-Z | Not Started | — |
 
@@ -48,4 +50,4 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 - Verify the actual deployment configuration.
 - Verify network connectivity between cloud and local environments.
 
-These items do not change E-01/E-02/E-03/E-04/E-05/E-06/E-07/E-08 approval. They prevent the system from being declared production-ready.
+These items do not change E-01/E-02/E-03/E-04/E-05/E-06/E-07/E-08/E-09 approval. They prevent the system from being declared production-ready.

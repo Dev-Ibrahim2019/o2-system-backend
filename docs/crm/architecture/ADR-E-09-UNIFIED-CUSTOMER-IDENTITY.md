@@ -2,11 +2,13 @@
 
 ## Status
 
-**[R] Proposed — Ready for Architecture Review**
+**[x] Approved**
 
-Recommended: **Option A — Federated Portal Identity + Laravel Canonical Customer + Explicit Governed Identity Link**.
+Approval Date: **2026-08-09**
 
-This proposal defines identity authority, linking, Limited Account, merge, unlink, organization, access, conflict, and audit boundaries. It does not approve authentication/session mechanics, schemas, identifiers, final statuses, idempotency details, financial posting, retention, or Phase F implementation.
+Approved Decision: **Option A — Federated Portal Identity + Laravel Canonical Customer + Explicit Governed Identity Link**.
+
+This approved ADR defines identity authority, linking, Limited Account, merge, unlink, organization, access, conflict, and audit boundaries. It does not approve authentication/session mechanics, schemas, identifiers, final statuses, idempotency details, financial posting, retention, or Phase F implementation.
 
 ## Context
 
@@ -18,7 +20,14 @@ Core rules:
 Portal Account ≠ Laravel Customer.
 Verified Phone ≠ permanent Customer ID.
 Identity Link = security-sensitive authorization boundary.
+Phone = identity evidence/contact method, not canonical Customer identity.
+Unsafe identity ambiguity → Limited Account / Identity Review.
+No silent Customer merge.
+No silent Portal relink.
+Identity ≠ Authorization ≠ Business Restriction.
 ```
+
+These rules are permanent, binding Phase F constraints.
 
 ## Approved E-01 through E-08 Constraints
 
@@ -121,7 +130,7 @@ Portal user proves control of Portal identity
 → Cloud receives a minimal customer-safe Link projection
 ```
 
-Option A is recommended. Phone is mutable, shareable, inconsistently stored, and recyclable. Dual editable masters create irresolvable ownership of Orders, Loyalty, Complaints, and financial history.
+Option A is approved. Phone is mutable, shareable, inconsistently stored, and recyclable. Dual editable masters create irresolvable ownership of Orders, Loyalty, Complaints, and financial history.
 
 ## Identity Authorities
 
@@ -385,9 +394,9 @@ Use least privilege, purpose limitation, minimum evidence, and audited access. C
 | EA-05 Financial Posting | Safe merge/unlink and financial-history consequences. |
 | EA-06 Privacy/Retention | Identity evidence, link, merge, review, membership, and audit retention/privacy. |
 
-## Recommended Option
+## Approved Option
 
-Recommend **Option A — Federated Identity + Explicit Governed Customer Link**. It preserves separate identities, makes historical access an explicit Laravel/CRM-authoritative decision, provides a safe Limited path, and supports companies through explicit membership.
+Approve **Option A — Federated Portal Identity + Laravel Canonical Customer + Explicit Governed Identity Link**. It preserves separate identities, makes historical access an explicit Laravel/CRM-authoritative decision, provides a safe Limited path, and supports companies through explicit membership.
 
 ## Consequences
 
@@ -432,69 +441,69 @@ Prefer Limited over uncertain access; use stable opaque references, exact author
 
 Phase F must design link/review/merge/unlink/membership persistence, stable references, expected versions, projection repair, authorization, audit, phone normalization/migration, isolated Limited-order Customer handling, and reconciliation. This ADR does not implement or select schemas, APIs, controllers, UI, queues, or exact statuses.
 
-## Architecture Review Questions
+## Architecture Review Decisions
 
 ### Question 1
 
 Do we approve Federated Identity—Cloud Portal Account + Laravel canonical Customer + explicit governed Identity Link—instead of phone identity or dual Customer masters?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
 
 ### Question 2
 
 Should Laravel/CRM own the final Portal Account ↔ Customer Link decision because it grants historical business/financial/Loyalty access, while Cloud keeps only a customer-safe projection?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
 
 ### Question 3
 
 May verified phone auto-link only with exactly one safe eligible canonical Customer and no conflicting link, security, merge, or identity condition?
 
-**Recommendation:** Yes; verification alone never overrides ambiguity.
+**Decision:** Approved; verification alone never overrides ambiguity.
 
 ### Question 4
 
 When authoritative matching proves no safe Customer exists, should Laravel create a Website/Portal-source Customer and establish the Link rather than making Cloud the Customer master?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
 
 ### Question 5
 
 For multiple/unsafe matches, should the account remain Limited and enter Identity Review without historical Orders, Loyalty, Complaints, or financial data, while retaining safe new Portal actions?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
 
 ### Question 6
 
 Should Link and Merge remain separate, with Merge a governed Laravel operation preserving financial, Order, Loyalty, Complaint, and audit lineage?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
 
 ### Question 7
 
 Should permanent Unlink retain the established second approval while emergency security blocking can restrict access immediately?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
 
 ### Question 8
 
 Should Portal/Laravel phone changes trigger verification/re-evaluation as appropriate but never silently move a Portal Account to another Customer?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
 
 ### Question 9
 
 For Company Customers, should a human Portal Account remain a person/login identity and gain access only through explicit Organization Membership/Authorization?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
 
 ### Question 10
 
 Should authentication/session mechanics, final statuses, idempotency, identifier formats, financial merge consequences, and retention remain deferred to EA-01, EA-02, EA-03, E-10/Phase F, EA-05, and EA-06 respectively?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
 
-These are recommendations for Architecture Review. None is approved by this proposal.
+All ten Architecture Review Decisions above were explicitly approved on **2026-08-09**. Deferred mechanics remain pending under their named decisions and Phase F; this approval does not begin E-10 or implementation.
 
 ## Traceability
 
