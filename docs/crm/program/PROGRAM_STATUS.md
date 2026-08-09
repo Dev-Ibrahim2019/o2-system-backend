@@ -24,8 +24,8 @@ E-06 Status: Approved
 E-07 Status: Approved
 E-08 Status: Approved
 E-09 Status: Approved — 2026-08-09
-Current Decision: None — E-09 approval complete
-Next Pending Decision: E-10 — External Order Identifier and Reference Contract (Not Started)
+Current Decision: E-10 — External Order Identifier and Reference Contract
+E-10 Status: Ready for Architecture Review
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
@@ -39,7 +39,7 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01 through E-09 Approved | E-09 was approved on 2026-08-09; E-10 remains pending. No E-10 work has begun. |
+| E | In Progress — E-01 through E-09 Approved | E-10 is current and ready for Architecture Review. Its proposal is documentation-only; no implementation has begun. |
 | F | Not Started | Waiting for remaining required architecture approvals |
 | G-Z | Not Started | — |
 
