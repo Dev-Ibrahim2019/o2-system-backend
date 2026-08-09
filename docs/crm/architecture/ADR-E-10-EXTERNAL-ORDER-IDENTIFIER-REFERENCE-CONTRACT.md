@@ -2,11 +2,13 @@
 
 ## Status
 
-**[R] Proposed — Ready for Architecture Review**
+**[x] Approved**
 
-Recommended: **Option A — Typed Stable External Reference Contract**.
+Approval Date: **2026-08-09**
 
-This proposal defines identifier and reference semantics only. It does not approve formats, generators, columns, schemas, migrations, routes, headers, middleware, APIs, idempotency mechanics, financial numbering, UI, or Phase F implementation.
+Approved Decision: **Option A — Typed Stable External Reference Contract + Immutable Public Order ID + Exact Revision References + Separate Command / Correlation / Handoff References + Internal Database IDs Remain Internal**.
+
+This approved ADR defines identifier and reference semantics only. It does not approve formats, generators, columns, schemas, migrations, routes, headers, middleware, APIs, idempotency mechanics, financial numbering, UI, or Phase F implementation.
 
 ## Context
 
@@ -26,6 +28,8 @@ Resource reference ≠ authorization token.
 Stable reference never changes meaning.
 Cancelled, deleted, unlinked, or merged references are never reused.
 ```
+
+These rules are permanent, binding Phase F constraints. Public/cross-system references remain semantically separate from internal primary keys, human display numbers, revisions, commands, correlations, handoffs, idempotency keys, Payment/evidence references, and authorization tokens even if Phase F later selects technically related encodings.
 
 ## Approved E-01 through E-09 Constraints
 
@@ -129,7 +133,7 @@ Use `order_number` for URLs, synchronization, idempotency, Payment correlation, 
 | Long-term scalability | Strong | Weak | Weak |
 | Implementation complexity | Acceptable | Strong | Strong |
 
-## Recommended Reference Model
+## Approved Reference Model
 
 ```text
 Logical Website Order → immutable Public Order Ref
@@ -247,11 +251,11 @@ Contracts must unambiguously distinguish types such as `OrderRef`, `OrderRevisio
 
 ## Local-Native Orders
 
-POS and Call Center Orders originate in Laravel. Laravel should assign every native Order an opaque Public Order Ref at creation under the same global external Order namespace. This is operationally simpler than late backfill, guarantees a ref before first external exposure, and avoids source-dependent API behavior. Cloud must not recreate their identity. Exact rollout/backfill remains Phase F.
+POS and Call Center Orders originate in Laravel. The approved direction requires Laravel to assign every native Order an opaque Public Order Ref at creation under the same global external Order namespace. This is operationally simpler than late backfill, guarantees a ref before first external exposure, and avoids source-dependent API behavior. Cloud must not recreate their identity. Exact rollout/backfill remains Phase F.
 
 ## Global Order Namespace
 
-Website, POS, and Call Center Orders should share one collision-resistant public Order namespace so externally addressable Orders cannot collide across sources or branches. Human Order Numbers may retain controlled operational formatting/scoping.
+Website, POS, and Call Center Orders share one collision-resistant public Order namespace so externally addressable Orders cannot collide across sources or branches. Human Order Numbers may retain controlled operational formatting/scoping.
 
 ## Environment Isolation
 
@@ -377,17 +381,22 @@ The same stable opaque typed-reference principles apply to cross-system Conversa
 | EA-05 Financial Posting | Owns Invoice/Payment numbering, financial references, uniqueness, and posting semantics. |
 | EA-06 Privacy/Retention | Owns identifier, mapping, log, audit, alias, and evidence retention/privacy. |
 
-## Recommended Option
+## Approved Option
 
-Recommend **Option A — Typed Stable External Reference Contract**: immutable Public Order Ref created by Cloud for Website Orders, exact Revision Refs, separate Command/Correlation/Handoff/Proof refs, internal database IDs kept internal, and human Order Numbers kept separate.
+Approved: **Option A — Typed Stable External Reference Contract**: immutable Public Order Ref created by Cloud for Website Orders, exact Revision Refs, separate Command/Correlation/Handoff/Proof refs, internal database IDs kept internal, and human Order Numbers kept separate.
 
 ## Consequences
 
 - Customer tracking and URLs remain stable through authority handoff.
+- The Cloud-created Website Public Order Ref exists before Laravel acceptance and remains unchanged through the full lifecycle.
+- Laravel primary keys stay implementation-internal, while Order Number remains a human-facing display/search reference.
+- Exact staged Revision Refs are immutable and never mean `latest`; Cloud revision identity remains separate from Laravel Order version.
 - Retry/reconciliation can recover one authoritative result without heuristic matching.
-- Typed contracts reduce accidental cross-domain identifier reuse.
-- All Laravel-native Orders should receive an external ref, requiring later rollout/backfill design.
+- Typed contracts prevent aggregate, command, trace, idempotency, Payment, and evidence identity from becoming interchangeable.
+- All Laravel-native POS/Call Center Orders receive Public Order Refs and externally addressable Orders share one future-safe namespace.
+- Public refs never grant authorization and do not contain PII; signed/scoped access artifacts remain separate.
 - Durable mappings, uniqueness, authorization, audit, and API compatibility add Phase F work.
+- Phase F must design mappings, refs, native-Order rollout/backfill, compatibility, and runtime enforcement.
 - Existing Admin numeric-ID APIs may remain internal while public/cross-system APIs adopt the new contract.
 
 ## Risks
@@ -425,71 +434,111 @@ Use stable typed opaque refs, single generation authority, durable conditional m
 
 ## Implementation Implications for Phase F
 
-Phase F must choose formats/generators, typed schemas and API representations, mapping constraints, rollout/backfill for Laravel-native Orders, environment validation, authorization, logging, aliases, handoff transactions, reconciliation queries, and compatibility behavior. EA-03 must define exact idempotency. No implementation choice is approved by this proposal.
+Phase F must choose formats/generators, typed schemas and API representations, mapping constraints, rollout/backfill for Laravel-native Orders, environment validation, authorization, logging, aliases, handoff transactions, reconciliation queries, and compatibility behavior. EA-03 must define exact idempotency. No implementation choice is approved by this ADR.
 
-## Architecture Review Questions
+## Architecture Review Decisions
 
 ### Question 1
 
 Do we approve a typed stable external-reference model where public/cross-system identifiers are separate from internal database primary keys and human display numbers?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** Public and integration identity must survive database and authority boundaries without inheriting numeric-PK enumeration or display-number semantics.
+
+**Follow-up Decision:** Exact representation, mapping schema, and compatibility remain Phase F.
 
 ### Question 2
 
 Should every Website Order receive one immutable Public Order ID when the Cloud Staged Order is first durably created, and should that same ID survive Laravel acceptance and the entire Order lifecycle?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** The logical Website Order exists in Cloud before Laravel acceptance, so customer tracking needs one origin-created identity through the full lifecycle.
+
+**Follow-up Decision:** Phase F defines the generator and durable storage/mapping.
 
 ### Question 3
 
 Should Laravel internal `orders.id` remain internal and never become the customer-facing/cross-system Order identity?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** `orders.id` is persistence identity and may remain in internal Laravel relations/APIs, but it cannot be the public or cross-system contract.
+
+**Follow-up Decision:** Phase F defines public API compatibility and mapping behavior.
 
 ### Question 4
 
 Should human-readable `order_number` remain a separate business/display reference rather than the canonical public/cross-system identifier?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** `order_number` serves receipt, kitchen, support, search, and human discussion while stable technical identity has different lifecycle and uniqueness needs.
+
+**Follow-up Decision:** Current numbering is unchanged; EA-05/Phase F retain any relevant numbering and implementation work.
 
 ### Question 5
 
 Should every material Staged Website Order revision have its own immutable revision identity/version so approval explicitly targets Public Order Ref plus exact Revision Ref rather than `latest`?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** Exact immutable revision identity preserves customer consent and prevents a staff approval of R3 from silently approving R4.
+
+**Follow-up Decision:** Phase F defines revision storage/version representation; E-08 continues to own conflict outcomes.
 
 ### Question 6
 
 Should Command ID, Correlation ID, Handoff/Acceptance Reference, and Idempotency Key remain semantically separate even if Phase F later chooses related underlying representations?
 
-**Recommendation:** Yes. EA-03 still owns exact idempotency behavior.
+**Decision:** Approved.
+
+**Rationale:** Aggregate, logical action, workflow trace, authority transfer, and replay protection answer different questions and cannot share one semantic identity.
+
+**Follow-up Decision:** EA-03 owns exact idempotency scope, hashing, reuse, retention, replay, conflict, and API mechanics; Phase F owns encodings.
 
 ### Question 7
 
 Should Payment Proof references and customer/provider Payment references remain separate from Order, Payment-record, and command identity, with no identifier reuse between those domains?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** Evidence version, provider/customer financial evidence, Payment record, Order, and verification command require independent lineage and uniqueness rules.
+
+**Follow-up Decision:** E-06/EA-05 retain financial verification, uniqueness, numbering, and posting semantics; Phase F defines reference storage.
 
 ### Question 8
 
 Should all stable references crossing Cloud↔Laravel boundaries—including Customer/Portal/Identity-Link references from E-09—be opaque, immutable, and non-reusable, while incremental database IDs stay implementation-internal?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** Stable non-reusable typed refs preserve cross-system identity and E-09 lineage without exposing or coupling to incremental database keys.
+
+**Follow-up Decision:** Phase F defines mappings, aliases/backfill, generators, and environment isolation; E-09 authority/cardinality remains unchanged.
 
 ### Question 9
 
 Should knowing any Public/External resource reference never itself grant authorization, with authenticated/scoped authorization enforced separately?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
+
+**Rationale:** Opacity reduces enumeration but cannot prove ownership or permission; resource identity is never a bearer credential.
+
+**Follow-up Decision:** EA-01 owns authentication/session authorization and Phase F owns route enforcement and scoped access artifacts.
 
 ### Question 10
 
 Should exact identifier encoding/generator, type-prefix syntax, DB column types, API header names, idempotency mechanics, and final routing implementation remain deferred to Phase F/EA-03 while E-10 approves semantic reference contracts?
 
-**Recommendation:** Yes.
+**Decision:** Approved.
 
-These are recommendations for Architecture Review. None is approved by this proposal.
+**Rationale:** E-10 fixes semantic boundaries while deliberately avoiding premature coupling to formats, schemas, headers, routing, or unresolved dependent contracts.
+
+**Follow-up Decision:** Encoding/generators, prefixes, columns, routing, and headers remain Phase F; idempotency remains EA-03; financial numbering/posting remains EA-05; privacy/retention remains EA-06.
+
+All ten Architecture Review Decisions above were explicitly approved on **2026-08-09**. E-10 approves semantic reference contracts only and does not begin EA-01 or Phase F implementation.
 
 ## Traceability
 

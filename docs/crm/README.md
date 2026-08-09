@@ -14,7 +14,7 @@
 - [ADR E-07 — Offline and Retry Policy — Approved](architecture/ADR-E-07-OFFLINE-RETRY-POLICY.md)
 - [ADR E-08 — Conflict Resolution Policy — Approved](architecture/ADR-E-08-CONFLICT-RESOLUTION-POLICY.md)
 - [ADR E-09 — Unified Customer Identity — Approved](architecture/ADR-E-09-UNIFIED-CUSTOMER-IDENTITY.md)
-- [ADR E-10 — External Order Identifier and Reference Contract — Proposed](architecture/ADR-E-10-EXTERNAL-ORDER-IDENTIFIER-REFERENCE-CONTRACT.md)
+- [ADR E-10 — External Order Identifier and Reference Contract — Approved](architecture/ADR-E-10-EXTERNAL-ORDER-IDENTIFIER-REFERENCE-CONTRACT.md)
 - [Program Charter](program/PROGRAM_CHARTER.md)
 - [Master Backlog](program/MASTER_BACKLOG.md)
 - [Decision Log](program/DECISION_LOG.md)

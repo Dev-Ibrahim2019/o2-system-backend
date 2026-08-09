@@ -14,6 +14,7 @@ Completed Decisions:
 - E-07 — Offline and Retry Policy
 - E-08 — Conflict Resolution Policy
 - E-09 — Unified Customer Identity
+- E-10 — External Order Identifier and Reference Contract
 
 E-01 Status: Approved
 E-02 Status: Approved
@@ -24,13 +25,13 @@ E-06 Status: Approved
 E-07 Status: Approved
 E-08 Status: Approved
 E-09 Status: Approved — 2026-08-09
-Current Decision: E-10 — External Order Identifier and Reference Contract
-E-10 Status: Ready for Architecture Review
+E-10 Status: Approved — 2026-08-09
+Current Decision: EA-01 — Portal Authentication and Sessions
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
 Implementation Status: Not Started
-Phase F Status: Not Started — Waiting for remaining required architecture approvals
+Phase F Status: Not Started — Supporting architecture decisions remain pending
 ```
 
 | Phase | Status | Outcome |
@@ -39,7 +40,7 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01 through E-09 Approved | E-10 is current and ready for Architecture Review. Its proposal is documentation-only; no implementation has begun. |
+| E | In Progress — E-01 through E-10 Approved | Primary E decisions are complete; EA-01 through EA-06 remain pending. EA-01 has not begun. |
 | F | Not Started | Waiting for remaining required architecture approvals |
 | G-Z | Not Started | — |
 
@@ -50,4 +51,4 @@ Phase F Status: Not Started — Waiting for remaining required architecture appr
 - Verify the actual deployment configuration.
 - Verify network connectivity between cloud and local environments.
 
-These items do not change E-01/E-02/E-03/E-04/E-05/E-06/E-07/E-08/E-09 approval. They prevent the system from being declared production-ready.
+These items do not change E-01/E-02/E-03/E-04/E-05/E-06/E-07/E-08/E-09/E-10 approval. They prevent the system from being declared production-ready.
