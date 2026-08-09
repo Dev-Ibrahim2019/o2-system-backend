@@ -37,6 +37,12 @@ Status: `[x]` complete, `[R]` drafted and ready for review, `[ ]` not started, `
 | E-08 | E | Conflict Resolution Policy | P0 | All | [x] | E-01 | Approved: authority-aware conditional conflict resolution with exact revision/state preconditions, Cloud acceptance fencing, no stale-projection Website acceptance, one valid authoritative commit, explicit stale/conflict outcomes, domain-authority projection repair, governed review, and no generic force overwrite. |
 | E-09 | E | Unified Customer Identity | P0 | All | [x] | E-01 | Approved 2026-08-09: federated Cloud Portal Account and Laravel canonical Customer with Laravel/CRM-authoritative governed Link; phone is evidence rather than identity; ambiguity uses Limited Account/review; merge/unlink preserve history; companies require explicit membership; all ten review decisions approved. |
 | E-10 | E | External Order Identifier and Reference Contract | P0 | All | [x] | E-01 | Approved 2026-08-09: typed stable external references with immutable Public Order identity, exact Revision refs, semantic Command/Correlation/Handoff separation, internal database IDs kept internal, human display numbers separate, opaque non-reusable cross-system refs, and independent authorization. |
+| EA-01 | E | Portal Authentication and Sessions | P0 | Website/Cloud | [R] | E-01,E-09,E-10 | Proposed: Cloud-authoritative Portal authentication with server-managed opaque sessions, secure HttpOnly browser credential, Phone + Password normal login, risk-aware OTP step-up/recovery, multi-device registry, and immediate security revocation. |
+| EA-02 | E | Canonical Status Dictionary | P0 | All | [ ] | E-05,E-08 | Pending |
+| EA-03 | E | Idempotency Contract | P0 | All | [ ] | E-07,E-10 | Pending |
+| EA-04 | E | Catalog and Pricing Authority | P0 | All | [ ] | E-05,E-08 | Pending |
+| EA-05 | E | Financial Posting Timing | P0 | Backend | [ ] | E-05,E-06,E-08 | Pending |
+| EA-06 | E | Privacy, Consent and Retention | P0 | All | [ ] | E-03,E-04,E-09 | Pending |
 | F-01..F-25 | F | Foundation and integration contracts | P0 | All | [ ] | E | Not started |
 | G-01..G-25 | G | Customer identity and profile | P1 | All | [ ] | F | Not started |
 | H-01..H-25 | H | Customer interactions and call center | P1 | Backend/Admin | [ ] | G | Not started |

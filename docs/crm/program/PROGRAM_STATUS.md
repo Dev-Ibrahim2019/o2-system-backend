@@ -27,6 +27,7 @@ E-08 Status: Approved
 E-09 Status: Approved — 2026-08-09
 E-10 Status: Approved — 2026-08-09
 Current Decision: EA-01 — Portal Authentication and Sessions
+EA-01 Status: Ready for Architecture Review
 D1 Status: Business Approved
 D2 Status: Business Approved
 Requirements Phase Status: Complete
@@ -40,7 +41,7 @@ Phase F Status: Not Started — Supporting architecture decisions remain pending
 | B | In Progress | Branches and PRs |
 | C | Complete | `CURRENT_STATE_AUDIT.md` |
 | D | Complete | D1 and D2 business approved |
-| E | In Progress — E-01 through E-10 Approved | Primary E decisions are complete; EA-01 through EA-06 remain pending. EA-01 has not begun. |
+| E | In Progress — E-01 through E-10 Approved | EA-01 is current and ready for Architecture Review; EA-02 through EA-06 remain pending. No implementation has begun. |
 | F | Not Started | Waiting for remaining required architecture approvals |
 | G-Z | Not Started | — |
 
