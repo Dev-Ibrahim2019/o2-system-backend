@@ -27,6 +27,20 @@ class CallCenterPaymentExecutionSchemaTest extends TestCase
         $this->assertTrue($columns['payment_policy']['nullable']);
         $this->assertTrue($columns['payment_status']['nullable']);
         $this->assertTrue($columns['kitchen_release_status']['nullable']);
+
+        $indexedColumns = collect(Schema::getIndexes('orders'))
+            ->pluck('columns')
+            ->map(fn (array $columns) => array_values($columns));
+
+        $this->assertTrue($indexedColumns->contains(['payment_policy']));
+        $this->assertTrue($indexedColumns->contains(['payment_status']));
+        $this->assertTrue($indexedColumns->contains(['kitchen_release_status']));
+
+        $releaseForeign = collect(Schema::getForeignKeys('orders'))
+            ->first(fn (array $key) => in_array('kitchen_released_by', $key['columns'], true));
+
+        $this->assertNotNull($releaseForeign);
+        $this->assertSame('users', $releaseForeign['foreign_table']);
     }
 
     public function test_approved_payment_policies_include_mixed_execution(): void
