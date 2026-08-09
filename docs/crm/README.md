@@ -16,6 +16,7 @@
 - [ADR E-09 — Unified Customer Identity — Approved](architecture/ADR-E-09-UNIFIED-CUSTOMER-IDENTITY.md)
 - [ADR E-10 — External Order Identifier and Reference Contract — Approved](architecture/ADR-E-10-EXTERNAL-ORDER-IDENTIFIER-REFERENCE-CONTRACT.md)
 - [ADR EA-01 — Portal Authentication and Sessions — Approved](architecture/ADR-EA-01-PORTAL-AUTHENTICATION-SESSIONS.md)
+- [ADR EA-02 — Canonical Status Dictionary — Proposed](architecture/ADR-EA-02-CANONICAL-STATUS-DICTIONARY.md)
 - [Program Charter](program/PROGRAM_CHARTER.md)
 - [Master Backlog](program/MASTER_BACKLOG.md)
 - [Decision Log](program/DECISION_LOG.md)
