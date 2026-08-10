@@ -24,15 +24,45 @@ use App\Services\Printing\OrderPrintingService;
 
 class OrderController extends ApiController
 {
+    /**
+     * هل يمكن للمستخدم تعديل طلب مغلق؟
+     * المسموح: super-admin, branch-manager, accountant فقط
+     */
+    private function canEditClosedOrder(): bool
+    {
+        $user = auth()->user();
+        if (!$user) return false;
+        return $user->hasRole(['super-admin', 'branch-manager', 'accountant']);
+    }
+
     public function index(Request $request): JsonResponse
     {
-        $orders = Order::with(['items.department', 'tickets.department', 'cashier'])
+        $query = Order::with(['items.department', 'tickets.department', 'cashier'])
             ->when($request->branch_id, fn($q) => $q->where('branch_id', $request->branch_id))
             ->when($request->status, fn($q) => $q->where('status', $request->status))
+            ->when($request->statuses, fn($q) => $q->whereIn('status', explode(',', $request->statuses)))
             ->when($request->date, fn($q) => $q->whereDate('created_at', $request->date))
-            ->orderByDesc('id')
-            ->get();
+            ->when($request->search, fn($q) => $q->where(function ($q2) use ($request) {
+                $q2->where('order_number', 'like', "%{$request->search}%")
+                    ->orWhere('customer_name', 'like', "%{$request->search}%")
+                    ->orWhere('customer_phone', 'like', "%{$request->search}%");
+            }))
+            ->orderByDesc('id');
 
+        if ($request->per_page) {
+            $orders = $query->paginate($request->per_page);
+            return $this->success('Orders fetched', [
+                'data' => OrderResource::collection($orders),
+                'meta' => [
+                    'current_page' => $orders->currentPage(),
+                    'last_page' => $orders->lastPage(),
+                    'per_page' => $orders->perPage(),
+                    'total' => $orders->total(),
+                ],
+            ]);
+        }
+
+        $orders = $query->get();
         return $this->success('Orders fetched', OrderResource::collection($orders));
     }
 
@@ -149,7 +179,9 @@ class OrderController extends ApiController
     public function update(UpdateOrderRequest $request, Order $order): JsonResponse
     {
         if (in_array($order->status, ['paid', 'cancelled'], true)) {
-            return $this->error('لا يمكن تعديل طلب مغلق أو ملغى.', 422);
+            if (!$this->canEditClosedOrder()) {
+                return $this->error('لا يمكن تعديل طلب مغلق أو ملغى. الصلاحية مخصصة للمحاسب أو مدير الفرع فقط.', 422);
+            }
         }
 
         DB::beginTransaction();
@@ -197,7 +229,9 @@ class OrderController extends ApiController
     public function syncPricing(UpdateOrderRequest $request, Order $order): JsonResponse
     {
         if (in_array($order->status, ['paid', 'cancelled'], true)) {
-            return $this->error('لا يمكن تعديل تسعير طلب مغلق أو ملغى.', 422);
+            if (!$this->canEditClosedOrder()) {
+                return $this->error('لا يمكن تعديل تسعير طلب مغلق أو ملغى. الصلاحية مخصصة للمحاسب أو مدير الفرع فقط.', 422);
+            }
         }
 
         try {
@@ -217,7 +251,9 @@ class OrderController extends ApiController
     {
         // يسمح الإضافة على: pending, pending_confirmation, confirmed, in_progress
         if (in_array($order->status, ['paid', 'cancelled', 'served', 'ready'])) {
-            return $this->error('لا يمكن إضافة أصناف لهذا الطلب.', 422);
+            if (!$this->canEditClosedOrder()) {
+                return $this->error('لا يمكن إضافة أصناف لهذا الطلب. الصلاحية مخصصة للمحاسب أو مدير الفرع فقط.', 422);
+            }
         }
 
         $data = $request->validated();
@@ -255,7 +291,9 @@ class OrderController extends ApiController
     public function removeItem(Order $order, OrderItem $orderItem): JsonResponse
     {
         if (in_array($order->status, ['paid', 'cancelled', 'served'])) {
-            return $this->error('لا يمكن حذف أصناف من هذا الطلب.', 422);
+            if (!$this->canEditClosedOrder()) {
+                return $this->error('لا يمكن حذف أصناف من هذا الطلب. الصلاحية مخصصة للمحاسب أو مدير الفرع فقط.', 422);
+            }
         }
 
         if ($orderItem->order_id !== $order->id) {
