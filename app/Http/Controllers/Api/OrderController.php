@@ -10,11 +10,13 @@ use App\Http\Resources\AccountingResources\TransactionResource;
 use App\Http\Resources\OrderItemResource;
 use App\Http\Resources\OrderResource;
 use App\Models\DiningTable;
+use App\Models\FiscalYear;
 use App\Models\Item;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\ProductionTicket;
 use App\Models\ProductionTicketItem;
+use App\Models\Shift;
 use App\Models\Transaction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -49,11 +51,25 @@ class OrderController extends ApiController
 
             $branchId = $authUser->branch_id ?? $data['branch_id'] ?? \App\Models\Branch::value('id');
 
+            // التأكد من وجود shift مفتوح للفرع (إنشاء تلقائي إذا لم يوجد)
+            $shift = Shift::getOrCreateToday($branchId, $authUser->id);
+
+            // التحقق من أن السنة المالية مرتبطة بالـ shift ليست مغلقة
+            if ($shift->fiscal_year_id) {
+                $fiscalYear = FiscalYear::find($shift->fiscal_year_id);
+                if ($fiscalYear && $fiscalYear->status === 'closed') {
+                    DB::rollBack();
+                    return $this->error('السنة المالية مغلقة. لا يمكن إنشاء طلبات في هذه الفترة.', 422);
+                }
+            }
+
             $order = Order::create([
                 'order_number' => Order::generateOrderNumber(),
                 'dining_table_id' => $data['dining_table_id'] ?? null,
                 'branch_id' => $branchId,
                 'cashier_id' => $data['cashier_id'] ?? null,
+                'shift_id' => $shift->id,
+                'opened_by' => $authUser->id,
                 'order_type' => $data['order_type'],
                 'status' => 'pending',
                 'table_number' => $data['table_number'] ?? null,
@@ -746,6 +762,7 @@ class OrderController extends ApiController
 
         return OrderItem::create([
             'order_id' => $order->id,
+            'created_by' => auth()->id(),
             'item_id' => $item->id,
             'department_id' => $item->department_id,
             'item_name' => $item->name,
@@ -775,6 +792,12 @@ class OrderController extends ApiController
         }
 
         if ($result['success']) {
+            // تسجيل من طبع الفاتورة
+            $order->update([
+                'printed_by' => auth()->id(),
+                'printed_at' => now(),
+            ]);
+
             return $this->success($result['message']);
         }
 

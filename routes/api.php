@@ -83,12 +83,20 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment']);
         Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry']);
 
-        // â”€â”€ Settlement & Payment Routing â”€â”€
+        // ── Settlement & Payment Routing ──
         Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle']);
         Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
         Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class);
 
-    }); // â†گ ظ†ظ‡ط§ظٹط© ظ…ط³ط§ط±ط§طھ POS ط§ظ„ظ…ط­ظ…ظٹط© ط¨ط´ط¨ظƒط© ط§ظ„ظپط±ط¹
+        // ── Shifts / الورديات ──
+        Route::get('shifts', [ShiftController::class, 'index']);
+        Route::get('shifts/current', [ShiftController::class, 'current']);
+        Route::post('shifts/rollover', [ShiftController::class, 'rollover']);
+
+        // ── Order Timeline / سجل الطلب الزمني ──
+        Route::get('orders/{order}/timeline', [\App\Http\Controllers\Api\OrderTimelineController::class, 'timeline']);
+
+    }); // نهاية مسار POS المحمي بـ CheckPosNetwork
 
     // ── Tables Management (موحدة للكاشير/الضيافة/المحاسب/المدير) ──
     Route::get('tables', [\App\Http\Controllers\Api\TableOperationsController::class, 'index']);
@@ -243,6 +251,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('transactions/{transaction}/cancel', [TransactionController::class, 'cancel']);
         Route::apiResource('cost-centers', CostCenterController::class);
     });
+
+    // ── Fiscal Years / السنوات المالية ──
+    Route::get('fiscal-years', [\App\Http\Controllers\Api\FiscalYearController::class, 'index']);
+    Route::get('fiscal-years/active', [\App\Http\Controllers\Api\FiscalYearController::class, 'active']);
+    Route::post('fiscal-years', [\App\Http\Controllers\Api\FiscalYearController::class, 'store']);
+    Route::post('fiscal-years/{fiscalYear}/close', [\App\Http\Controllers\Api\FiscalYearController::class, 'close']);
 });
 
 // â”€â”€ POS Registers (Admin) â”€â”€

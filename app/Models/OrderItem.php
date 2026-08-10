@@ -16,6 +16,7 @@ class OrderItem extends Model
 
     protected $fillable = [
         'order_id',
+        'created_by',
         'item_id',
         'department_id',
         'item_name',
@@ -64,6 +65,11 @@ class OrderItem extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     public function ticketItem(): HasOne
