@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\ApiController;
+use App\Models\FiscalYear;
 use App\Models\Order;
 use App\Services\Accounting\SettlementEngine;
 use Illuminate\Http\JsonResponse;
@@ -49,6 +50,17 @@ class SettleController extends ApiController
             return $this->error('لا يمكن تسوية هذا الطلب في حالته الحالية.', 422);
         }
 
+        // التحقق من أن السنة المالية للـ shift ليست مغلقة
+        if ($order->shift_id) {
+            $shift = \App\Models\Shift::find($order->shift_id);
+            if ($shift && $shift->fiscal_year_id) {
+                $fiscalYear = FiscalYear::find($shift->fiscal_year_id);
+                if ($fiscalYear && $fiscalYear->status === 'closed') {
+                    return $this->error('السنة المالية مغلقة. لا يمكن تسوية الطلبات في هذه الفترة.', 422);
+                }
+            }
+        }
+
         $validated = $request->validate([
             'payments'                       => 'required|array|min:1',
             'payments.*.payment_method_id'   => 'required|exists:payment_methods,id',
@@ -60,6 +72,11 @@ class SettleController extends ApiController
 
         try {
             $result = $this->settlementEngine->settle($order, $validated['payments']);
+
+            // تسجيل من أغلق الطلب (الدفع)
+            $order->update([
+                'closed_by' => auth()->id(),
+            ]);
 
             return $this->success('تمت تسوية الفاتورة بنجاح', [
                 'order'       => $result['order'],

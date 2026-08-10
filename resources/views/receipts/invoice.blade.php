@@ -252,7 +252,13 @@
             <span class="total-amount">₪{{ number_format($filteredTotal ?? $order->total ?? 0, 2) }}</span>
         </div>
 
-        @if(!empty($order->cashier->name))
+        @if(!empty($order->printer->name))
+        <div class="employee-card">
+            طُبعت بواسطة: {{ $order->printer->name }}
+            <br>
+            <small>{{ $order->printed_at ? $order->printed_at->format('d/m/Y h:i A') : date('d/m/Y h:i A') }}</small>
+        </div>
+        @elseif(!empty($order->cashier->name))
         <div class="employee-card">الموظف: {{ $order->cashier->name }}</div>
         @endif
 

@@ -11,11 +11,13 @@ use App\Http\Resources\OrderItemResource;
 use App\Http\Resources\OrderResource;
 use App\Models\DiningTable;
 use App\Models\Customer;
+use App\Models\FiscalYear;
 use App\Models\Item;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\ProductionTicket;
 use App\Models\ProductionTicketItem;
+use App\Models\Shift;
 use App\Models\Transaction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -51,12 +53,25 @@ class OrderController extends ApiController
 
             $branchId = $authUser->branch_id ?? $data['branch_id'] ?? \App\Models\Branch::value('id');
 
+            // التأكد من وجود shift مفتوح للفرع (إنشاء تلقائي إذا لم يوجد)
+            $shift = Shift::getOrCreateToday($branchId, $authUser->id);
+
+            // التحقق من أن السنة المالية مرتبطة بالـ shift ليست مغلقة
+            if ($shift->fiscal_year_id) {
+                $fiscalYear = FiscalYear::find($shift->fiscal_year_id);
+                if ($fiscalYear && $fiscalYear->status === 'closed') {
+                    DB::rollBack();
+                    return $this->error('السنة المالية مغلقة. لا يمكن إنشاء طلبات في هذه الفترة.', 422);
+                }
+            }
+
             $order = Order::create([
                 'order_number' => Order::generateOrderNumber(),
                 'dining_table_id' => $data['dining_table_id'] ?? null,
                 'branch_id' => $branchId,
                 'cashier_id' => $data['cashier_id'] ?? null,
-                'call_center_agent_id' => $data['call_center_agent_id'] ?? null,
+                'shift_id' => $shift->id,
+                'opened_by' => $authUser->id,
                 'order_type' => $data['order_type'],
                 'source' => $data['source'] ?? 'pos',
                 'status' => 'pending',
@@ -323,7 +338,63 @@ class OrderController extends ApiController
         }
 
         try {
-            $released = app(\App\Services\Order\OrderConfirmationService::class)->release($order);
+            // تعديل: التجميع مباشرة الآن بعد أن جلبنا العلاقات بالأعلى
+            $itemsByDept = $unsentItems->groupBy('department_id');
+
+            foreach ($itemsByDept as $deptId => $deptItems) {
+                if (! $deptId) {
+                    continue;
+                }
+
+                // البحث عن تذكرة نشطة موجودة للقسم نفسه في نفس الطلب
+                $ticket = $order->tickets()
+                    ->where('department_id', $deptId)
+                    ->whereIn('status', ['pending', 'preparing'])
+                    ->first();
+
+                if (! $ticket) {
+                    $ticket = ProductionTicket::create([
+                        'order_id' => $order->id,
+                        'department_id' => $deptId,
+                        'ticket_number' => ProductionTicket::generateTicketNumber((int) $deptId),
+                        'status' => 'pending',
+                        'sent_at' => now(),
+                        'notes' => $order->note,
+                    ]);
+                }
+
+                foreach ($deptItems as $orderItem) {
+                    // تجنب التكرار — لا تُضاف إذا لها ticketItem مسبقاً
+                    if ($orderItem->ticketItem) {
+                        continue;
+                    }
+
+                    ProductionTicketItem::create([
+                        'production_ticket_id' => $ticket->id,
+                        'order_item_id' => $orderItem->id,
+                        'quantity' => (int) ceil((float) $orderItem->quantity),
+                        'notes' => $orderItem->notes,
+                        'status' => 'pending',
+                    ]);
+
+                    $orderItem->update([
+                        'sent_to_kitchen_at' => now(),
+                        'is_printed_direct' => true,
+                    ]);
+                }
+            }
+
+            $order->update(['status' => 'confirmed']);
+
+            // تحديث الطاولة إلى OCCUPIED (عليها طلب)
+            if ($order->dining_table_id) {
+                $table = DiningTable::find($order->dining_table_id);
+                if ($table) {
+                    $table->update(['status' => 'OCCUPIED']);
+                }
+            }
+
+            DB::commit();
 
             return $this->success(
                 'تم إرسال الطلب للأقسام',
@@ -494,7 +565,8 @@ class OrderController extends ApiController
             return $this->error('الطاولة المستهدفة غير موجودة في هذا الفرع.', 404);
         }
 
-        if ($toTable->status !== 'AVAILABLE') {
+        // السماح بالنقل للطاولة المتاحة أو المشغولة (لكن ليس نفس الطاولة)
+        if ($toTable->status !== 'AVAILABLE' && $toTable->status !== 'OCCUPIED') {
             \Log::warning('[ORDER TRANSFER] Target table not available', [
                 'table_id' => $toTable->id,
                 'status' => $toTable->status
@@ -513,47 +585,37 @@ class OrderController extends ApiController
 
         try {
             DB::transaction(function () use ($order, $toTable) {
-                // تحديد الطاولة القديمة - طريقة مباشرة وآمنة
+                // تحديد الطاولة القديمة
                 $oldTable = null;
                 if ($order->dining_table_id) {
                     $oldTable = DiningTable::find($order->dining_table_id);
                 }
 
-                // حفظ بيانات الطاولة القديمة قبل التحرير
                 $oldTableNumber = $oldTable?->table_number;
-                $customerCount = $oldTable?->customer_count
-                    ?? $order->customer_count
-                    ?? 0;
-                $seatedAt = $oldTable?->seated_at
-                    ?? now();
+                $customerCount = $oldTable?->customer_count ?? $order->customer_count ?? 0;
+                $seatedAt = $oldTable?->seated_at ?? now();
 
-                \Log::info('[ORDER TRANSFER] Starting transfer', [
-                    'order_id' => $order->id,
-                    'old_table_id' => $oldTable?->id,
-                    'old_table_number' => $oldTableNumber,
-                    'old_table_status' => $oldTable?->status,
-                    'old_table_customer_count' => $customerCount,
-                    'old_table_seated_at' => $seatedAt?->toIso8601String(),
-                    'new_table_id' => $toTable->id,
-                    'new_table_number' => $toTable->table_number,
-                ]);
-
-                // تحرير الطاولة القديمة تماماً - جعلها فارغة
+                // تحرير الطاولة القديمة فقط إذا لم يعد فيها أي طلبات نشطة
                 if ($oldTable) {
-                    $oldTable->update([
-                        'status' => 'AVAILABLE',
-                        'current_order_id' => null,
-                        'seated_at' => null,
-                        'customer_count' => 0,
-                    ]);
+                    $remainingOrders = Order::where(function ($q) use ($oldTable) {
+                            $q->where('dining_table_id', $oldTable->id)
+                              ->orWhere('table_number', $oldTable->table_number);
+                        })
+                        ->whereIn('status', ['pending', 'pending_confirmation', 'confirmed', 'in_progress', 'ready'])
+                        ->where('id', '!=', $order->id)
+                        ->count();
 
-                    \Log::info('[ORDER TRANSFER] Old table cleared', [
-                        'table_id' => $oldTable->id,
-                        'table_number' => $oldTable->table_number,
-                    ]);
+                    if ($remainingOrders === 0) {
+                        $oldTable->update([
+                            'status' => 'AVAILABLE',
+                            'current_order_id' => null,
+                            'seated_at' => null,
+                            'customer_count' => 0,
+                        ]);
+                    }
                 }
 
-                // تحديث الطلب بالطاولة الجديدة وبياناتها
+                // تحديث الطلب بالطاولة الجديدة
                 $order->update([
                     'dining_table_id' => $toTable->id,
                     'table_number' => $toTable->table_number,
@@ -561,24 +623,21 @@ class OrderController extends ApiController
                     'seated_at' => $seatedAt,
                 ]);
 
-                // تحديث الطاولة الجديدة بكل بيانات الطاولة القديمة
-                $toTable->update([
-                    'status' => 'OCCUPIED',
-                    'current_order_id' => $order->id,
-                    'seated_at' => $seatedAt,
-                    'customer_count' => $customerCount,
-                    'last_order_at' => now(),
-                ]);
-
-                \Log::info('[ORDER TRANSFER] Transfer completed successfully', [
-                    'order_id' => $order->id,
-                    'from_table_id' => $oldTable?->id,
-                    'from_table_number' => $oldTableNumber,
-                    'to_table_id' => $toTable->id,
-                    'to_table_number' => $toTable->table_number,
-                    'transferred_customer_count' => $customerCount,
-                    'transferred_seated_at' => $seatedAt?->toIso8601String(),
-                ]);
+                // تحديث الطاولة الجديدة - فقط إذا لم تكن مشغولة بالفعل
+                if ($toTable->status === 'AVAILABLE') {
+                    $toTable->update([
+                        'status' => 'OCCUPIED',
+                        'current_order_id' => $order->id,
+                        'seated_at' => $seatedAt,
+                        'customer_count' => $customerCount,
+                        'last_order_at' => now(),
+                    ]);
+                } else {
+                    // الطاولة مشغولة بالفعل - فقط نضيف order_id وأخر وقت طلب
+                    $toTable->update([
+                        'last_order_at' => now(),
+                    ]);
+                }
             });
 
             return $this->success(
@@ -619,8 +678,59 @@ class OrderController extends ApiController
             return;
         }
 
-        if ($order->items()->where('status', 'pending')->whereDoesntHave('ticketItem')->exists()) {
-            app(\App\Services\Order\OrderConfirmationService::class)->release($order);
+        // فلترة العناصر غير المرحّلة فقط
+        $unsentItems = $order->items()
+            ->where('status', 'pending')
+            ->whereDoesntHave('ticketItem')
+            ->get();
+
+        if ($unsentItems->isEmpty()) {
+            return;
+        }
+
+        $itemsByDept = $unsentItems->groupBy('department_id');
+
+        foreach ($itemsByDept as $deptId => $orderItems) {
+            if (! $deptId) {
+                continue;
+            }
+
+            // البحث عن تذكرة نشطة للقسم
+            $ticket = $order->tickets()
+                ->where('department_id', $deptId)
+                ->whereIn('status', ['pending', 'preparing'])
+                ->first();
+
+            if (! $ticket) {
+                $ticket = ProductionTicket::create([
+                    'order_id' => $order->id,
+                    'department_id' => $deptId,
+                    'ticket_number' => ProductionTicket::generateTicketNumber((int) $deptId),
+                    'status' => 'pending',
+                    'sent_at' => now(),
+                    'notes' => $order->note,
+                ]);
+            }
+
+            foreach ($orderItems as $orderItem) {
+                ProductionTicketItem::create([
+                    'production_ticket_id' => $ticket->id,
+                    'order_item_id' => $orderItem->id,
+                    'quantity' => (int) ceil((float) $orderItem->quantity),
+                    'notes' => $orderItem->notes,
+                    'status' => 'pending',
+                ]);
+
+                $orderItem->update([
+                    'sent_to_kitchen_at' => now(),
+                    'is_printed_direct' => true,
+                ]);
+            }
+        }
+
+        // تحديث حالة الطلب إذا لم تكن في مرحلة متقدمة
+        if (! in_array($order->status, ['confirmed', 'in_progress', 'ready', 'served'], true)) {
+            $order->update(['status' => 'confirmed']);
         }
     }
 
@@ -646,6 +756,7 @@ class OrderController extends ApiController
 
         return OrderItem::create([
             'order_id' => $order->id,
+            'created_by' => auth()->id(),
             'item_id' => $item->id,
             'department_id' => $item->department_id,
             'item_name' => $item->name,
@@ -675,6 +786,12 @@ class OrderController extends ApiController
         }
 
         if ($result['success']) {
+            // تسجيل من طبع الفاتورة
+            $order->update([
+                'printed_by' => auth()->id(),
+                'printed_at' => now(),
+            ]);
+
             return $this->success($result['message']);
         }
 
@@ -741,13 +858,6 @@ class OrderController extends ApiController
      */
     public function directPrint(Request $request, Order $order): JsonResponse
     {
-        \Log::info('directPrint request data', [
-            'all' => $request->all(),
-            'cashier_device_id' => $request->input('cashier_device_id'),
-            'items' => $request->input('items'),
-            'order_id' => $order->id,
-        ]);
-
         try {
             $request->validate([
                 'cashier_device_id' => 'required|integer',

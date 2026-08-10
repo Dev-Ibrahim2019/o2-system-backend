@@ -85,7 +85,11 @@ class Order extends Model
         'dining_table_id',
         'branch_id',
         'cashier_id',
-        'call_center_agent_id',
+        'shift_id',
+        'opened_by',
+        'closed_by',
+        'printed_by',
+        'printed_at',
         'order_type',
         'source',
         'status',
@@ -124,6 +128,7 @@ class Order extends Model
         'engine_discount_amount' => 'decimal:3',
         'total' => 'decimal:3',
         'seated_at' => 'datetime',
+        'printed_at' => 'datetime',
         'customer_count' => 'integer',
         'delivery_fee' => 'decimal:3',
         'delivery_address_snapshot' => 'array',
@@ -138,6 +143,26 @@ class Order extends Model
     public function cashier(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'cashier_id');
+    }
+
+    public function shift(): BelongsTo
+    {
+        return $this->belongsTo(Shift::class);
+    }
+
+    public function opener(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'opened_by');
+    }
+
+    public function closer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'closed_by');
+    }
+
+    public function printer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'printed_by');
     }
 
     public function items(): HasMany
