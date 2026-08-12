@@ -16,6 +16,8 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Supplier;
 use App\Models\PosRegister;
+use App\Models\ProductionTicket;
+use App\Models\ProductionTicketItem;
 use App\Models\Transaction;
 use App\Services\AccountingService;
 use App\Services\Invoice\InvoiceFromOrderService;
@@ -39,11 +41,61 @@ class InvoiceController extends ApiController
         }
 
         if (! $order->tickets()->exists()) {
-            return $this->error('الطلب غير مقسّم للأقسام — نفّذ confirm أولاً.', 422);
-        }
+            // جلب الأصناف التي ليس لها ticketItem (أي لم يتم إرسالها فعلياً للأقسام)
+            $unsentItems = $order->items()
+                ->with('department')
+                ->whereDoesntHave('ticketItem')
+                ->get();
 
-        if ($order->status === 'pending') {
-            $order->update(['status' => 'confirmed']);
+            if ($unsentItems->isNotEmpty()) {
+                $itemsByDept = $unsentItems->groupBy('department_id');
+
+                foreach ($itemsByDept as $deptId => $deptItems) {
+                    if (! $deptId) {
+                        continue;
+                    }
+
+                    $ticket = $order->tickets()
+                        ->where('department_id', $deptId)
+                        ->whereIn('status', ['pending', 'preparing'])
+                        ->first();
+
+                    if (! $ticket) {
+                        $ticket = ProductionTicket::create([
+                            'order_id' => $order->id,
+                            'department_id' => $deptId,
+                            'ticket_number' => ProductionTicket::generateTicketNumber((int) $deptId),
+                            'status' => 'pending',
+                            'sent_at' => now(),
+                            'notes' => $order->note,
+                        ]);
+                    }
+
+                    foreach ($deptItems as $orderItem) {
+                        if ($orderItem->ticketItem) {
+                            continue;
+                        }
+
+                        ProductionTicketItem::create([
+                            'production_ticket_id' => $ticket->id,
+                            'order_item_id' => $orderItem->id,
+                            'quantity' => (int) ceil((float) $orderItem->quantity),
+                            'notes' => $orderItem->notes,
+                            'status' => 'pending',
+                        ]);
+
+                        $orderItem->update([
+                            'sent_to_kitchen_at' => now(),
+                            'is_printed_direct' => true,
+                        ]);
+                    }
+                }
+
+                if (in_array($order->status, ['pending', 'pending_confirmation'])) {
+                    $order->update(['status' => 'confirmed']);
+                }
+            }
+            // إذا لا توجد أصناف جديدة — المتابعة لإنشاء الفاتورة
         }
 
         if ($order->invoice()->exists()) {

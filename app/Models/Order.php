@@ -41,11 +41,18 @@ class Order extends Model
         'dining_table_id',
         'branch_id',
         'cashier_id',
+        'shift_id',
+        'opened_by',
+        'closed_by',
+        'printed_by',
+        'printed_at',
         'call_center_agent_id',
         'order_type',
         'source',
         'status',
         'table_number',
+        'customer_count',
+        'seated_at',
         'customer_name',
         'customer_phone',
         'customer_mobile',
@@ -97,22 +104,6 @@ class Order extends Model
         'discount_amount' => 'decimal:3',
         'engine_discount_amount' => 'decimal:3',
         'total' => 'decimal:3',
-        'delivery_fee' => 'decimal:3',
-        'delivery_address_snapshot' => 'array',
-        'needs_attention' => 'boolean',
-        'customer_service_flag' => 'boolean',
-        'paid_at' => 'datetime',
-        'assembled_at' => 'datetime',
-        'assembly_started_at' => 'datetime',
-        'assembly_duration_seconds' => 'integer',
-        'delivery_started_at' => 'datetime',
-        'delivered_at' => 'datetime',
-        'cancelled_at' => 'datetime',
-        'delivery_duration_seconds' => 'integer',
-        'is_urgent' => 'boolean',
-        'expedited_at' => 'datetime',
-        'manual_adjustment' => 'decimal:3',
-        'adjusted_at' => 'datetime',
     ];
 
     public function branch(): BelongsTo
@@ -124,14 +115,6 @@ class Order extends Model
     {
         return $this->belongsTo(Employee::class, 'cashier_id');
     }
-
-    public function deliveryDriver(): BelongsTo { return $this->belongsTo(Employee::class, 'driver_id'); }
-    public function deliveryZone(): BelongsTo { return $this->belongsTo(DeliveryZone::class); }
-    public function deliveryTripStops(): HasMany { return $this->hasMany(DeliveryTripStop::class); }
-    public function assembler(): BelongsTo { return $this->belongsTo(Employee::class, 'assembler_id'); }
-    public function assembledByEmployee(): BelongsTo { return $this->belongsTo(Employee::class, 'assembled_by'); }
-    public function executionEvents(): HasMany { return $this->hasMany(OrderExecutionEvent::class)->orderBy('occurred_at'); }
-    public function customerExperience(): HasOne { return $this->hasOne(OrderCustomerExperience::class); }
 
     public function items(): HasMany
     {

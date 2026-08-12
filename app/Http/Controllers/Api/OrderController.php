@@ -10,16 +10,20 @@ use App\Http\Resources\AccountingResources\TransactionResource;
 use App\Http\Resources\OrderItemResource;
 use App\Http\Resources\OrderResource;
 use App\Models\DiningTable;
+use App\Models\FiscalYear;
 use App\Models\Item;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\ProductionTicket;
 use App\Models\ProductionTicketItem;
+use App\Models\Shift;
 use App\Models\Transaction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use App\Services\Printing\OrderPrintingService;
+use App\Jobs\PrintInvoiceJob;
+use App\Jobs\PrintTicketsJob;
+use App\Jobs\PrintOrderJob;
 
 class OrderController extends ApiController
 {
@@ -29,6 +33,7 @@ class OrderController extends ApiController
             ->when($request->branch_id, fn($q) => $q->where('branch_id', $request->branch_id))
             ->when($request->status, fn($q) => $q->where('status', $request->status))
             ->when($request->date, fn($q) => $q->whereDate('created_at', $request->date))
+            ->when($request->table_number, fn($q) => $q->where('table_number', $request->table_number))
             ->orderByDesc('id')
             ->get();
 
@@ -48,11 +53,25 @@ class OrderController extends ApiController
 
             $branchId = $authUser->branch_id ?? $data['branch_id'] ?? \App\Models\Branch::value('id');
 
+            // التأكد من وجود shift مفتوح للفرع (إنشاء تلقائي إذا لم يوجد)
+            $shift = Shift::getOrCreateToday($branchId, $authUser->id);
+
+            // التحقق من أن السنة المالية مرتبطة بالـ shift ليست مغلقة
+            if ($shift->fiscal_year_id) {
+                $fiscalYear = FiscalYear::find($shift->fiscal_year_id);
+                if ($fiscalYear && $fiscalYear->status === 'closed') {
+                    DB::rollBack();
+                    return $this->error('السنة المالية مغلقة. لا يمكن إنشاء طلبات في هذه الفترة.', 422);
+                }
+            }
+
             $order = Order::create([
                 'order_number' => Order::generateOrderNumber(),
                 'dining_table_id' => $data['dining_table_id'] ?? null,
                 'branch_id' => $branchId,
                 'cashier_id' => $data['cashier_id'] ?? null,
+                'shift_id' => $shift->id,
+                'opened_by' => $authUser->id,
                 'order_type' => $data['order_type'],
                 'status' => 'pending',
                 'table_number' => $data['table_number'] ?? null,
@@ -85,7 +104,8 @@ class OrderController extends ApiController
                         (int) $row['item_id'],
                         (float) $row['quantity'],
                         isset($row['unit_price']) ? (float) $row['unit_price'] : null,
-                        $row['notes'] ?? null
+                        $row['notes'] ?? null,
+                        $row['is_takeaway'] ?? false
                     );
                 }
                 $order->recalculateTotals();
@@ -148,6 +168,23 @@ class OrderController extends ApiController
 
             // مزامنة الأصناف إذا تم إرسالها
             if ($request->has('items')) {
+                // كل الأصناف المطبوعة مسبقاً بهذا الطلب — استعلام واحد بدل استعلام لكل صنف بالحلقة
+                $printedDirectItems = $order->items()
+                    ->where('is_printed_direct', true)
+                    ->get()
+                    ->keyBy('item_id');
+
+                // تحديث is_takeaway للأصناف المطبوعة (المحفوظة مسبقاً)
+                foreach ($request->items as $row) {
+                    $existingItem = $printedDirectItems->get($row['item_id']);
+
+                    if ($existingItem) {
+                        $existingItem->update([
+                            'is_takeaway' => $row['is_takeaway'] ?? false,
+                        ]);
+                    }
+                }
+
                 // مسح الأصناف غير المطبوعة فقط (المحفوظة بـ is_printed_direct=true لا تُحذف)
                 $order->items()
                     ->where('status', 'pending')
@@ -155,16 +192,24 @@ class OrderController extends ApiController
                     ->delete();
 
                 foreach ($request->items as $row) {
+                    // تخطي الأصناف المطبوعة (تم تحديثها أعلاه)
+                    if ($printedDirectItems->has($row['item_id'])) {
+                        continue;
+                    }
+
                     $this->createOrderItem(
                         $order,
                         (int) $row['item_id'],
                         (float) $row['quantity'],
                         isset($row['unit_price']) ? (float) $row['unit_price'] : null,
-                        $row['notes'] ?? null
+                        $row['notes'] ?? null,
+                        $row['is_takeaway'] ?? false
                     );
                 }
 
-                $this->syncProductionTickets($order);
+                if (! $request->boolean('skip_sync')) {
+                    $this->syncProductionTickets($order);
+                }
             }
 
             $order->recalculateTotals();
@@ -218,7 +263,8 @@ class OrderController extends ApiController
                 (int) $data['item_id'],
                 (float) $data['quantity'],
                 isset($data['unit_price']) ? (float) $data['unit_price'] : null,
-                $data['notes'] ?? null
+                $data['notes'] ?? null,
+                $data['is_takeaway'] ?? false
             );
 
             $order->recalculateTotals();
@@ -281,8 +327,9 @@ class OrderController extends ApiController
         }
 
         // تعديل: جلب العلاقة هنا مع الاستعلام الأساسي لتجنب مشكلة الـ with اللاحقة
+        // ticketItem محمّلة مسبقاً أيضاً لتفادي استعلام منفصل لكل صنف بحلقة foreach بالأسفل
         $unsentItems = $order->items()
-            ->with('department')
+            ->with(['department', 'ticketItem'])
             ->where('status', 'pending')
             ->get();
 
@@ -331,17 +378,20 @@ class OrderController extends ApiController
                         'status' => 'pending',
                     ]);
 
-                    $orderItem->update(['sent_to_kitchen_at' => now()]);
+                    $orderItem->update([
+                        'sent_to_kitchen_at' => now(),
+                        'is_printed_direct' => true,
+                    ]);
                 }
             }
 
             $order->update(['status' => 'confirmed']);
 
-            // تحديث الطاولة إلى HAS_ORDER (عليها طلب)
+            // تحديث الطاولة إلى OCCUPIED (عليها طلب)
             if ($order->dining_table_id) {
                 $table = DiningTable::find($order->dining_table_id);
                 if ($table) {
-                    $table->update(['status' => 'HAS_ORDER']);
+                    $table->update(['status' => 'OCCUPIED']);
                 }
             }
 
@@ -478,6 +528,136 @@ class OrderController extends ApiController
         }
     }
 
+    public function transfer(Request $request, Order $order): JsonResponse
+    {
+        \Log::info('[ORDER TRANSFER] Called', [
+            'order_id' => $order->id,
+            'table_number' => $request->input('table_number'),
+            'order_dining_table_id' => $order->dining_table_id,
+            'order_table_number' => $order->table_number,
+            'order_status' => $order->status,
+            'order_branch_id' => $order->branch_id,
+        ]);
+
+        $request->validate([
+            'table_number' => 'required|string',
+        ]);
+
+        // منع النقل لطلبات في حالات نهائية
+        if (in_array($order->status, ['paid', 'cancelled', 'served', 'pending_payment'], true)) {
+            \Log::warning('[ORDER TRANSFER] Order in invalid status', ['status' => $order->status]);
+            return $this->error('لا يمكن نقل هذا الطلب في حالته الحالية.', 422);
+        }
+
+        // التحقق من أن الطلب مرتبط بطاولة (ليس takeaway)
+        if (! $order->dining_table_id && ! $order->table_number) {
+            \Log::warning('[ORDER TRANSFER] Order not associated with any table', ['order_id' => $order->id]);
+            return $this->error('هذا الطلب غير مرتبط بطاولة.', 422);
+        }
+
+        $newTableNumber = $request->input('table_number');
+
+        // البحث عن الطاولة المستهدفة مع التحقق من الفرع
+        $toTable = DiningTable::whereRaw('LOWER(table_number) = LOWER(?)', [$newTableNumber])
+            ->where('branch_id', $order->branch_id)
+            ->first();
+
+        if (! $toTable) {
+            \Log::warning('[ORDER TRANSFER] Target table not found', [
+                'table_number' => $newTableNumber,
+                'branch_id' => $order->branch_id
+            ]);
+            return $this->error('الطاولة المستهدفة غير موجودة في هذا الفرع.', 404);
+        }
+
+        // السماح بالنقل للطاولة المتاحة أو المشغولة (لكن ليس نفس الطاولة)
+        if ($toTable->status !== 'AVAILABLE' && $toTable->status !== 'OCCUPIED') {
+            \Log::warning('[ORDER TRANSFER] Target table not available', [
+                'table_id' => $toTable->id,
+                'status' => $toTable->status
+            ]);
+            return $this->error('لا يمكن النقل لهذه الطاولة - ليست متاحة.', 422);
+        }
+
+        // منع النقل لنفس الطاولة
+        if ($order->dining_table_id && $order->dining_table_id == $toTable->id) {
+            \Log::warning('[ORDER TRANSFER] Same table transfer attempt', [
+                'order_id' => $order->id,
+                'table_id' => $toTable->id
+            ]);
+            return $this->error('لا يمكن النقل لنفس الطاولة.', 422);
+        }
+
+        try {
+            DB::transaction(function () use ($order, $toTable) {
+                // تحديد الطاولة القديمة
+                $oldTable = null;
+                if ($order->dining_table_id) {
+                    $oldTable = DiningTable::find($order->dining_table_id);
+                }
+
+                $oldTableNumber = $oldTable?->table_number;
+                $customerCount = $oldTable?->customer_count ?? $order->customer_count ?? 0;
+                $seatedAt = $oldTable?->seated_at ?? now();
+
+                // تحرير الطاولة القديمة فقط إذا لم يعد فيها أي طلبات نشطة
+                if ($oldTable) {
+                    $remainingOrders = Order::where(function ($q) use ($oldTable) {
+                            $q->where('dining_table_id', $oldTable->id)
+                              ->orWhere('table_number', $oldTable->table_number);
+                        })
+                        ->whereIn('status', ['pending', 'pending_confirmation', 'confirmed', 'in_progress', 'ready'])
+                        ->where('id', '!=', $order->id)
+                        ->count();
+
+                    if ($remainingOrders === 0) {
+                        $oldTable->update([
+                            'status' => 'AVAILABLE',
+                            'current_order_id' => null,
+                            'seated_at' => null,
+                            'customer_count' => 0,
+                        ]);
+                    }
+                }
+
+                // تحديث الطلب بالطاولة الجديدة
+                $order->update([
+                    'dining_table_id' => $toTable->id,
+                    'table_number' => $toTable->table_number,
+                    'customer_count' => $customerCount,
+                    'seated_at' => $seatedAt,
+                ]);
+
+                // تحديث الطاولة الجديدة - فقط إذا لم تكن مشغولة بالفعل
+                if ($toTable->status === 'AVAILABLE') {
+                    $toTable->update([
+                        'status' => 'OCCUPIED',
+                        'current_order_id' => $order->id,
+                        'seated_at' => $seatedAt,
+                        'customer_count' => $customerCount,
+                        'last_order_at' => now(),
+                    ]);
+                } else {
+                    // الطاولة مشغولة بالفعل - فقط نضيف order_id وأخر وقت طلب
+                    $toTable->update([
+                        'last_order_at' => now(),
+                    ]);
+                }
+            });
+
+            return $this->success(
+                'تم نقل الطلب بنجاح',
+                new OrderResource($order->fresh()->load(['items.department', 'diningTable']))
+            );
+        } catch (\Throwable $e) {
+            \Log::error('[ORDER TRANSFER] Failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return $this->error('فشل نقل الطلب: ' . $e->getMessage(), 500);
+        }
+    }
+
     public function journalEntry(Order $order): JsonResponse
     {
         $transaction = Transaction::with(['entries.account', 'entries.costCenter', 'branch', 'user'])
@@ -546,7 +726,10 @@ class OrderController extends ApiController
                     'status' => 'pending',
                 ]);
 
-                $orderItem->update(['sent_to_kitchen_at' => now()]);
+                $orderItem->update([
+                    'sent_to_kitchen_at' => now(),
+                    'is_printed_direct' => true,
+                ]);
             }
         }
 
@@ -561,7 +744,8 @@ class OrderController extends ApiController
         int $itemId,
         float $quantity,
         ?float $unitPrice = null,
-        ?string $notes = null
+        ?string $notes = null,
+        bool $isTakeaway = false,
     ): OrderItem {
         $item = Item::with('department')->findOrFail($itemId);
 
@@ -577,6 +761,7 @@ class OrderController extends ApiController
 
         return OrderItem::create([
             'order_id' => $order->id,
+            'created_by' => auth()->id(),
             'item_id' => $item->id,
             'department_id' => $item->department_id,
             'item_name' => $item->name,
@@ -588,50 +773,41 @@ class OrderController extends ApiController
             'total' => round($price * $quantity, 2),
             'status' => 'pending',
             'notes' => $notes,
+            'is_takeaway' => $isTakeaway,
         ]);
     }
 
     /**
-     * طباعة فاتورة الطلب
+     * طباعة فاتورة الطلب — تُنفَّذ بالخلفية عبر Queue Job (Browsershot يشغّل
+     * Chrome كامل، لا يجوز حجز الـ request عليه). الاستجابة هون تأكيد إرسال
+     * أمر الطباعة فقط، مش تأكيد نجاح الطباعة الفعلي على الطابعة.
      */
-    public function printInvoice(Order $order, OrderPrintingService $printingService): JsonResponse
+    public function printInvoice(Order $order): JsonResponse
     {
         $printerId = request('printer_id');
 
-        if ($printerId) {
-            $result = $printingService->printInvoiceById($order, (int) $printerId);
-        } else {
-            $result = $printingService->printInvoiceToCashier($order);
-        }
+        PrintInvoiceJob::dispatch(
+            $order,
+            $printerId ? (int) $printerId : null,
+            auth()->id(),
+        );
 
-        if ($result['success']) {
-            return $this->success($result['message']);
-        }
-
-        return $this->error($result['message'], 500);
+        return $this->success('تم إرسال أمر طباعة الفاتورة');
     }
 
     /**
      * طباعة تذاكر أقسام الإنتاج (ticket.blade.php) — كل قسم على طابعته.
+     * تُنفَّذ بالخلفية عبر Queue Job.
      */
-    public function printTickets(Order $order, OrderPrintingService $printingService): JsonResponse
+    public function printTickets(Order $order): JsonResponse
     {
-        $results = $printingService->printTickets($order);
+        PrintTicketsJob::dispatch($order);
 
-        if (empty($results)) {
-            return $this->error('لا توجد تذاكر أقسام للطباعة', 404);
-        }
-
-        $hasFailure = collect($results)->contains('success', false);
-        $allMessage = $hasFailure
-            ? 'تمت الطباعة جزئياً — بعض الأقسام لم تُطبع'
-            : 'تمت طباعة جميع تذاكر الأقسام بنجاح';
-
-        return $this->success($allMessage, $results);
+        return $this->success('تم إرسال أوامر طباعة تذاكر الأقسام');
     }
 
     /**
-     * طباعة الطلب بالكامل — ذكية وديناميكية.
+     * طباعة الطلب بالكامل — ذكية وديناميكية. تُنفَّذ بالخلفية عبر Queue Job.
      *
      * تحدد تلقائياً:
      * - أصناف المطبخ → بون مطبخ (KOT)
@@ -641,29 +817,20 @@ class OrderController extends ApiController
      * - device_type: 'POS' | 'WAITER_APP' | null (الكل)
      * - device_id: ID الجهاز | null (الكل)
      */
-    public function printOrder(Order $order, OrderPrintingService $printingService): JsonResponse
+    public function printOrder(Order $order): JsonResponse
     {
         $deviceType = request('device_type'); // 'POS' | 'WAITER_APP' | null
         $deviceId   = request('device_id');   // int | null
         $userId     = auth()->id();
 
-        $results = $printingService->printOrder(
+        PrintOrderJob::dispatch(
             $order,
             $userId,
             $deviceType,
-            $deviceId ? (int) $deviceId : null
+            $deviceId ? (int) $deviceId : null,
         );
 
-        if (empty($results)) {
-            return $this->error('لا توجد طابعات مخصصة لهذا الطلب', 404);
-        }
-
-        $hasFailure = collect($results)->contains('success', false);
-        $allMessage = $hasFailure
-            ? 'تمت الطباعة جزئياً — بعض الطابعات لم تستجب'
-            : 'تمت الطباعة بنجاح على جميع الطابعات';
-
-        return $this->success($allMessage, $results);
+        return $this->success('تم إرسال أوامر الطباعة');
     }
 
     /**
@@ -671,13 +838,6 @@ class OrderController extends ApiController
      */
     public function directPrint(Request $request, Order $order): JsonResponse
     {
-        \Log::info('directPrint request data', [
-            'all' => $request->all(),
-            'cashier_device_id' => $request->input('cashier_device_id'),
-            'items' => $request->input('items'),
-            'order_id' => $order->id,
-        ]);
-
         try {
             $request->validate([
                 'cashier_device_id' => 'required|integer',
@@ -704,32 +864,22 @@ class OrderController extends ApiController
         }
 
         try {
-            // حفظ حالة TW لكل صنف إذا تم تمريرها
+            // حفظ حالة TW لكل صنف إذا تم تمريرها — تحديث دفعي واحد لكل قيمة
+            // (true/false) بدل استعلام UPDATE منفصل لكل صنف بالحلقة.
             if ($request->has('items')) {
-                foreach ($request->items as $itemData) {
-                    \App\Models\OrderItem::where('id', $itemData['order_item_id'])
-                        ->update(['is_takeaway' => $itemData['is_takeaway']]);
+                foreach (collect($request->items)->groupBy('is_takeaway') as $isTakeaway => $rows) {
+                    \App\Models\OrderItem::whereIn('id', $rows->pluck('order_item_id'))
+                        ->update(['is_takeaway' => (bool) $isTakeaway]);
                 }
             }
 
-            $service = app(\App\Services\DirectPrintRoutingService::class);
-            $result = $service->execute(
-                $order->id,
-                $cashierDeviceId
-            );
-
-            if (!$result['success']) {
-                return response()->json([
-                    'success' => false,
-                    'message' => $result['message'],
-                ], 400);
-            }
+            // الطباعة الفعلية (Browsershot + إرسال للطابعة) بطيئة (ثواني)،
+            // فتُنفَّذ بالخلفية عبر Queue Job بدل حجز الـ request عليها.
+            \App\Jobs\DirectPrintJob::dispatch($order->id, $cashierDeviceId);
 
             return response()->json([
                 'success' => true,
-                'message' => $result['message'],
-                'print_jobs' => $result['print_jobs'],
-                'printed_items_count' => $result['printed_items_count'],
+                'message' => 'تم إرسال أمر الطباعة الفورية',
             ]);
         } catch (\Throwable $e) {
             \Log::error('فشل في الطباعة الفورية للطلب #' . $order->id, [

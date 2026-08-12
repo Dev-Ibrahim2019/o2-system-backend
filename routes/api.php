@@ -96,7 +96,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
         Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
         Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
-        Route::post('orders/{order}/defer', [OrderController::class, 'deferOrder']);
+    Route::post('orders/{order}/defer', [OrderController::class, 'deferOrder']);
+    Route::post('orders/{order}/transfer', [OrderController::class, 'transfer']);
         Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
         Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
         Route::post('orders/{order}/print-invoice', [OrderController::class, 'printInvoice']);
@@ -121,71 +122,20 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry'])
             ->middleware('permission:manage-accounting|post-journal');
 
-        // أ¢â€‌â‚¬أ¢â€‌â‚¬ Settlement & Payment Routing أ¢â€‌â‚¬أ¢â€‌â‚¬
-        Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle'])
-            ->middleware('permission:add-payments|manage-payments|manage-invoices');
-        Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show'])
-            ->middleware('permission:add-payments|manage-payments|manage-invoices');
-        Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class)
-            ->middleware('permission:manage-payments|manage-invoices');
-
-    }); // أ¢â€ ع¯ ط¸â€ ط¸â€،ط·آ§ط¸ظ¹ط·آ© ط¸â€¦ط·آ³ط·آ§ط·آ±ط·آ§ط·ع¾ POS ط·آ§ط¸â€‍ط¸â€¦ط·آ­ط¸â€¦ط¸ظ¹ط·آ© ط·آ¨ط·آ´ط·آ¨ط¸ئ’ط·آ© ط·آ§ط¸â€‍ط¸ظ¾ط·آ±ط·آ¹
-
-    // أ¢â€‌â‚¬أ¢â€‌â‚¬ Call Center أ¢â€‌â‚¬أ¢â€‌â‚¬
-    Route::prefix('call-center')->middleware('permission:access-call-center|manage-call-center')->group(function () {
-        Route::put('orders/{order}/complete', [OrderController::class, 'complete']);
+        // ── Settlement & Payment Routing ──
         Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle']);
         Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
-        Route::get('payment-methods', [\App\Http\Controllers\Api\PaymentMethodController::class, 'index']);
-        Route::get('customers/search', [CallCenterController::class, 'searchCustomers']);
-        Route::get('customers/directory', [CallCenterController::class, 'customerDirectory']);
-        Route::post('customers', [CallCenterController::class, 'storeCustomer']);
-        Route::get('customers/analytics', [CallCenterController::class, 'analytics']);
-        Route::get('customers/top', [CallCenterController::class, 'topCustomers']);
-        Route::get('customers/{customer}/profile', [CallCenterController::class, 'customerProfile']);
-        Route::patch('customers/{customer}/classification', [CallCenterController::class, 'updateCustomerClassification']);
-        Route::get('customers/{customer}/full-profile', [CallCenterController::class, 'customerFullProfile']);
-        Route::get('customers/{customer}/orders', [CallCenterController::class, 'customerOrders']);
-        Route::get('customers/{customer}/favorites', [CallCenterController::class, 'customerFavorites']);
-        Route::post('customers/quick-create', [CallCenterController::class, 'quickCreateCustomer']);
-        Route::get('customers/{customer}/occasions', [CallCenterController::class, 'customerOccasions']);
-        Route::post('customers/{customer}/occasions', [CallCenterController::class, 'storeOccasion']);
-        Route::get('customers/{customer}/notes', [CallCenterController::class, 'customerNotes']);
-        Route::post('customers/{customer}/notes', [CallCenterController::class, 'storeNote']);
-        Route::get('customers/{customer}/important-notes', [CallCenterController::class, 'customerImportantNotes']);
-        Route::post('customers/{customer}/addresses', [CallCenterController::class, 'storeAddress']);
-        Route::patch('customer-addresses/{address}', [CallCenterController::class, 'updateAddress']);
-        Route::post('customer-addresses/{address}/use', [CallCenterController::class, 'markAddressUsed']);
-        Route::patch('customer-occasions/{occasion}', [CallCenterController::class, 'updateOccasion']);
-        Route::delete('customer-occasions/{occasion}', [CallCenterController::class, 'deleteOccasion']);
-        Route::get('occasions', [CallCenterController::class, 'occasionsByRange']);
-        Route::get('customers/{customer}/addresses', [CallCenterController::class, 'customerAddresses']);
-        Route::get('customers/{customer}/complaints', [CallCenterController::class, 'customerComplaints']);
-        Route::get('customers/{customer}/alerts', [CallCenterController::class, 'customerAlerts']);
-        Route::get('orders/{order}', [CallCenterController::class, 'orderDetails']);
-        Route::get('complaints', [CallCenterController::class, 'complaintsIndex']);
-        Route::post('complaints', [CallCenterController::class, 'storeComplaint']);
-        Route::get('complaints/{complaint}', [CallCenterController::class, 'showComplaint']);
-        Route::patch('complaints/{complaint}', [CallCenterController::class, 'updateComplaint']);
-        Route::post('complaints/{complaint}/followups', [CallCenterController::class, 'addFollowup']);
-        Route::get('complaints/{complaint}/timeline', [CallCenterController::class, 'complaintTimeline']);
-    });
+        Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class);
 
-    // ── Call Center PBX Integration ──
-    Route::prefix('call-center/pbx')->middleware('permission:access-call-center|manage-call-center')->group(function () {
-        Route::get('live-calls', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'liveCalls']);
-        Route::get('cdr', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'callHistory']);
-        Route::get('queues', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'queueStats']);
-        Route::get('agents', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'agentStats']);
-        Route::get('analytics', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'analytics']);
-        Route::get('extensions', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'extensions']);
-        Route::get('trunks', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'trunks']);
-        Route::get('blacklist', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'blacklistIndex']);
-        Route::post('blacklist', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'blacklistStore']);
-        Route::delete('blacklist/{id}', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'blacklistDestroy']);
-        Route::get('recordings/{uniqueid}/play', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'playRecording']);
-        Route::get('recordings/{uniqueid}/download', [\App\Http\Controllers\Api\CallCenterPbxController::class, 'downloadRecording']);
-    });
+        // ── Shifts / الورديات ──
+        Route::get('shifts', [ShiftController::class, 'index']);
+        Route::get('shifts/current', [ShiftController::class, 'current']);
+        Route::post('shifts/rollover', [ShiftController::class, 'rollover']);
+
+        // ── Order Timeline / سجل الطلب الزمني ──
+        Route::get('orders/{order}/timeline', [\App\Http\Controllers\Api\OrderTimelineController::class, 'timeline']);
+
+    }); // نهاية مسار POS المحمي بـ CheckPosNetwork
 
     // ── Tables Management (موحدة للكاشير/الضيافة/المحاسب/المدير) ──
     Route::get('tables', [\App\Http\Controllers\Api\TableOperationsController::class, 'index']);
@@ -195,6 +145,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('tables/{table}/free', [\App\Http\Controllers\Api\TableOperationsController::class, 'free']);
     Route::post('tables/transfer', [\App\Http\Controllers\Api\TableOperationsController::class, 'transfer']);
     Route::post('tables/merge', [\App\Http\Controllers\Api\TableOperationsController::class, 'merge']);
+    Route::post('tables/{table}/unmerge', [\App\Http\Controllers\Api\TableOperationsController::class, 'unmerge']);
+    Route::post('tables/{table}/defer-all', [\App\Http\Controllers\Api\TableOperationsController::class, 'deferAll']);
 
     // ── إدارة المستخدمين ──
     Route::get('users', [UserController::class, 'index'])->middleware('permission:manage-users');
@@ -293,6 +245,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
     Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
     Route::post('orders/{order}/defer', [OrderController::class, 'deferOrder']);
+    Route::post('orders/{order}/transfer', [OrderController::class, 'transfer']);
     Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
     Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
     Route::post('orders/{order}/print-invoice', [OrderController::class, 'printInvoice']);
@@ -383,6 +336,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('transactions/{transaction}/cancel', [TransactionController::class, 'cancel']);
         Route::apiResource('cost-centers', CostCenterController::class);
     });
+
+    // ── Fiscal Years / السنوات المالية ──
+    Route::get('fiscal-years', [\App\Http\Controllers\Api\FiscalYearController::class, 'index']);
+    Route::get('fiscal-years/active', [\App\Http\Controllers\Api\FiscalYearController::class, 'active']);
+    Route::post('fiscal-years', [\App\Http\Controllers\Api\FiscalYearController::class, 'store']);
+    Route::post('fiscal-years/{fiscalYear}/close', [\App\Http\Controllers\Api\FiscalYearController::class, 'close']);
 });
 
 // أ¢â€‌â‚¬أ¢â€‌â‚¬ POS Registers (Admin) أ¢â€‌â‚¬أ¢â€‌â‚¬
@@ -641,6 +600,7 @@ Route::middleware('auth:sanctum')->prefix('tables')->group(function () {
     Route::post('/{table}/free', [\App\Http\Controllers\Api\TableOperationsController::class, 'free']);
     Route::post('/transfer', [\App\Http\Controllers\Api\TableOperationsController::class, 'transfer']);
     Route::post('/merge', [\App\Http\Controllers\Api\TableOperationsController::class, 'merge']);
+    Route::post('/{table}/unmerge', [\App\Http\Controllers\Api\TableOperationsController::class, 'unmerge']);
 });
 
 Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);

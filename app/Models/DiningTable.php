@@ -22,6 +22,7 @@ class DiningTable extends Model
         'seated_at',
         'customer_count',
         'last_order_at',
+        'merged_with_id',
     ];
 
     protected $casts = [
@@ -118,8 +119,45 @@ class DiningTable extends Model
     public function setHasOrder(?int $orderId = null): void
     {
         $this->update([
-            'status' => 'HAS_ORDER',
+            'status' => 'OCCUPIED',
             'current_order_id' => $orderId ?? $this->current_order_id,
         ]);
+    }
+
+    public function setMerged(int $targetTableId): void
+    {
+        $this->update([
+            'status' => 'MERGED',
+            'merged_with_id' => $targetTableId,
+            'current_order_id' => null,
+            'seated_at' => null,
+            'customer_count' => 0,
+        ]);
+    }
+
+    public function setUnmerged(): void
+    {
+        $this->update([
+            'status' => 'AVAILABLE',
+            'merged_with_id' => null,
+            'current_order_id' => null,
+            'seated_at' => null,
+            'customer_count' => 0,
+        ]);
+    }
+
+    public function isMerged(): bool
+    {
+        return $this->status === 'MERGED' && $this->merged_with_id !== null;
+    }
+
+    public function mergedWith()
+    {
+        return $this->belongsTo(DiningTable::class, 'merged_with_id');
+    }
+
+    public function mergedTables()
+    {
+        return $this->hasMany(DiningTable::class, 'merged_with_id');
     }
 }

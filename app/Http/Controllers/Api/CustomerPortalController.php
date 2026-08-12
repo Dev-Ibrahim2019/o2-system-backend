@@ -32,7 +32,23 @@ class CustomerPortalController extends Controller
             ], 404);
         }
 
-        if ($table->status !== 'AVAILABLE' && $table->status !== 'OCCUPIED' && $table->status !== 'HAS_ORDER' && $table->status !== 'PENDING_CONFIRMATION') {
+        // إذا كانت الطاولة مدمجة، تحويل الزبون للطاولة المدمج بها
+        if ($table->status === 'MERGED' && $table->merged_with_id) {
+            $targetTable = DiningTable::find($table->merged_with_id);
+            if ($targetTable) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'هذه الطاولة مدمجة مع الطاولة ' . $targetTable->table_number,
+                    'data' => [
+                        'merged' => true,
+                        'target_table_number' => $targetTable->table_number,
+                        'target_qr_code' => $targetTable->qr_code,
+                    ]
+                ], 422);
+            }
+        }
+
+        if ($table->status !== 'AVAILABLE' && $table->status !== 'OCCUPIED' && $table->status !== 'PENDING_CONFIRMATION') {
             return response()->json([
                 'success' => false,
                 'message' => 'الطاولة غير متاحة حالياً'
@@ -125,7 +141,10 @@ class CustomerPortalController extends Controller
         $order = Order::with(['items' => function ($q) {
             $q->with('item');
         }])
-        ->where('dining_table_id', $table->id)
+        ->where(function ($q) use ($table) {
+            $q->where('dining_table_id', $table->id)
+              ->orWhere('table_number', $table->table_number);
+        })
         ->whereNotIn('status', ['paid', 'cancelled', 'served'])
         ->latest()
         ->first();
@@ -252,7 +271,10 @@ class CustomerPortalController extends Controller
 
         try {
             // البحث عن طلب نشط يمكن الإضافة عليه
-            $order = Order::where('dining_table_id', $table->id)
+            $order = Order::where(function ($q) use ($table) {
+                    $q->where('dining_table_id', $table->id)
+                      ->orWhere('table_number', $table->table_number);
+                })
                 ->whereIn('status', ['pending_confirmation', 'pending', 'confirmed', 'in_progress'])
                 ->latest()
                 ->first();
