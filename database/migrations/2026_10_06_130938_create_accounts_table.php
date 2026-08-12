@@ -1,10 +1,12 @@
 <?php
 
 // ══════════════════════════════════════════════════════════════════════
-// FILE: database/migrations/2026_06_01_000001_redesign_accounts_table.php
+// FILE: database/migrations/2026_10_06_130938_create_accounts_table.php
 // ══════════════════════════════════════════════════════════════════════
-// يُضاف هذا Migration فوق الـ accounts table الحالية
-// أو يُستبدل بها في fresh install
+// رغم الاسم (create_accounts_table)، هذا الملف تعديل (alter) على جدول
+// accounts الموجود مسبقاً — كل عمود محمي بـ hasColumn() فهو آمن لإعادة
+// التشغيل. لا تُعاد تسميته لأنه مُسجَّل بجدول migrations بهذا الاسم فعلاً.
+// أُضيف هذا الملف فوق الـ accounts table الحالية.
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;

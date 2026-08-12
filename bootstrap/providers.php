@@ -14,9 +14,17 @@ use App\Providers\AppServiceProvider;
 use App\Providers\AccountingServiceProvider;
 use App\Providers\CustomerPortalServiceProvider;
 
-return [
+$providers = [
     AppServiceProvider::class,
     AccountingServiceProvider::class,
     CustomerPortalServiceProvider::class,
-
 ];
+
+// Telescope هو حزمة dev فقط (require-dev) — نسجّلها فقط إذا كانت مثبّتة فعلياً،
+// حتى لا ينهار التطبيق لو تم نشره بدون dev dependencies (composer install --no-dev).
+// الفلترة بين local/production نفسها معرّفة داخل App\Providers\TelescopeServiceProvider.
+if (class_exists(\Laravel\Telescope\TelescopeApplicationServiceProvider::class)) {
+    $providers[] = \App\Providers\TelescopeServiceProvider::class;
+}
+
+return $providers;

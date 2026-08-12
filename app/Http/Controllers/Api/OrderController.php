@@ -21,7 +21,9 @@ use App\Models\Transaction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use App\Services\Printing\OrderPrintingService;
+use App\Jobs\PrintInvoiceJob;
+use App\Jobs\PrintTicketsJob;
+use App\Jobs\PrintOrderJob;
 
 class OrderController extends ApiController
 {
@@ -166,14 +168,15 @@ class OrderController extends ApiController
 
             // مزامنة الأصناف إذا تم إرسالها
             if ($request->has('items')) {
-                \Log::info('[OrderController::update] items data:', collect($request->items)->map(fn($r) => ['item_id' => $r['item_id'] ?? null, 'is_takeaway' => $r['is_takeaway'] ?? 'MISSING'])->toArray());
-                \Log::info('[OrderController::update] existing items:', $order->items()->get(['item_id', 'is_takeaway', 'is_printed_direct'])->toArray());
+                // كل الأصناف المطبوعة مسبقاً بهذا الطلب — استعلام واحد بدل استعلام لكل صنف بالحلقة
+                $printedDirectItems = $order->items()
+                    ->where('is_printed_direct', true)
+                    ->get()
+                    ->keyBy('item_id');
+
                 // تحديث is_takeaway للأصناف المطبوعة (المحفوظة مسبقاً)
                 foreach ($request->items as $row) {
-                    $existingItem = $order->items()
-                        ->where('item_id', $row['item_id'])
-                        ->where('is_printed_direct', true)
-                        ->first();
+                    $existingItem = $printedDirectItems->get($row['item_id']);
 
                     if ($existingItem) {
                         $existingItem->update([
@@ -190,12 +193,7 @@ class OrderController extends ApiController
 
                 foreach ($request->items as $row) {
                     // تخطي الأصناف المطبوعة (تم تحديثها أعلاه)
-                    $alreadyPrinted = $order->items()
-                        ->where('item_id', $row['item_id'])
-                        ->where('is_printed_direct', true)
-                        ->exists();
-
-                    if ($alreadyPrinted) {
+                    if ($printedDirectItems->has($row['item_id'])) {
                         continue;
                     }
 
@@ -329,8 +327,9 @@ class OrderController extends ApiController
         }
 
         // تعديل: جلب العلاقة هنا مع الاستعلام الأساسي لتجنب مشكلة الـ with اللاحقة
+        // ticketItem محمّلة مسبقاً أيضاً لتفادي استعلام منفصل لكل صنف بحلقة foreach بالأسفل
         $unsentItems = $order->items()
-            ->with('department')
+            ->with(['department', 'ticketItem'])
             ->where('status', 'pending')
             ->get();
 
@@ -779,52 +778,36 @@ class OrderController extends ApiController
     }
 
     /**
-     * طباعة فاتورة الطلب
+     * طباعة فاتورة الطلب — تُنفَّذ بالخلفية عبر Queue Job (Browsershot يشغّل
+     * Chrome كامل، لا يجوز حجز الـ request عليه). الاستجابة هون تأكيد إرسال
+     * أمر الطباعة فقط، مش تأكيد نجاح الطباعة الفعلي على الطابعة.
      */
-    public function printInvoice(Order $order, OrderPrintingService $printingService): JsonResponse
+    public function printInvoice(Order $order): JsonResponse
     {
         $printerId = request('printer_id');
 
-        if ($printerId) {
-            $result = $printingService->printInvoiceById($order, (int) $printerId);
-        } else {
-            $result = $printingService->printInvoiceToCashier($order);
-        }
+        PrintInvoiceJob::dispatch(
+            $order,
+            $printerId ? (int) $printerId : null,
+            auth()->id(),
+        );
 
-        if ($result['success']) {
-            // تسجيل من طبع الفاتورة
-            $order->update([
-                'printed_by' => auth()->id(),
-                'printed_at' => now(),
-            ]);
-
-            return $this->success($result['message']);
-        }
-
-        return $this->error($result['message'], 500);
+        return $this->success('تم إرسال أمر طباعة الفاتورة');
     }
 
     /**
      * طباعة تذاكر أقسام الإنتاج (ticket.blade.php) — كل قسم على طابعته.
+     * تُنفَّذ بالخلفية عبر Queue Job.
      */
-    public function printTickets(Order $order, OrderPrintingService $printingService): JsonResponse
+    public function printTickets(Order $order): JsonResponse
     {
-        $results = $printingService->printTickets($order);
+        PrintTicketsJob::dispatch($order);
 
-        if (empty($results)) {
-            return $this->error('لا توجد تذاكر أقسام للطباعة', 404);
-        }
-
-        $hasFailure = collect($results)->contains('success', false);
-        $allMessage = $hasFailure
-            ? 'تمت الطباعة جزئياً — بعض الأقسام لم تُطبع'
-            : 'تمت طباعة جميع تذاكر الأقسام بنجاح';
-
-        return $this->success($allMessage, $results);
+        return $this->success('تم إرسال أوامر طباعة تذاكر الأقسام');
     }
 
     /**
-     * طباعة الطلب بالكامل — ذكية وديناميكية.
+     * طباعة الطلب بالكامل — ذكية وديناميكية. تُنفَّذ بالخلفية عبر Queue Job.
      *
      * تحدد تلقائياً:
      * - أصناف المطبخ → بون مطبخ (KOT)
@@ -834,29 +817,20 @@ class OrderController extends ApiController
      * - device_type: 'POS' | 'WAITER_APP' | null (الكل)
      * - device_id: ID الجهاز | null (الكل)
      */
-    public function printOrder(Order $order, OrderPrintingService $printingService): JsonResponse
+    public function printOrder(Order $order): JsonResponse
     {
         $deviceType = request('device_type'); // 'POS' | 'WAITER_APP' | null
         $deviceId   = request('device_id');   // int | null
         $userId     = auth()->id();
 
-        $results = $printingService->printOrder(
+        PrintOrderJob::dispatch(
             $order,
             $userId,
             $deviceType,
-            $deviceId ? (int) $deviceId : null
+            $deviceId ? (int) $deviceId : null,
         );
 
-        if (empty($results)) {
-            return $this->error('لا توجد طابعات مخصصة لهذا الطلب', 404);
-        }
-
-        $hasFailure = collect($results)->contains('success', false);
-        $allMessage = $hasFailure
-            ? 'تمت الطباعة جزئياً — بعض الطابعات لم تستجب'
-            : 'تمت الطباعة بنجاح على جميع الطابعات';
-
-        return $this->success($allMessage, $results);
+        return $this->success('تم إرسال أوامر الطباعة');
     }
 
     /**
@@ -890,32 +864,22 @@ class OrderController extends ApiController
         }
 
         try {
-            // حفظ حالة TW لكل صنف إذا تم تمريرها
+            // حفظ حالة TW لكل صنف إذا تم تمريرها — تحديث دفعي واحد لكل قيمة
+            // (true/false) بدل استعلام UPDATE منفصل لكل صنف بالحلقة.
             if ($request->has('items')) {
-                foreach ($request->items as $itemData) {
-                    \App\Models\OrderItem::where('id', $itemData['order_item_id'])
-                        ->update(['is_takeaway' => $itemData['is_takeaway']]);
+                foreach (collect($request->items)->groupBy('is_takeaway') as $isTakeaway => $rows) {
+                    \App\Models\OrderItem::whereIn('id', $rows->pluck('order_item_id'))
+                        ->update(['is_takeaway' => (bool) $isTakeaway]);
                 }
             }
 
-            $service = app(\App\Services\DirectPrintRoutingService::class);
-            $result = $service->execute(
-                $order->id,
-                $cashierDeviceId
-            );
-
-            if (!$result['success']) {
-                return response()->json([
-                    'success' => false,
-                    'message' => $result['message'],
-                ], 400);
-            }
+            // الطباعة الفعلية (Browsershot + إرسال للطابعة) بطيئة (ثواني)،
+            // فتُنفَّذ بالخلفية عبر Queue Job بدل حجز الـ request عليها.
+            \App\Jobs\DirectPrintJob::dispatch($order->id, $cashierDeviceId);
 
             return response()->json([
                 'success' => true,
-                'message' => $result['message'],
-                'print_jobs' => $result['print_jobs'],
-                'printed_items_count' => $result['printed_items_count'],
+                'message' => 'تم إرسال أمر الطباعة الفورية',
             ]);
         } catch (\Throwable $e) {
             \Log::error('فشل في الطباعة الفورية للطلب #' . $order->id, [
