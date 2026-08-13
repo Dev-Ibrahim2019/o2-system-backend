@@ -12,7 +12,12 @@ return new class extends Migration
     public function up(): void
     {
         // إضافة حالة MERGED لقائمة الحالات المسموحة
-        DB::statement("ALTER TABLE dining_tables DROP CONSTRAINT IF EXISTS dining_tables_status_check");
+        try {
+            DB::statement("ALTER TABLE dining_tables DROP CHECK dining_tables_status_check");
+        } catch (\Throwable $e) {
+            // Constraint may not exist
+        }
+
         DB::statement("ALTER TABLE dining_tables ADD CONSTRAINT dining_tables_status_check CHECK (status IN ('AVAILABLE', 'OCCUPIED', 'PAYMENT_PENDING', 'PAID', 'RESERVED', 'CLEANING', 'HAS_ORDER', 'PENDING_CONFIRMATION', 'MERGED'))");
     }
 
@@ -22,7 +27,12 @@ return new class extends Migration
     public function down(): void
     {
         // إرجاع القيد بدون MERGED
-        DB::statement("ALTER TABLE dining_tables DROP CONSTRAINT IF EXISTS dining_tables_status_check");
+        try {
+            DB::statement("ALTER TABLE dining_tables DROP CHECK dining_tables_status_check");
+        } catch (\Throwable $e) {
+            // Constraint may not exist
+        }
+
         DB::statement("ALTER TABLE dining_tables ADD CONSTRAINT dining_tables_status_check CHECK (status IN ('AVAILABLE', 'OCCUPIED', 'PAYMENT_PENDING', 'PAID', 'RESERVED', 'CLEANING', 'HAS_ORDER', 'PENDING_CONFIRMATION'))");
     }
 };

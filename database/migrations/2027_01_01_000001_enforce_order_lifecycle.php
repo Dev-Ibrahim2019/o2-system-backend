@@ -28,17 +28,24 @@ return new class extends Migration
         });
 
         if (DB::getDriverName() === 'mysql') {
-            DB::statement('ALTER TABLE orders MODIFY status VARCHAR(32) NOT NULL');
+            DB::statement('ALTER TABLE orders MODIFY status VARCHAR(50) NOT NULL DEFAULT "PENDING_PAYMENT"');
         }
 
-        DB::table('orders')->where('status', 'pending')->update(['status' => 'PENDING_PAYMENT']);
-        DB::table('orders')->whereIn('status', ['confirmed', 'in_progress'])->update(['status' => 'PREPARATION']);
-        DB::table('orders')->where('status', 'ready')->update(['status' => 'OUT_FOR_DELIVERY']);
-        DB::table('orders')->whereIn('status', ['served', 'paid'])->update(['status' => 'DELIVERED']);
-        DB::table('orders')->where('status', 'cancelled')->update(['status' => 'CANCELLED']);
+        $statusMap = [
+            'pending' => 'PENDING_PAYMENT',
+            'pending_payment' => 'PENDING_PAYMENT',
+            'confirmed' => 'PREPARATION',
+            'in_progress' => 'PREPARATION',
+            'ready' => 'OUT_FOR_DELIVERY',
+            'served' => 'DELIVERED',
+            'paid' => 'DELIVERED',
+            'cancelled' => 'CANCELLED',
+            'pending_confirmation' => 'PENDING_PAYMENT',
+            'PENDING_CONFIRMATION' => 'PENDING_PAYMENT',
+        ];
 
-        if (DB::getDriverName() === 'mysql') {
-            DB::statement("ALTER TABLE orders MODIFY status ENUM('PENDING_PAYMENT','PREPARATION','OUT_FOR_DELIVERY','DELIVERED','CANCELLED') NOT NULL DEFAULT 'PENDING_PAYMENT'");
+        foreach ($statusMap as $from => $to) {
+            DB::table('orders')->where('status', $from)->update(['status' => $to]);
         }
 
         if (Schema::hasColumn('orders', 'transaction_id')) {
@@ -53,17 +60,20 @@ return new class extends Migration
     public function down(): void
     {
         if (DB::getDriverName() === 'mysql') {
-            DB::statement('ALTER TABLE orders MODIFY status VARCHAR(32) NOT NULL');
+            DB::statement('ALTER TABLE orders MODIFY status VARCHAR(50) NOT NULL DEFAULT "PENDING_PAYMENT"');
         }
 
-        DB::table('orders')->where('status', 'PENDING_PAYMENT')->update(['status' => 'pending']);
-        DB::table('orders')->where('status', 'PREPARATION')->update(['status' => 'confirmed']);
-        DB::table('orders')->where('status', 'OUT_FOR_DELIVERY')->update(['status' => 'ready']);
-        DB::table('orders')->where('status', 'DELIVERED')->update(['status' => 'served']);
-        DB::table('orders')->where('status', 'CANCELLED')->update(['status' => 'cancelled']);
+        $statusMap = [
+            'PENDING_PAYMENT' => 'pending',
+            'PREPARATION' => 'confirmed',
+            'OUT_FOR_DELIVERY' => 'ready',
+            'DELIVERED' => 'served',
+            'CANCELLED' => 'cancelled',
+            'PENDING_CONFIRMATION' => 'pending_confirmation',
+        ];
 
-        if (DB::getDriverName() === 'mysql') {
-            DB::statement("ALTER TABLE orders MODIFY status ENUM('pending','confirmed','in_progress','ready','served','paid','cancelled') NOT NULL DEFAULT 'pending'");
+        foreach ($statusMap as $from => $to) {
+            DB::table('orders')->where('status', $from)->update(['status' => $to]);
         }
 
         Schema::table('orders', function (Blueprint $table) {
