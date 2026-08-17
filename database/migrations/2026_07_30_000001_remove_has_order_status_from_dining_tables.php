@@ -11,13 +11,23 @@ return new class extends Migration
         DB::table('dining_tables')->where('status', 'HAS_ORDER')->update(['status' => 'OCCUPIED']);
 
         // تحديث CHECK constraint لإزالة HAS_ORDER
-        DB::statement("ALTER TABLE dining_tables DROP CONSTRAINT dining_tables_status_check");
+        try {
+            DB::statement("ALTER TABLE dining_tables DROP CHECK dining_tables_status_check");
+        } catch (\Throwable $e) {
+            // Constraint may not exist
+        }
+
         DB::statement("ALTER TABLE dining_tables ADD CONSTRAINT dining_tables_status_check CHECK (status IN ('AVAILABLE', 'OCCUPIED', 'PAYMENT_PENDING', 'PAID', 'RESERVED', 'CLEANING', 'PENDING_CONFIRMATION', 'MERGED'))");
     }
 
     public function down(): void
     {
-        DB::statement("ALTER TABLE dining_tables DROP CONSTRAINT dining_tables_status_check");
+        try {
+            DB::statement("ALTER TABLE dining_tables DROP CHECK dining_tables_status_check");
+        } catch (\Throwable $e) {
+            // Constraint may not exist
+        }
+
         DB::statement("ALTER TABLE dining_tables ADD CONSTRAINT dining_tables_status_check CHECK (status IN ('AVAILABLE', 'OCCUPIED', 'PAYMENT_PENDING', 'PAID', 'RESERVED', 'CLEANING', 'HAS_ORDER', 'PENDING_CONFIRMATION', 'MERGED'))");
     }
 };

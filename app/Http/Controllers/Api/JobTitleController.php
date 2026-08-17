@@ -4,6 +4,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\ApiController;
+use App\Http\Requests\JobTitleRequest;
 use App\Http\Resources\JobTitleResource;
 use App\Models\JobTitle;
 use Illuminate\Http\Request;
@@ -12,29 +13,25 @@ class JobTitleController extends ApiController
 {
     public function index()
     {
-        return $this->success('Job titles fetched', JobTitleResource::collection(JobTitle::all()));
+        return $this->success('Job titles fetched', JobTitleResource::collection(JobTitle::with('department:id,name')->orderBy('name')->get()));
     }
 
-    public function store(Request $request)
+    public function store(JobTitleRequest $request)
     {
-        $data = $request->validate([
-            'name'        => ['required', 'string', 'max:255'],
-            'description' => ['nullable', 'string'],
-        ]);
+        $data = $request->validated();
 
         $jobTitle = JobTitle::create($data);
-        return $this->success('Job title created', new JobTitleResource($jobTitle), 201);
+        return $this->success('Job title created', new JobTitleResource($jobTitle->load('department:id,name')), 201);
     }
 
-    public function update(Request $request, JobTitle $jobTitle)
+    public function show(JobTitle $jobTitle) { return $this->success('Job title fetched', new JobTitleResource($jobTitle->load('department:id,name'))); }
+
+    public function update(JobTitleRequest $request, JobTitle $jobTitle)
     {
-        $data = $request->validate([
-            'name'        => ['sometimes', 'string', 'max:255'],
-            'description' => ['nullable', 'string'],
-        ]);
+        $data = $request->validated();
 
         $jobTitle->update($data);
-        return $this->success('Job title updated', new JobTitleResource($jobTitle));
+        return $this->success('Job title updated', new JobTitleResource($jobTitle->load('department:id,name')));
     }
 
     public function destroy(JobTitle $jobTitle)

@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Order;
 use App\Services\Discount\DiscountEngineService;
+use App\Services\Order\OrderPricingService;
 use InvalidArgumentException;
 
 /**
@@ -15,6 +16,7 @@ class InvoiceFromOrderService
 {
     public function __construct(
         private readonly DiscountEngineService $discountEngine,
+        private readonly OrderPricingService $orderPricing,
     ) {}
 
     /**
@@ -55,16 +57,20 @@ class InvoiceFromOrderService
             $lineGross = $originalPrice * $quantity;
             $grossSubtotal += $lineGross;
 
-            $bestDiscount = $this->discountEngine->getBestDiscount(
-                $originalPrice,
-                $quantity,
-                $customerId,
-                $employeeId,
-                $supplierId,
-                $orderItem->department_id,
-                $orderItem->item_id,
-                $branchId
-            );
+            try {
+                $bestDiscount = $this->discountEngine->getBestDiscount(
+                    $originalPrice,
+                    $quantity,
+                    $customerId,
+                    $employeeId,
+                    $supplierId,
+                    $orderItem->department_id,
+                    $orderItem->item_id,
+                    $branchId
+                );
+            } catch (\Throwable) {
+                $bestDiscount = null;
+            }
 
             $unitDiscount = 0.0;
             $lineDiscount = 0.0;
@@ -74,14 +80,17 @@ class InvoiceFromOrderService
             $discountModel = null;
             $applyStrategy = null;
 
-            if ($bestDiscount && $bestDiscount['discount']) {
-                $lineDiscount = (float) $bestDiscount['discount_amount'];
-                $unitDiscount = $quantity > 0 ? $lineDiscount / $quantity : 0.0;
-                $discountPercent = $bestDiscount['discount_percent'];
-                $discountId = $bestDiscount['discount']->id;
-                $finalUnitPrice = $quantity > 0 ? (float) $bestDiscount['final_price'] / $quantity : $originalPrice;
-                $discountModel = $bestDiscount['discount'];
-                $applyStrategy = $bestDiscount['apply_strategy'] ?? $discountModel->apply_strategy;
+            if ($bestDiscount && !empty($bestDiscount['discount'])) {
+                $discountObj = $bestDiscount['discount'];
+                if (is_object($discountObj) && $discountObj instanceof \App\Models\Discount) {
+                    $lineDiscount = (float) $bestDiscount['discount_amount'];
+                    $unitDiscount = $quantity > 0 ? $lineDiscount / $quantity : 0.0;
+                    $discountPercent = $bestDiscount['discount_percent'];
+                    $discountId = $discountObj->id;
+                    $finalUnitPrice = $quantity > 0 ? (float) $bestDiscount['final_price'] / $quantity : $originalPrice;
+                    $discountModel = $discountObj;
+                    $applyStrategy = $bestDiscount['apply_strategy'] ?? $discountObj->apply_strategy;
+                }
             }
 
             $lineFinal = $finalUnitPrice * $quantity;
@@ -104,34 +113,41 @@ class InvoiceFromOrderService
             ]);
 
             if ($discountModel && $lineDiscount > 0) {
-                $entityType = match (true) {
-                    $customerId !== null => 'customer',
-                    $employeeId !== null => 'employee',
-                    $supplierId !== null => 'supplier',
-                    default => null,
-                };
-                $entityId = $customerId ?? $employeeId ?? $supplierId;
+                try {
+                    $entityType = match (true) {
+                        $customerId !== null => 'customer',
+                        $employeeId !== null => 'employee',
+                        $supplierId !== null => 'supplier',
+                        default => null,
+                    };
+                    $entityId = $customerId ?? $employeeId ?? $supplierId;
 
-                $this->discountEngine->logDiscountUsage(
-                    $discountModel,
-                    $lineGross,
-                    $lineDiscount,
-                    $lineFinal,
-                    $discountPercent,
-                    $invoice->id,
-                    $invoiceItem->id,
-                    $order->id,
-                    $entityType,
-                    $entityId,
-                    $appliedBy,
-                    $branchId
-                );
+                    $this->discountEngine->logDiscountUsage(
+                        $discountModel,
+                        $lineGross,
+                        $lineDiscount,
+                        $lineFinal,
+                        $discountPercent,
+                        $invoice->id,
+                        $invoiceItem->id,
+                        $order->id,
+                        $entityType,
+                        $entityId,
+                        $appliedBy,
+                        $branchId
+                    );
+                } catch (\Throwable) {
+                    // تجاهل أخطاء تسجيل الخصم — لا تمنع إنشاء الفاتورة
+                }
             }
         }
 
-        $manualDiscount = (float) $order->discount_amount;
-        $totalDiscount = round($engineDiscountTotal + $manualDiscount, 3);
-        $netTotal = max(0, round($grossSubtotal - $totalDiscount, 3));
+        // Delivery fees belong to the order total, not to invoice item lines.
+        // Reusing the pricing service guarantees they are included exactly once.
+        $pricing = $this->orderPricing->calculate($order);
+        $manualDiscount = (float) $pricing['discount_amount'];
+        $totalDiscount = round((float) $pricing['engine_discount_amount'] + $manualDiscount, 3);
+        $netTotal = (float) $pricing['total'];
 
         $invoice->update([
             'subtotal' => round($grossSubtotal, 3),
@@ -145,8 +161,9 @@ class InvoiceFromOrderService
             'employee_id' => $employeeId,
             'supplier_id' => $supplierId,
             'subtotal' => round($grossSubtotal, 3),
-            'engine_discount_amount' => round($engineDiscountTotal, 3),
+            'engine_discount_amount' => round((float) $pricing['engine_discount_amount'], 3),
             'discount_amount' => round($manualDiscount, 3),
+            'delivery_fee' => round((float) $pricing['delivery_fee'], 3),
             'total' => $netTotal,
         ]);
 

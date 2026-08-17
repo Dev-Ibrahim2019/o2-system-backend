@@ -187,7 +187,7 @@ class InvoiceDetailsController extends ApiController
             'discount_amount'        => (float) ($item->discount_amount ?? 0),
             'discount_percent'       => (float) ($item->discount_percent ?? 0),
             'discount_apply_strategy'=> $item->discount_apply_strategy,
-            'discount_name'          => $item->relationLoaded('discountDetail') && $item->discountDetail ? $item->discountDetail->name : null,
+            'discount_name'          => $item->relationLoaded('discount') ? optional($item->getRelation('discount'))->name : null,
             'discount_id'            => $item->discount_id,
         ])->filter(fn($d) => $d['discount_amount'] > 0 || $d['discount_percent'] > 0)->values();
 

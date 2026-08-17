@@ -101,6 +101,13 @@ class TestUsersSeeder extends Seeder
                 'role'      => 'cashier',
                 'branch_id' => $branch2->id,
             ],
+            [
+                'name'      => 'Call Center Agent',
+                'username'  => 'callcenter',
+                'email'     => 'callcenter@o2.local',
+                'role'      => 'call-center',
+                'branch_id' => $branch1->id,
+            ],
             // hospitality → فرع خانيونس
             [
                 'name'      => 'ضيافة فرع خانيونس',

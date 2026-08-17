@@ -23,6 +23,8 @@ class OrderItemResource extends JsonResource
             'sent_to_kitchen_at' => $this->sent_to_kitchen_at?->toIso8601String(),
             'is_printed_direct' => (bool) $this->is_printed_direct,
             'is_takeaway' => (bool) $this->is_takeaway,
+            'item_prepared_at' => $this->item_prepared_at?->toIso8601String(),
+            'prepared_duration_seconds' => $this->prepared_duration_seconds,
             'department' => $this->whenLoaded('department', fn () => [
                 'id' => $this->department->id,
                 'name' => $this->department->name,

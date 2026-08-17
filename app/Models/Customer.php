@@ -38,6 +38,7 @@ class Customer extends Model
         'gps_link',
         'branch_id',
         'salesperson_id',
+        'loyalty_points',
     ];
 
     protected $casts = [
@@ -45,6 +46,7 @@ class Customer extends Model
         'opening_balance'           => 'decimal:3',
         'is_opening_balance_posted' => 'boolean',
         'credit_days'               => 'integer',
+        'loyalty_points'            => 'integer',
     ];
 
     public function branch(): BelongsTo
@@ -55,6 +57,36 @@ class Customer extends Model
     public function salesperson(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'salesperson_id');
+    }
+
+    public function addresses()
+    {
+        return $this->hasMany(CustomerAddress::class);
+    }
+
+    public function occasions()
+    {
+        return $this->hasMany(CustomerOccasion::class);
+    }
+
+    public function customerNotes()
+    {
+        return $this->hasMany(CustomerNote::class);
+    }
+
+    public function complaints()
+    {
+        return $this->hasMany(CustomerComplaint::class);
+    }
+
+    public function orders()
+    {
+        return $this->hasMany(Order::class);
+    }
+
+    public function address()
+    {
+        return $this->hasOne(CustomerAddress::class)->where('is_default', true);
     }
 
     /**

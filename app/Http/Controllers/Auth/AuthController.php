@@ -13,8 +13,6 @@ class AuthController extends ApiController
 {
     public function login(LoginUserRequest $request)
     {
-        $request->validated($request->all());
-
         if (! Auth::attempt($request->only('username', 'password'))) {
             return $this->error('Invalid Credentials', 401);
         }

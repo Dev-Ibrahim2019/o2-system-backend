@@ -28,6 +28,7 @@ class DatabaseSeeder extends Seeder
         // 3. إنشاء الأقسام والأصناف وربطها بالفروع
         $this->call([
             BranchDepartmentItemEmployeeSeeder::class,
+            OperationalHrSetupSeeder::class,
         ]);
 
         // 4. باقي الـ Seeders

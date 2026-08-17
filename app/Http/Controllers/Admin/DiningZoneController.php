@@ -16,7 +16,7 @@ class DiningZoneController extends Controller
         $user = $request->user();
 
         $query = DiningZone::with(['tables' => function ($q) {
-            $q->orderByRaw("CAST(SUBSTRING(table_number FROM '[0-9]+$') AS INTEGER)");
+            $q->orderByRaw("CAST(SUBSTRING(table_number FROM '[0-9]+$') AS SIGNED)");
         }]);
 
         // إذا لم يكن super-admin أو admin، فلتر حسب الفرع
@@ -33,7 +33,7 @@ class DiningZoneController extends Controller
     public function show($id)
     {
         $zone = DiningZone::with(['tables' => function ($q) {
-            $q->orderByRaw("CAST(SUBSTRING(table_number FROM '[0-9]+$') AS INTEGER)");
+            $q->orderByRaw("CAST(SUBSTRING(table_number FROM '[0-9]+$') AS SIGNED)");
         }])->findOrFail($id);
         return response()->json(['success' => true, 'data' => $zone]);
     }

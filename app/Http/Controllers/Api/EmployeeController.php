@@ -22,6 +22,7 @@ class EmployeeController extends ApiController
         $employees = Employee::with([
             'branch:id,name',
             'department:id,name',
+            'jobTitle:id,name,name_ar,name_en,department_id,default_operational_role,requires_vehicle,is_active',
         ])
             ->select([
                 'id',
@@ -32,7 +33,11 @@ class EmployeeController extends ApiController
                 'branch_id',
                 'department_id',
                 'jobTitleId',
+                'job_title_id',
                 'role',
+                'operational_role',
+                'vehicle_type',
+                'is_operations_enabled',
                 'status',
                 'hireDate',
                 'salary',
@@ -81,7 +86,7 @@ class EmployeeController extends ApiController
 
         return $this->success(
             'Employee created',
-            new EmployeeResource($employee->load(['branch:id,name', 'department:id,name'])),
+            new EmployeeResource($employee->load(['branch:id,name', 'department:id,name', 'jobTitle'])),
             201
         );
     }
@@ -90,7 +95,7 @@ class EmployeeController extends ApiController
     {
         return $this->success(
             'Employee fetched',
-            new EmployeeResource($employee->load(['branch:id,name', 'department:id,name']))
+            new EmployeeResource($employee->load(['branch:id,name', 'department:id,name', 'jobTitle']))
         );
     }
 
@@ -108,7 +113,7 @@ class EmployeeController extends ApiController
 
         return $this->success(
             'Employee updated',
-            new EmployeeResource($employee->load(['branch:id,name', 'department:id,name']))
+            new EmployeeResource($employee->load(['branch:id,name', 'department:id,name', 'jobTitle']))
         );
     }
 
