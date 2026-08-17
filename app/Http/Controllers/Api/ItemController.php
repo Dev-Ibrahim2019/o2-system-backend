@@ -33,6 +33,8 @@ class ItemController extends Controller
                 );
             });
 
+        $filteredToBranch = false;
+
         if (! $isSuperAdmin && ! $hasNoBranch && $branchId) {
             $query->whereHas('branches', function ($q) use ($branchId) {
                 $q->where('branch_item.branch_id', $branchId)
@@ -44,15 +46,21 @@ class ItemController extends Controller
                   ->where('branch_item.is_active', true)
                   ->withPivot(['price', 'is_active']);
             }]);
+            $filteredToBranch = true;
         } elseif ($branchId && $request->branch_id) {
             $query->whereHas('branches', fn($q) => $q->where('branch_item.branch_id', $branchId))
                   ->with(['branches' => fn($q) => $q->where('branch_item.branch_id', $branchId)
                       ->withPivot(['price', 'is_active'])]);
+            $filteredToBranch = true;
+        } else {
+            // كتالوج الإدارة بدون سياق فرع محدد (سوبر أدمن بدون branch_id) —
+            // نحمّل كل أسعار الفروع عشان نعرض سعر تمثيلي بدل 0 دايماً.
+            $query->with(['branches' => fn($q) => $q->withPivot(['price', 'is_active'])]);
         }
 
         $items = $query->orderBy('code')->get();
 
-        $data = $items->map(function ($item) use ($branchId) {
+        $data = $items->map(function ($item) use ($filteredToBranch) {
             $result = [
                 'id'            => $item->id,
                 'name'          => $item->name,
@@ -72,10 +80,14 @@ class ItemController extends Controller
                 'is_active'     => $item->is_active,
             ];
 
-            if ($branchId && $item->branches->isNotEmpty()) {
+            if ($filteredToBranch && $item->branches->isNotEmpty()) {
                 $pivot = $item->branches->first()->pivot;
                 $result['price'] = (float) ($pivot->price ?? 0);
                 $result['is_available'] = (bool) ($pivot->is_active ?? true);
+            } elseif ($item->branches->isNotEmpty()) {
+                $mainBranch = $item->branches->firstWhere('isMainBranch', true) ?? $item->branches->first();
+                $result['price'] = (float) ($mainBranch->pivot->price ?? 0);
+                $result['is_available'] = (bool) ($mainBranch->pivot->is_active ?? true);
             } else {
                 $result['price'] = 0;
                 $result['is_available'] = true;
