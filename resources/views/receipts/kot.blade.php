@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=550, initial-scale=1.0">
     <title>بون تحضير المطبخ</title>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -124,8 +123,9 @@
         <table class="items-table">
             <thead>
                 <tr>
-                    <th style="width: 20%; text-align: center;">الكمية</th>
-                    <th style="width: 80%; text-align: right;">الصنف والملاحظات</th>
+                    <th style="width: 15%; text-align: center;">الكمية</th>
+                    <th style="width: 65%; text-align: right;">الصنف والملاحظات</th>
+                    <th style="width: 20%; text-align: left;">السعر</th>
                 </tr>
             </thead>
             <tbody>
@@ -138,6 +138,7 @@
                         <div class="item-notes">⚠️ تنبيه: {{ $item->notes }}</div>
                         @endif
                     </td>
+                    <td class="en-text" style="text-align: left; font-weight: 700;">{{ number_format($item->price ?? 0, 2) }}</td>
                 </tr>
                 @endforeach
             </tbody>

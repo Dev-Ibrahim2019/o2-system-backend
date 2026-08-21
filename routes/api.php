@@ -45,7 +45,15 @@ Route::prefix('customer')->group(function () {
 Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);
-    Route::get('/auth/me', fn(Request $r) => response()->json(['user' => $r->user()]));
+    Route::get('/auth/me', function (Request $r) {
+        $user = $r->user();
+
+        return response()->json([
+            'user'        => $user,
+            'roles'       => $user->getRoleNames()->toArray(),
+            'permissions' => $user->getAllPermissions()->pluck('name')->toArray(),
+        ]);
+    });
 
     // ط·آ§ط¸â€‍ط¸â€¦ط¸â€ ط¸ظ¹ط¸ث† أ¢â‚¬â€‌ ط¸â€¦ط·آ­ط¸â€¦ط¸ظ¹ ط¸ث†ط¸ظ¹ط¸عˆط¸ظ¾ط¸â€‍ط·ع¾ط·آ± ط·ع¾ط¸â€‍ط¸â€ڑط·آ§ط·آ¦ط¸ظ¹ط·آ§ط¸â€¹ ط·آ­ط·آ³ط·آ¨ ط¸ظ¾ط·آ±ط·آ¹ ط·آ§ط¸â€‍ط¸â€¦ط·آ³ط·ع¾ط·آ®ط·آ¯ط¸â€¦
     Route::get('menu', [MenuController::class, 'index'])

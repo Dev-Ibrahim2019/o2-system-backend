@@ -10,7 +10,7 @@ return new class extends Migration
         DB::statement("ALTER TABLE orders MODIFY COLUMN `status` VARCHAR(50) DEFAULT 'PENDING_PAYMENT'");
 
         try {
-            DB::statement("ALTER TABLE orders DROP CHECK orders_status_check");
+            DB::statement("ALTER TABLE orders DROP CONSTRAINT orders_status_check");
         } catch (\Exception $e) {
             // Ignore
         }

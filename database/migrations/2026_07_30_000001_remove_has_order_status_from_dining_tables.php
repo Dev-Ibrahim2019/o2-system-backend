@@ -12,7 +12,7 @@ return new class extends Migration
 
         // تحديث CHECK constraint لإزالة HAS_ORDER
         try {
-            DB::statement("ALTER TABLE dining_tables DROP CHECK dining_tables_status_check");
+            DB::statement("ALTER TABLE dining_tables DROP CONSTRAINT dining_tables_status_check");
         } catch (\Throwable $e) {
             // Constraint may not exist
         }
@@ -23,7 +23,7 @@ return new class extends Migration
     public function down(): void
     {
         try {
-            DB::statement("ALTER TABLE dining_tables DROP CHECK dining_tables_status_check");
+            DB::statement("ALTER TABLE dining_tables DROP CONSTRAINT dining_tables_status_check");
         } catch (\Throwable $e) {
             // Constraint may not exist
         }

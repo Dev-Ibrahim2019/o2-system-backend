@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=550, initial-scale=1.0">
     <title>تذكرة تحضير قسم</title>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800&display=swap" rel="stylesheet">
     <style>
         /* إلغاء هوامش الصفحة الافتراضية عند الطباعة */
         @page {

@@ -13,7 +13,7 @@ return new class extends Migration
     {
         // إضافة حالة MERGED لقائمة الحالات المسموحة
         try {
-            DB::statement("ALTER TABLE dining_tables DROP CHECK dining_tables_status_check");
+            DB::statement("ALTER TABLE dining_tables DROP CONSTRAINT dining_tables_status_check");
         } catch (\Throwable $e) {
             // Constraint may not exist
         }
@@ -28,7 +28,7 @@ return new class extends Migration
     {
         // إرجاع القيد بدون MERGED
         try {
-            DB::statement("ALTER TABLE dining_tables DROP CHECK dining_tables_status_check");
+            DB::statement("ALTER TABLE dining_tables DROP CONSTRAINT dining_tables_status_check");
         } catch (\Throwable $e) {
             // Constraint may not exist
         }

@@ -138,8 +138,7 @@ class ReceiptImageBuilder
         try {
             $browsershot = Browsershot::html($html)
                 ->windowSize(550, 850)
-                ->deviceScaleFactor(2)
-                ->waitUntilNetworkIdle()
+                ->deviceScaleFactor(1)
                 ->noSandbox();
 
             if ($chromePath = config('printing.browsershot_chrome_path')) {
@@ -160,6 +159,12 @@ class ReceiptImageBuilder
             $browsershot->addChromiumArguments([
                 'disable-gpu',
                 'disable-dev-shm-usage',
+                'disable-extensions',
+                'disable-background-networking',
+                'disable-sync',
+                'disable-translate',
+                'mute-audio',
+                'no-first-run',
             ]);
 
             $browsershot->save($rawPath);
@@ -359,6 +364,48 @@ class ReceiptImageBuilder
             'order'        => $order,
             'sectionName'  => $sectionName,
             'sectionItems' => $items,
+        ])->render();
+
+        return $this->renderHtmlToImage($html);
+    }
+
+    /**
+     * Build ONE combined cashier ticket image containing multiple department
+     * sections (instead of rendering + launching Chrome once per section).
+     * This is the single biggest lever for direct-print speed: an order with
+     * N department groups previously cost N separate Browsershot/Chrome
+     * launches (~1-2s each) just for the cashier ticket; this cuts it to 1.
+     *
+     * @param  Order  $order    The order model.
+     * @param  array  $sections Array of ['section_name' => string, 'items' => array] groups.
+     * @return string           Absolute path to the generated PNG image.
+     */
+    public function buildCombinedCashierTicket(Order $order, array $sections): string
+    {
+        $normalizedSections = array_map(function ($section) {
+            $items = array_map(function ($item) {
+                if (is_object($item)) {
+                    return $item;
+                }
+                return (object) [
+                    'item_name_ar' => $item['item_name_ar'] ?? $item['item_name'] ?? $item['name'] ?? '—',
+                    'item_name'    => $item['item_name'] ?? $item['item_name_ar'] ?? '',
+                    'quantity'     => (int) ($item['quantity'] ?? 1),
+                    'notes'        => $item['notes'] ?? '',
+                    'price'        => (float) ($item['price'] ?? 0),
+                    'total'        => (float) ($item['total'] ?? 0),
+                ];
+            }, $section['items']);
+
+            return [
+                'section_name' => $section['section_name'],
+                'items'        => $items,
+            ];
+        }, $sections);
+
+        $html = view('receipts.department-ticket-combined', [
+            'order'    => $order,
+            'sections' => $normalizedSections,
         ])->render();
 
         return $this->renderHtmlToImage($html);

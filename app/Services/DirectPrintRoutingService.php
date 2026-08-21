@@ -94,19 +94,37 @@ class DirectPrintRoutingService
             $printJobs[] = $cashierJob;
         }
 
-        // ── 6. تحديث حالة الأصناف ──
-        $printedItemIds = $pendingItems->pluck('id')->toArray();
-        if (!empty($printedItemIds)) {
-            OrderItem::whereIn('id', $printedItemIds)
-                ->update(['is_printed_direct' => true]);
+        // ── 6. تنفيذ الطباعة فعلياً ──
+        if (empty($printJobs)) {
+            return [
+                'success' => false,
+                'message' => 'لا توجد طابعة نشطة مرتبطة بهذا الطلب أو هذا الجهاز',
+                'print_jobs' => [],
+                'printed_items_count' => 0,
+            ];
         }
 
-        // ── 7. تنفيذ الطباعة فعلياً ──
         $results = $this->executePrintJobs($printJobs);
 
+        // ── 7. تحديث حالة الأصناف — فقط إذا نجحت كل أوامر الطباعة فعلياً ──
+        // (تعليم الصنف "مطبوع" قبل التأكد من نجاح الإرسال للطابعة كان يعني إنه
+        // أي فشل بالطباعة (طابعة غير موجودة/متوقفة) يمنع أي محاولة إعادة طباعة لاحقة).
+        $allSucceeded = collect($results)->every(fn($r) => $r['success'] ?? false);
+
+        $printedItemIds = [];
+        if ($allSucceeded) {
+            $printedItemIds = $pendingItems->pluck('id')->toArray();
+            if (!empty($printedItemIds)) {
+                OrderItem::whereIn('id', $printedItemIds)
+                    ->update(['is_printed_direct' => true]);
+            }
+        }
+
         return [
-            'success' => true,
-            'message' => 'تمت معالجة الطباعة الفورية',
+            'success' => $allSucceeded,
+            'message' => $allSucceeded
+                ? 'تمت معالجة الطباعة الفورية'
+                : 'فشلت الطباعة على طابعة واحدة أو أكثر',
             'print_jobs' => $results,
             'printed_items_count' => count($printedItemIds),
         ];
@@ -343,26 +361,25 @@ class DirectPrintRoutingService
     {
         $printer = $job['printer'];
         $order = $job['order'];
+
+        // كل الأقسام برندر واحد بس (Chrome launch وحدة بدل وحدة لكل قسم) —
+        // أهم تحسين للسرعة، خاصة للطلبات يلي فيها أكتر من قسم.
+        $imagePath = $this->receiptRenderer->renderCombinedCashierTicket(
+            $order,
+            $job['sections']
+        );
+
         $results = [];
-
-        foreach ($job['sections'] as $section) {
-            $imagePath = $this->receiptRenderer->renderDepartmentTicket(
-                $order,
-                $section['section_name'],
-                $section['items']
-            );
-
-            try {
-                $printResult = $this->printerService->printReceiptImage($printer, $imagePath);
-                $results[] = array_merge($printResult, [
-                    'printer_id' => $printer->id,
-                    'printer_name' => $printer->name,
-                    'section' => $section['section_name'],
-                    'items_count' => count($section['items']),
-                ]);
-            } finally {
-                $this->receiptRenderer->cleanup($imagePath);
-            }
+        try {
+            $printResult = $this->printerService->printReceiptImage($printer, $imagePath);
+            $results[] = array_merge($printResult, [
+                'printer_id' => $printer->id,
+                'printer_name' => $printer->name,
+                'sections' => collect($job['sections'])->pluck('section_name')->implode(', '),
+                'items_count' => collect($job['sections'])->sum(fn($s) => count($s['items'])),
+            ]);
+        } finally {
+            $this->receiptRenderer->cleanup($imagePath);
         }
 
         return [

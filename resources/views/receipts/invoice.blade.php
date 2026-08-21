@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=550, initial-scale=1.0">
     <title>فاتورة كاشير مطورة</title>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;

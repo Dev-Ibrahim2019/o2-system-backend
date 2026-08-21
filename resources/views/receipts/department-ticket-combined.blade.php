@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=550, initial-scale=1.0">
-    <title>تيكيت قسم</title>
+    <title>تيكيت الكاشير</title>
     <style>
         @page { margin: 0; }
 
@@ -11,7 +11,7 @@
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            font-family: 'Cairo', 'Tahoma', sans-serif;
+            font-family: 'Tahoma', sans-serif;
         }
 
         body {
@@ -32,23 +32,21 @@
             border-radius: 10px;
         }
 
+        .section {
+            margin-bottom: 10px;
+        }
+
+        .section + .section {
+            border-top: 2px dashed #000;
+            padding-top: 8px;
+        }
+
         .ticket-header {
             text-align: center;
             font-size: 15px;
             font-weight: 800;
             border-bottom: 2px dashed #000;
             padding-bottom: 4px;
-            margin-bottom: 6px;
-        }
-
-        .ticket-dept {
-            display: inline-block;
-            background: #000;
-            color: #fff;
-            font-size: 13px;
-            font-weight: 800;
-            padding: 2px 10px;
-            border-radius: 6px;
             margin-bottom: 6px;
         }
 
@@ -122,45 +120,49 @@
 <body>
 
     <div class="ticket">
-        <div class="ticket-header">{{ $sectionName }}</div>
+        @foreach($sections as $section)
+        <div class="section">
+            <div class="ticket-header">{{ $section['section_name'] }}</div>
 
-        <div class="ticket-info">
-            <div>طلب: <span class="en">#{{ $order->order_number ?? $order->id }}</span></div>
-            @if(!empty($order->table_number))
-            <div>طاولة: <span class="en">{{ $order->table_number }}</span></div>
-            @endif
-            <div><span class="en">{{ date('h:i A') }}</span></div>
+            <div class="ticket-info">
+                <div>طلب: <span class="en">#{{ $order->order_number ?? $order->id }}</span></div>
+                @if(!empty($order->table_number))
+                <div>طاولة: <span class="en">{{ $order->table_number }}</span></div>
+                @endif
+                <div><span class="en">{{ date('h:i A') }}</span></div>
+            </div>
+
+            <table class="items-list">
+                <thead>
+                    <tr>
+                        <th style="width: 15%; text-align: center;">الكمية</th>
+                        <th style="width: 65%; text-align: right;">الصنف</th>
+                        <th style="width: 20%; text-align: left;">السعر</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($section['items'] as $item)
+                    <tr>
+                        <td style="text-align: center;">
+                            <span class="qty">{{ $item->quantity }}x</span>
+                        </td>
+                        <td>
+                            <div style="font-weight: 800;">{{ $item->item_name_ar ?? $item->item_name ?? $item->name ?? '—' }}</div>
+                            @if(!empty($item->notes))
+                            <div class="item-notes">⚠️ {{ $item->notes }}</div>
+                            @endif
+                        </td>
+                        <td class="en" style="text-align: left; font-weight: 800;">{{ number_format($item->price ?? 0, 2) }}</td>
+                    </tr>
+                    @endforeach
+                </tbody>
+            </table>
+
+            <div class="ticket-footer">
+                عدد: <span class="en">{{ count($section['items']) }}</span> صنف
+            </div>
         </div>
-
-        <table class="items-list">
-            <thead>
-                <tr>
-                    <th style="width: 15%; text-align: center;">الكمية</th>
-                    <th style="width: 65%; text-align: right;">الصنف</th>
-                    <th style="width: 20%; text-align: left;">السعر</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach($sectionItems as $item)
-                <tr>
-                    <td style="text-align: center;">
-                        <span class="qty">{{ $item->quantity }}x</span>
-                    </td>
-                    <td>
-                        <div style="font-weight: 800;">{{ $item->item_name_ar ?? $item->item_name ?? $item->name ?? '—' }}</div>
-                        @if(!empty($item->notes))
-                        <div class="item-notes">⚠️ {{ $item->notes }}</div>
-                        @endif
-                    </td>
-                    <td class="en" style="text-align: left; font-weight: 800;">{{ number_format($item->price ?? 0, 2) }}</td>
-                </tr>
-                @endforeach
-            </tbody>
-        </table>
-
-        <div class="ticket-footer">
-            عدد: <span class="en">{{ count($sectionItems) }}</span> صنف
-        </div>
+        @endforeach
     </div>
 
 </body>

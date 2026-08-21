@@ -93,6 +93,18 @@ class ItemController extends Controller
                 $result['is_available'] = true;
             }
 
+            // مطلوبة لشاشة تعديل الصنف عشان تعرض الفروع المرتبطة فعلياً (checkboxes + أسعار)
+            $result['branches'] = $item->branches->map(function ($branch) {
+                $isActive = (bool) ($branch->pivot->is_active ?? true);
+                return [
+                    'id'          => $branch->id,
+                    'name'        => $branch->name,
+                    'price'       => (float) ($branch->pivot->price ?? 0),
+                    'is_active'   => $isActive,
+                    'is_availble' => $isActive,
+                ];
+            })->values()->all();
+
             return $result;
         });
 
