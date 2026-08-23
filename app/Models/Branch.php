@@ -21,6 +21,7 @@ class Branch extends Model
         'isMainBranch',
         'closingTime',
         'openingTime',
+        'static_ip',
     ];
 
     protected $casts = [

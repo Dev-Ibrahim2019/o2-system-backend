@@ -28,6 +28,7 @@ class StoreBranchRequest extends FormRequest
             'isMainBranch' => 'required|boolean',
             'closingTime'  => 'required|date_format:H:i',
             'openingTime'  => 'required|date_format:H:i',
+            'static_ip'    => 'nullable|ip',
         ];
     }
 
@@ -48,7 +49,7 @@ class StoreBranchRequest extends FormRequest
             }
         }
 
-        foreach (['address', 'phone'] as $field) {
+        foreach (['address', 'phone', 'static_ip'] as $field) {
             if (array_key_exists($field, $input) && $input[$field] === '') {
                 $input[$field] = null;
             }

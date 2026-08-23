@@ -28,6 +28,7 @@ class UpdateBranchRequest extends FormRequest
             'isMainBranch' => 'sometimes|boolean',
             'closingTime'  => 'sometimes|nullable|date_format:H:i',
             'openingTime'  => 'sometimes|nullable|date_format:H:i',
+            'static_ip'    => 'sometimes|nullable|ip',
         ];
     }
 
@@ -48,7 +49,7 @@ class UpdateBranchRequest extends FormRequest
             }
         }
 
-        foreach (['address', 'phone', 'openingTime', 'closingTime'] as $field) {
+        foreach (['address', 'phone', 'openingTime', 'closingTime', 'static_ip'] as $field) {
             if (array_key_exists($field, $input) && $input[$field] === '') {
                 $input[$field] = null;
             }

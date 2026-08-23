@@ -26,6 +26,7 @@ class BranchResource extends JsonResource
             'isMainBranch'  => $this->isMainBranch,
             'closingTime'   => $this->closingTime,
             'openingTime'   => $this->openingTime,
+            'static_ip'     => $this->static_ip,
             'pivot'         => $this->whenPivotLoaded('branch_item', fn() => [
                 'price'     => $this->pivot->price,
                 'is_active' => (bool) $this->pivot->is_active,
