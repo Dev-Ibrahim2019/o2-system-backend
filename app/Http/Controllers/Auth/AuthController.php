@@ -6,6 +6,7 @@ use App\Http\Controllers\ApiController;
 use App\Http\Requests\V1\LoginUserRequest;
 use App\Models\User;
 use App\Models\PosRegister;
+use App\Models\HospitalityDevice;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -20,22 +21,26 @@ class AuthController extends ApiController
         $user = User::firstWhere('username', $request->username);
 
         // ═══════════════════════════════════════════════════════════
-        //  🛡️ فحص (1): تقييد دخول الكاشيرات حسب الفرع (Branch Access)
+        //  🛡️ فحص (1): تقييد دخول الأجهزة حسب الفرع (Branch Access)
         //  إذا كان الجهاز مرسلاً X-Device-UUID، نتحقق من أن المستخدم
-        //  ينتمي لنفس فرع الجهاز (ما عدا الأدمن)
+        //  ينتمي لنفس فرع الجهاز (ما عدا الأدمن).
+        //  الـ UUID ممكن يكون لجهاز POS أو جهاز ضيافة — نبحث بالاثنين
+        //  بدل افتراض إنه دايماً POS (كان هذا يسبب رفض دخول موظفي
+        //  الضيافة بالخطأ إذا بقي pos_device_uuid قديم مخزّن بالمتصفح).
         // ═══════════════════════════════════════════════════════════
         $deviceUuid = $request->header('X-Device-UUID');
 
         if ($deviceUuid) {
-            // 1. جلب نقطة البيع المربوطة بهذا الجهاز
-            $posRegister = PosRegister::where('device_uuid', $deviceUuid)->first();
+            // 1. جلب الجهاز المربوط بهذا الـ UUID (نقطة بيع أو جهاز ضيافة)
+            $device = PosRegister::where('device_uuid', $deviceUuid)->first()
+                ?? HospitalityDevice::where('device_uuid', $deviceUuid)->first();
 
             // 2. إذا وجد السجل والجهاز مفعّل، قارن الفروع
-            if ($posRegister && $posRegister->status === 'ACTIVE') {
+            if ($device && $device->status === 'ACTIVE') {
                 // 3. المستثنى الوحيد: الأدمن (super-admin) له حق الدخول من أي جهاز
                 if (!$user->hasRole('super-admin')) {
                     // 4. مقارنة branch_id الخاص بالمستخدم مع branch_id الخاص بالجهاز
-                    if ((int) $user->branch_id !== (int) $posRegister->branch_id) {
+                    if ((int) $user->branch_id !== (int) $device->branch_id) {
                         Auth::logout(); // إلغاء تسجيل الدخول
                         return response()->json([
                             'success' => false,
