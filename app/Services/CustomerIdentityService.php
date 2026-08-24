@@ -4,19 +4,34 @@ namespace App\Services;
 
 use App\Models\Customer;
 use App\Models\CustomerAddress;
+use App\Models\CustomerOccasion;
 use App\Models\CustomerPhone;
 use App\Services\Support\PhoneNormalizer;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
+/**
+ * Identity-only customer creation/update — domain-neutral on purpose.
+ *
+ * This service does NOT decide, default, or infer two things that belong
+ * to the calling workflow, not to identity creation:
+ *  - Financial fields (currency, risk_level, payment_terms, credit_days) —
+ *    the Financial/Accounting workflow sets these explicitly before
+ *    calling create(). See CustomerFinancialController::store().
+ *  - customer_type (operational vs financial) — the caller MUST pass the
+ *    already-decided type via $customerType. This service never invents
+ *    it and never trusts a value that might have arrived from client
+ *    input inside $data; the explicit parameter is the only source of
+ *    truth and always overrides anything in $data.
+ */
 class CustomerIdentityService
 {
     public function __construct(private readonly PhoneNormalizer $phones) {}
 
-    public function create(array $data, ?array $address = null): Customer
+    public function create(array $data, string $customerType, ?array $address = null): Customer
     {
-        return DB::transaction(function () use ($data, $address) {
+        return DB::transaction(function () use ($data, $customerType, $address) {
             [$data, $phoneRows] = $this->preparePhones($data);
             $this->assertPhonesAvailable($phoneRows);
 
@@ -24,10 +39,7 @@ class CustomerIdentityService
                 $data['code'] = $this->nextCode();
             }
             $data['status'] ??= 'active';
-            $data['currency'] ??= 'ILS';
-            $data['risk_level'] ??= 'low';
-            $data['payment_terms'] ??= 'net30';
-            $data['credit_days'] ??= 30;
+            $data['customer_type'] = $customerType;
 
             try {
                 $customer = Customer::create($data);
@@ -73,6 +85,80 @@ class CustomerIdentityService
 
             return $customer->addresses()->create($data);
         });
+    }
+
+    /**
+     * The label this app uses to mark a customer's work address — matches
+     * the existing Arabic-label convention already used for the default
+     * home address ('منزل', see CallCenterService::createCustomer()).
+     * Not a DB enum — customer_addresses.label is a free-text column.
+     */
+    public const WORK_ADDRESS_LABEL = 'العمل';
+
+    /**
+     * Create/update/remove a customer's work address without touching their
+     * default (delivery) address unless the caller explicitly passes
+     * is_default in $data. Upserts by (customer_id, label) so editing never
+     * creates a duplicate row — same identity-service pattern as
+     * syncPhones()/syncBirthdayOccasion().
+     */
+    public function syncWorkAddress(Customer $customer, ?array $data): ?CustomerAddress
+    {
+        $existing = $customer->addresses()->where('label', self::WORK_ADDRESS_LABEL)->first();
+
+        if (! $data || ! array_filter($data, fn ($v) => $v !== null && $v !== '')) {
+            $existing?->update(['is_active' => false]);
+
+            return null;
+        }
+
+        $payload = array_merge($data, ['label' => self::WORK_ADDRESS_LABEL, 'is_active' => true]);
+
+        if (! empty($payload['is_default'])) {
+            $customer->addresses()->update(['is_default' => false]);
+        }
+
+        if ($existing) {
+            $existing->update($payload);
+
+            return $existing->fresh();
+        }
+
+        return $customer->addresses()->create($payload);
+    }
+
+    /**
+     * Create/update/remove a customer's birthday occasion. Shared by both
+     * CRM and Call Center customer creation/editing — extracted from what
+     * was previously inline-duplicated logic in
+     * CallCenterService::createCustomer() so both domains use one path.
+     * Upserts by (customer_id, occasion_type='birthday') so editing the
+     * date never creates a duplicate occasion; passing null removes it.
+     */
+    public function syncBirthdayOccasion(Customer $customer, ?string $birthDate, ?int $createdBy = null): ?CustomerOccasion
+    {
+        $existing = $customer->occasions()->where('occasion_type', 'birthday')->first();
+
+        if (! $birthDate) {
+            $existing?->delete();
+
+            return null;
+        }
+
+        if ($existing) {
+            $existing->update(['date' => $birthDate, 'is_active' => true]);
+
+            return $existing->fresh();
+        }
+
+        return $customer->occasions()->create([
+            'occasion_type' => 'birthday',
+            'title' => 'عيد ميلاد ' . $customer->name,
+            'date' => $birthDate,
+            'repeats_annually' => true,
+            'is_active' => true,
+            'created_by' => $createdBy,
+        ]);
     }
 
     public function findByPhone(string $phone): ?Customer

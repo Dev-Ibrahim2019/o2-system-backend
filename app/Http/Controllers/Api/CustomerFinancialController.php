@@ -35,7 +35,11 @@ class CustomerFinancialController extends ApiController
      */
     public function index(Request $request): JsonResponse
     {
+        // Accounting's Customer Accounts screen shows financial customers
+        // only — operational (CRM/Call Center) customers are never listed
+        // here, even though they exist in the same `customers` table.
         $query = Customer::query()
+            ->financial()
             ->with('branch:id,name');
 
         // Search
@@ -151,7 +155,11 @@ class CustomerFinancialController extends ApiController
         $data['payment_terms'] ??= 'net30';
         $data['credit_days'] ??= 30;
 
-        $customer = $this->customerIdentity->create($data);
+        // This IS the Financial Administration workflow — the only caller
+        // allowed to create a financial customer. Not derived from client
+        // input: 'customer_type' isn't in the validation rules above, so
+        // it can't be overridden by the request even if the client tries.
+        $customer = $this->customerIdentity->create($data, Customer::TYPE_FINANCIAL);
 
         // Post opening balance if set
         if (($data['opening_balance'] ?? 0) > 0) {
@@ -617,7 +625,7 @@ class CustomerFinancialController extends ApiController
      */
     public function agingReport(Request $request): JsonResponse
     {
-        $customers = Customer::where('status', 'active')->get();
+        $customers = Customer::financial()->where('status', 'active')->get();
         $report = [];
 
         foreach ($customers as $customer) {
@@ -654,7 +662,7 @@ class CustomerFinancialController extends ApiController
      */
     public function collectionReport(Request $request): JsonResponse
     {
-        $customers = Customer::where('status', 'active')->get();
+        $customers = Customer::financial()->where('status', 'active')->get();
         $report = [];
 
         foreach ($customers as $customer) {

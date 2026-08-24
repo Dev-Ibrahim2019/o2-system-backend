@@ -2,13 +2,17 @@
 
 namespace App\Services\Accounting;
 
+use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Services\AccountingService;
+use App\Services\CallCenter\CustomerResolutionService;
+use App\Services\CustomerIdentityService;
 use App\Services\Invoice\InvoiceFromOrderService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 /**
@@ -19,6 +23,8 @@ class SettlementEngine
     public function __construct(
         private readonly InvoiceFromOrderService $invoiceFromOrderService,
         private readonly AccountingService $accountingService,
+        private readonly CustomerResolutionService $customerResolution,
+        private readonly CustomerIdentityService $customerIdentity,
     ) {}
 
     /**
@@ -33,6 +39,16 @@ class SettlementEngine
 
         if ($order->status === 'pending' && $order->tickets()->exists()) {
             $order->update(['status' => 'confirmed']);
+        }
+
+        // If the order carries walk-in customer_name/customer_phone (typed by
+        // the cashier at creation) but was never linked to a real Customer —
+        // POS order creation only links customer_id when one was explicitly
+        // picked, it never resolves from the typed phone — resolve or create
+        // one now, using the exact same services Call Center already relies
+        // on for this. Best-effort: a failure here must never block payment.
+        if (! $order->customer_id && $order->customer_phone) {
+            $this->linkOrCreateCustomer($order);
         }
 
         return DB::transaction(function () use ($order, $payments) {
@@ -99,6 +115,51 @@ class SettlementEngine
                 'transaction' => $transaction?->load(['entries.account']),
             ];
         });
+    }
+
+    /**
+     * Resolves $order->customer_phone against the existing customer base
+     * (same phone-normalization lookup Call Center already uses) and links
+     * it, or creates a new operational Customer if genuinely not found.
+     * Never throws — a linking problem must not block a payment that's
+     * otherwise valid.
+     */
+    private function linkOrCreateCustomer(Order $order): void
+    {
+        try {
+            $resolved = $this->customerResolution->resolve($order->customer_phone);
+
+            if ($resolved['status'] === 'found') {
+                $order->update(['customer_id' => $resolved['customer']->id]);
+
+                return;
+            }
+
+            if ($resolved['status'] === 'multiple') {
+                // Ambiguous — more than one existing customer matches this
+                // phone. Guessing which one is wrong; leave unlinked rather
+                // than risk attaching the order to the wrong person.
+                return;
+            }
+
+            $customer = $this->customerIdentity->create([
+                'name' => $order->customer_name ?: ('عميل ' . $order->customer_phone),
+                'phone' => $order->customer_phone,
+                'branch_id' => $order->branch_id,
+                // Auto-created from an in-person POS/dine-in settlement, not
+                // through the CRM form, Call Center, or the website — "walk_in"
+                // (حضور مباشر) is the existing CUSTOMER_SOURCE_VALUES entry
+                // that matches this, not a new value.
+                'source' => 'walk_in',
+            ], Customer::TYPE_OPERATIONAL);
+
+            $order->update(['customer_id' => $customer->id]);
+        } catch (\Throwable $e) {
+            Log::warning('SettlementEngine: تعذر ربط/إنشاء العميل أثناء التسوية.', [
+                'order_id' => $order->id,
+                'exception' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

@@ -42,7 +42,7 @@ class CallCenterOrderCreationService
                     'phone' => $data['customer']['phone'],
                     'branch_id' => $data['branch_id'],
                     'status' => 'active',
-                ]);
+                ], Customer::TYPE_OPERATIONAL);
             }
 
             $address = $this->resolveAddress($customer, $data['address'] ?? [], $data['order_type']);

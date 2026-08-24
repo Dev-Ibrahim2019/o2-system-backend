@@ -39,7 +39,15 @@ class RoleController extends ApiController
             'name' => 'required|string|max:255|unique:roles,name',
         ]);
 
-        $role = Role::create(['name' => $request->name]);
+        // Explicit guard_name is required here: without it, Spatie infers the
+        // guard from the current route's auth middleware (this endpoint runs
+        // behind auth:sanctum), which would silently create the role under
+        // guard 'sanctum' — inconsistent with every existing role/permission
+        // in this app, which all use 'web' (config('auth.defaults.guard')).
+        // That mismatch is exactly what produced the broken 'crm-manger'
+        // role and the "no permission named manage-users for guard sanctum"
+        // error when trying to assign it permissions.
+        $role = Role::create(['name' => $request->name, 'guard_name' => 'web']);
 
         return $this->success('Role created', [
             'id'          => $role->id,

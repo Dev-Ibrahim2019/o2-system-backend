@@ -17,6 +17,19 @@ class Customer extends Model
 {
     use SoftDeletes, Auditable;
 
+    /**
+     * Created from CRM / Call Center / (future) Cashier / Website —
+     * visible in CRM only, never in Accounting's Customer Accounts.
+     */
+    public const TYPE_OPERATIONAL = 'operational';
+
+    /**
+     * Created from Accounting's own "Add Customer" workflow — visible in
+     * both Accounting's Customer Accounts and CRM (CRM is the master
+     * directory, so financial customers are always a subset of it).
+     */
+    public const TYPE_FINANCIAL = 'financial';
+
     private ?float $balanceCache = null;
 
     protected static function booted(): void
@@ -40,6 +53,7 @@ class Customer extends Model
         'name',
         'name_en',
         'title',
+        'gender',
         'code',
         'tax_number',
         'phone',
@@ -50,8 +64,10 @@ class Customer extends Model
         'city',
         'country',
         'category',
+        'source',
         'currency',
         'status',
+        'customer_type',
         'risk_level',
         'credit_limit',
         'payment_terms',
@@ -183,5 +199,20 @@ class Customer extends Model
     public function scopeByRiskLevel($query, string $level)
     {
         return $query->where('risk_level', $level);
+    }
+
+    /**
+     * Financial customers only — the set Accounting's Customer Accounts
+     * screen is scoped to. CRM's own queries must NOT use this scope;
+     * CRM shows every customer regardless of type.
+     */
+    public function scopeFinancial($query)
+    {
+        return $query->where('customer_type', self::TYPE_FINANCIAL);
+    }
+
+    public function scopeOperational($query)
+    {
+        return $query->where('customer_type', self::TYPE_OPERATIONAL);
     }
 }

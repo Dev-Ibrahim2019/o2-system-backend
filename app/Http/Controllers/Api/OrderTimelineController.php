@@ -19,7 +19,7 @@ class OrderTimelineController extends ApiController
      */
     public function timeline(Order $order): JsonResponse
     {
-        $order->load(['opener', 'closer', 'printer', 'items.creator', 'invoice.closerUser']);
+        $order->load(['opener', 'closer', 'printer', 'items.creator', 'invoice.closedByUser']);
 
         $events = [];
 

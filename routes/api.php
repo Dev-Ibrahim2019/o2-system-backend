@@ -350,12 +350,28 @@ Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->gro
 
     Route::get('dashboard', [$crm, 'dashboard'])->middleware('permission:crm.dashboard.view');
     Route::get('customers', [$crm, 'index'])->middleware('permission:crm.view-customers');
+    Route::post('customers', [$crm, 'store'])->middleware('permission:crm.create-customers');
+    Route::put('customers/{customer}', [$crm, 'update'])->middleware('permission:crm.edit-customers');
     Route::get('customers/{customer}', [$crm, 'show'])->middleware('permission:crm.view-customers');
     Route::get('customers/{customer}/overview', [$crm, 'overview'])->middleware('permission:crm.view-customers');
+    Route::get('customers/{customer}/activity', [$crm, 'activity'])->middleware('permission:crm.view-customers');
     Route::get('customers/{customer}/orders', [$crm, 'orders'])->middleware('permission:crm.customer-orders.view');
+    Route::get('customers/{customer}/favorites', [$crm, 'favorites'])->middleware('permission:crm.customer-orders.view');
+    Route::get('customers/{customer}/purchase-history', [$crm, 'purchaseHistory'])->middleware('permission:crm.customer-orders.view');
+    Route::get('orders', [$crm, 'ordersIndex'])->middleware('permission:crm.customer-orders.view');
+    Route::get('orders/delayed', [$crm, 'ordersDelayed'])->middleware('permission:crm.customer-orders.view');
+    Route::get('orders/{order}', [$crm, 'orderDetails'])->middleware('permission:crm.customer-orders.view');
+    Route::get('orders/{order}/timeline', [$crm, 'orderTimeline'])->middleware('permission:crm.customer-orders.view');
+    // Reuses OrderFeedbackController as-is (same controller the Call Center
+    // uses) — no CRM wrapper needed, just a CRM-permission-gated route.
+    Route::get('customers/{customer}/orders/{order}/feedback', [\App\Http\Controllers\Api\OrderFeedbackController::class, 'show'])->middleware('permission:crm.customer-orders.view');
+    Route::put('customers/{customer}/orders/{order}/feedback', [\App\Http\Controllers\Api\OrderFeedbackController::class, 'store'])->middleware('permission:crm.customer-orders.view');
     Route::get('customers/{customer}/addresses', [$crm, 'addresses'])->middleware('permission:crm.customer-addresses.view');
     Route::get('customers/{customer}/complaints', [$crm, 'complaints'])->middleware('permission:crm.complaints.view');
     Route::get('customers/{customer}/notes', [$crm, 'notes'])->middleware('permission:crm.notes.view');
+    Route::post('customers/{customer}/notes', [$crm, 'createNote'])->middleware('permission:crm.notes.create');
+    Route::put('customers/{customer}/notes/{note}', [$crm, 'updateNote'])->middleware('permission:crm.notes.update');
+    Route::delete('customers/{customer}/notes/{note}', [$crm, 'deleteNote'])->middleware('permission:crm.notes.delete');
     Route::get('customers/{customer}/occasions', [$crm, 'occasions'])->middleware('permission:crm.occasions.view');
     Route::get('customers/{customer}/financial-summary', [$crm, 'financial'])->middleware('permission:crm.view-customer-financial');
     Route::get('customers/{customer}/statement', [$crm, 'statement'])->middleware('permission:crm.view-customer-statement');

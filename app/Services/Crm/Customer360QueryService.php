@@ -15,11 +15,24 @@ class Customer360QueryService
         private readonly CustomerAccountingService $accounting,
     ) {}
 
+    // Maps a public "sort" filter value to the actual query-selectable
+    // column/aggregate alias it orders by. total_purchases/last_order_at
+    // aren't real columns — they're the aliases withSum()/withMax() below
+    // produce, so sorting by them still costs zero extra queries.
+    private const SORT_COLUMNS = [
+        'name' => 'name',
+        'created_at' => 'created_at',
+        'status' => 'status',
+        'code' => 'code',
+        'orders_count' => 'orders_count',
+        'total_purchases' => 'orders_sum_total',
+        'last_order_at' => 'orders_max_created_at',
+    ];
+
     public function directory(User $user, array $filters): LengthAwarePaginator
     {
-        $sort = in_array($filters['sort'] ?? null, ['name', 'created_at', 'status', 'code'], true)
-            ? $filters['sort']
-            : 'created_at';
+        $sortKey = array_key_exists($filters['sort'] ?? null, self::SORT_COLUMNS) ? $filters['sort'] : 'created_at';
+        $sortColumn = self::SORT_COLUMNS[$sortKey];
         $direction = ($filters['direction'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
         $search = trim((string) ($filters['search'] ?? ''));
 
@@ -34,6 +47,8 @@ class Customer360QueryService
                     CustomerComplaint::STATUS_WAITING_CUSTOMER,
                 ]),
             ])
+            ->withMax('orders', 'created_at')
+            ->withSum('orders', 'total')
             ->when($search !== '', function ($query) use ($search) {
                 $digits = preg_replace('/\D+/', '', $search);
                 $query->where(function ($q) use ($search, $digits) {
@@ -47,11 +62,13 @@ class Customer360QueryService
             })
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->when($filters['category'] ?? null, fn ($q, $category) => $q->where('category', $category))
+            ->when($filters['source'] ?? null, fn ($q, $source) => $q->where('source', $source))
+            ->when($filters['gender'] ?? null, fn ($q, $gender) => $q->where('gender', $gender))
             ->when(
                 ($filters['branch_id'] ?? null) && $this->access->isGlobal($user),
                 fn ($q) => $q->where('branch_id', $filters['branch_id'])
             )
-            ->orderBy($sort, $direction)
+            ->orderBy($sortColumn, $direction)
             ->paginate(min(max((int) ($filters['per_page'] ?? 20), 1), 100));
     }
 
@@ -62,6 +79,12 @@ class Customer360QueryService
             'branch:id,name',
             'phones:id,customer_id,phone,normalized_phone,type,is_primary,is_verified',
             'address',
+            // Birthday is modeled as a CustomerOccasion (occasion_type='birthday'),
+            // not a customers.birth_date column — see CustomerIdentityService::syncBirthdayOccasion().
+            'occasions' => fn ($q) => $q->where('occasion_type', 'birthday')->where('is_active', true),
+            // Work address is a CustomerAddress row labeled
+            // CustomerIdentityService::WORK_ADDRESS_LABEL, not a customers.work_address column.
+            'addresses' => fn ($q) => $q->where('label', \App\Services\CustomerIdentityService::WORK_ADDRESS_LABEL)->where('is_active', true),
         ])->loadCount([
             'orders',
             'orders as completed_orders_count' => fn ($q) => $q->whereIn('status', ['paid', 'served']),
@@ -69,13 +92,18 @@ class Customer360QueryService
         ]);
 
         $orderStats = $customer->orders()
-            ->selectRaw('AVG(total) as average_order_value, MAX(created_at) as last_order_at')
+            ->selectRaw('AVG(total) as average_order_value, SUM(total) as total_purchases, MAX(created_at) as last_order_at')
             ->first();
+
+        $birthdayOccasion = $customer->occasions->first();
+        $workAddress = $customer->addresses->first();
 
         return [
             'id' => $customer->id,
             'identity' => [
                 'name' => $customer->name,
+                'title' => $customer->title,
+                'gender' => $customer->gender,
                 'code' => $customer->code,
                 'status' => $customer->status,
                 'category' => $customer->category,
@@ -85,11 +113,28 @@ class Customer360QueryService
                 'branch' => $customer->branch,
                 'default_address' => $customer->address,
                 'loyalty_points' => $customer->loyalty_points ?? null,
+                'source' => $customer->source,
+                'created_at' => $customer->created_at?->toIso8601String(),
+                'birth_date' => $birthdayOccasion?->date?->toDateString(),
+                'work_address' => $workAddress ? [
+                    'id' => $workAddress->id,
+                    'label' => $workAddress->label,
+                    'city' => $workAddress->city,
+                    'area' => $workAddress->area,
+                    'district' => $workAddress->district,
+                    'street' => $workAddress->street,
+                    'landmark' => $workAddress->landmark,
+                    'building_no' => $workAddress->building_no,
+                    'floor' => $workAddress->floor,
+                    'apartment' => $workAddress->apartment,
+                    'phone' => $workAddress->phone,
+                ] : null,
             ],
             'summary' => [
                 'orders_count' => $customer->orders_count,
                 'completed_orders_count' => $customer->completed_orders_count,
                 'average_order_value' => round((float) ($orderStats?->average_order_value ?? 0), 3),
+                'total_purchases' => round((float) ($orderStats?->total_purchases ?? 0), 3),
                 'last_order_at' => $orderStats?->last_order_at,
                 'open_complaints_count' => $customer->open_complaints_count,
             ],

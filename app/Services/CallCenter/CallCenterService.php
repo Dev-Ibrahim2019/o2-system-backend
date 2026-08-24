@@ -131,7 +131,7 @@ class CallCenterService
                 'notes' => $data['notes'] ?? null,
                 'branch_id' => $data['branch_id'] ?? null,
                 'status' => 'active',
-            ]);
+            ], Customer::TYPE_OPERATIONAL);
 
             // Create initial address if provided
             if (!empty($data['address']) || !empty($data['city'])) {
@@ -152,16 +152,9 @@ class CallCenterService
                 ]);
             }
 
-            // Create birthday occasion if provided
-            if (!empty($data['birth_date'])) {
-                $customer->occasions()->create([
-                    'occasion_type' => 'birthday',
-                    'title' => '╪╣┘è╪» ┘à┘è┘╪د╪» ' . $data['name'],
-                    'date' => $data['birth_date'],
-                    'repeats_annually' => true,
-                    'is_active' => true,
-                    'created_by' => $data['created_by'] ?? null,
-                ]);
+            // Birthday occasion — shared with CRM via CustomerIdentityService::syncBirthdayOccasion()
+            if (!empty($data["birth_date"])) {
+                $this->customerIdentity->syncBirthdayOccasion($customer, $data["birth_date"], $data["created_by"] ?? null);
             }
 
             return $customer;

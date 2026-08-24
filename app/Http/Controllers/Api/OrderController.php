@@ -42,9 +42,30 @@ class OrderController extends ApiController
     /**
      * إنشاء طلب جديد (pending) — بدون أصناف؛ تُضاف عبر addItem
      */
+    // Scope name for the optional order-creation idempotency guard below —
+    // shares the existing IdempotencyRecord table/mechanism Call Center's
+    // payment execution already uses (App\Services\Support\IdempotencyService),
+    // not a new mechanism.
+    private const IDEMPOTENCY_SCOPE = 'pos-order-create';
+
     public function store(StoreOrderRequest $request): JsonResponse
     {
         $data = $request->validated();
+
+        // Fully backward compatible: only engages when the caller explicitly
+        // sends idempotency_key. No key -> identical behavior to before this
+        // change. Replays the original response instead of creating a
+        // second Order for a repeated request (double-click, retry, etc.).
+        $idempotencyKey = $data['idempotency_key'] ?? null;
+        if ($idempotencyKey) {
+            $existing = \App\Models\IdempotencyRecord::where([
+                'scope' => self::IDEMPOTENCY_SCOPE,
+                'key' => $idempotencyKey,
+            ])->first();
+            if ($existing && $existing->status === 'completed') {
+                return response()->json($existing->response, $existing->response_status);
+            }
+        }
 
         DB::beginTransaction();
         try {
@@ -121,11 +142,28 @@ class OrderController extends ApiController
 
             DB::commit();
 
-            return $this->success(
+            $response = $this->success(
                 'تم إنشاء الطلب',
                 new OrderResource($order->load(['items.department', 'cashier'])),
                 201
             );
+
+            if ($idempotencyKey) {
+                \App\Models\IdempotencyRecord::updateOrCreate(
+                    ['scope' => self::IDEMPOTENCY_SCOPE, 'key' => $idempotencyKey],
+                    [
+                        'user_id' => $authUser->id,
+                        'request_hash' => hash('sha256', json_encode($data, JSON_UNESCAPED_UNICODE)),
+                        'status' => 'completed',
+                        'resource_type' => Order::class,
+                        'resource_id' => $order->id,
+                        'response' => $response->getData(true),
+                        'response_status' => 201,
+                    ]
+                );
+            }
+
+            return $response;
         } catch (\InvalidArgumentException $e) {
             DB::rollBack();
 
@@ -337,8 +375,20 @@ class OrderController extends ApiController
             return $this->error('لا يمكن إرسال طلب الكول سنتر للمطبخ قبل اكتمال الفاتورة والدفع.', 422);
         }
 
+        // الأصناف التي لم تُرسل للمطبخ بعد (لا يوجد لها ticketItem) — نفس المعيار
+        // المستخدم في InvoiceController::createFromOrder لإنشاء التذاكر عند
+        // إغلاق الفاتورة، حتى تتطابق الحالتان.
+        $unsentItems = $order->items()
+            ->with('department')
+            ->whereDoesntHave('ticketItem')
+            ->get();
+
+        if ($unsentItems->isEmpty()) {
+            return $this->error('لا توجد عناصر جديدة لإرسالها.', 422);
+        }
+
+        DB::beginTransaction();
         try {
-            // تعديل: التجميع مباشرة الآن بعد أن جلبنا العلاقات بالأعلى
             $itemsByDept = $unsentItems->groupBy('department_id');
 
             foreach ($itemsByDept as $deptId => $deptItems) {
@@ -398,15 +448,19 @@ class OrderController extends ApiController
 
             return $this->success(
                 'تم إرسال الطلب للأقسام',
-                new OrderResource($released->load([
+                new OrderResource($order->fresh()->load([
                     'items.department',
                     'tickets.ticketItems.orderItem',
                     'tickets.department',
                 ]))
             );
         } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
+            DB::rollBack();
+
             return $this->error($e->getMessage(), $e->getStatusCode());
         } catch (\Throwable $e) {
+            DB::rollBack();
+
             \Log::error('فشل تأكيد الطلب #' . $order->id, [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),

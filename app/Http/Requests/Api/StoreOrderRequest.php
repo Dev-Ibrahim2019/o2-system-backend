@@ -46,6 +46,11 @@ class StoreOrderRequest extends FormRequest
             'delivery_notes' => 'nullable|string|max:4000',
             'call_notes' => 'nullable|string|max:4000',
 
+            // اختياري تمامًا — إذا أرسله الـ frontend، تُمنع إعادة إنشاء الطلب
+            // عند تكرار نفس الطلب (نقر مزدوج / إعادة محاولة الشبكة). لا يغيّر
+            // أي سلوك حالي إذا لم يُرسل.
+            'idempotency_key' => 'nullable|string|max:100',
+
             // اختياري: إرسال الأصناف مع إنشاء الطلب (نفس تنسيق الواجهة القديمة)
             'items' => 'sometimes|array|min:1',
             'items.*.item_id' => 'required_with:items|exists:items,id',
