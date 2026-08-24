@@ -2,6 +2,7 @@
 
 namespace App\Services\CallCenter;
 
+use App\Models\CallTicket;
 use App\Models\Customer;
 use App\Models\CustomerAddress;
 use App\Models\CustomerComplaint;
@@ -47,7 +48,9 @@ class CallCenterService
                 'order_number' => $order->order_number,
                 'status' => $order->status,
                 'order_type' => $order->order_type,
+                'customer_id' => $order->customer_id,
                 'customer_name' => $order->customer_name,
+                'customer_phone' => $order->customer_phone,
                 'total' => (float) $order->total,
                 'branch' => $order->branch,
                 'created_at' => $order->created_at,
@@ -380,6 +383,114 @@ class CallCenterService
             ->paginate($perPage);
 
         return $complaints->toArray();
+    }
+
+    /**
+     * Unified chronological feed of a customer's calls, complaints, and orders.
+     */
+    public function getCustomerTimeline(int $customerId, int $limit = 30): array
+    {
+        $calls = CallTicket::where('customer_id', $customerId)
+            ->with('agent:id,name')
+            ->orderByDesc('started_at')
+            ->limit($limit)
+            ->get()
+            ->map(fn (CallTicket $ticket) => [
+                'type' => 'call',
+                'id' => $ticket->id,
+                'occurred_at' => $ticket->started_at,
+                'status' => $ticket->status,
+                'call_type' => $ticket->call_type,
+                'disposition' => $ticket->disposition,
+                'duration_seconds' => $ticket->duration_seconds,
+                'satisfaction_rating' => $ticket->satisfaction_rating,
+                'agent' => $ticket->agent ? ['id' => $ticket->agent->id, 'name' => $ticket->agent->name] : null,
+                'linked_order_id' => $ticket->linked_order_id,
+            ]);
+
+        $complaints = CustomerComplaint::where('customer_id', $customerId)
+            ->orderByDesc('created_at')
+            ->limit($limit)
+            ->get()
+            ->map(fn (CustomerComplaint $complaint) => [
+                'type' => 'complaint',
+                'id' => $complaint->id,
+                'occurred_at' => $complaint->created_at,
+                'status' => $complaint->status,
+                'title' => $complaint->title,
+                'priority' => $complaint->priority,
+            ]);
+
+        $orders = Order::where('customer_id', $customerId)
+            ->orderByDesc('created_at')
+            ->limit($limit)
+            ->get(['id', 'order_number', 'status', 'order_type', 'total', 'created_at'])
+            ->map(fn (Order $order) => [
+                'type' => 'order',
+                'id' => $order->id,
+                'occurred_at' => $order->created_at,
+                'status' => $order->status,
+                'order_number' => $order->order_number,
+                'order_type' => $order->order_type,
+                'total' => (float) $order->total,
+            ]);
+
+        return $calls->concat($complaints)->concat($orders)
+            ->sortByDesc(fn ($row) => $row['occurred_at'])
+            ->values()
+            ->take($limit)
+            ->all();
+    }
+
+    /**
+     * Real per-agent call-center performance, computed from call_tickets.
+     */
+    public function getAgentPerformance(?int $branchId = null, ?string $from = null, ?string $to = null): array
+    {
+        $from = $from ? Carbon::parse($from)->startOfDay() : now()->startOfDay();
+        $to = $to ? Carbon::parse($to)->endOfDay() : now()->endOfDay();
+
+        $baseQuery = fn () => CallTicket::whereBetween('started_at', [$from, $to])
+            ->when($branchId, fn (Builder $q) => $q->where('branch_id', $branchId));
+
+        $missedCallsTotal = (clone $baseQuery())->where('status', 'missed')->count();
+
+        $agents = CallTicket::whereBetween('call_tickets.started_at', [$from, $to])
+            ->when($branchId, fn (Builder $q) => $q->where('branch_id', $branchId))
+            ->whereNotNull('agent_id')
+            ->join('users', 'users.id', '=', 'call_tickets.agent_id')
+            ->groupBy('call_tickets.agent_id', 'users.name')
+            ->select(
+                'call_tickets.agent_id',
+                'users.name as agent_name',
+                DB::raw('COUNT(*) as total_calls'),
+                DB::raw("SUM(CASE WHEN call_tickets.status = 'completed' THEN 1 ELSE 0 END) as completed_calls"),
+                DB::raw('AVG(CASE WHEN call_tickets.duration_seconds IS NOT NULL THEN call_tickets.duration_seconds ELSE NULL END) as avg_duration_seconds'),
+                DB::raw("SUM(CASE WHEN call_tickets.call_type = 'complaint' THEN 1 ELSE 0 END) as complaint_calls"),
+                DB::raw('AVG(call_tickets.satisfaction_rating) as avg_satisfaction'),
+            )
+            ->orderByDesc('total_calls')
+            ->get()
+            ->map(function ($row) {
+                $totalCalls = (int) $row->total_calls;
+                return [
+                    'agent_id' => (int) $row->agent_id,
+                    'agent_name' => $row->agent_name,
+                    'total_calls' => $totalCalls,
+                    'completed_calls' => (int) $row->completed_calls,
+                    'average_handle_time_minutes' => $row->avg_duration_seconds !== null ? round($row->avg_duration_seconds / 60, 1) : null,
+                    'complaint_calls' => (int) $row->complaint_calls,
+                    'complaint_rate' => $totalCalls > 0 ? round(($row->complaint_calls / $totalCalls) * 100, 1) : 0.0,
+                    'avg_satisfaction' => $row->avg_satisfaction !== null ? round((float) $row->avg_satisfaction, 2) : null,
+                ];
+            })
+            ->all();
+
+        return [
+            'period' => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+            'missed_calls_total' => $missedCallsTotal,
+            'agents' => $agents,
+        ];
     }
 
     /**

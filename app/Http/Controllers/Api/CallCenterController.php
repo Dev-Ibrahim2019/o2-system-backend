@@ -280,6 +280,41 @@ class CallCenterController extends ApiController
     }
 
     /**
+     * GET /api/call-center/customers/{customer}/timeline
+     * Unified feed of calls, complaints, and orders for one customer.
+     */
+    public function customerTimeline(Request $request, Customer $customer): JsonResponse
+    {
+        $data = $request->validate(['limit' => 'nullable|integer|min:1|max:100']);
+
+        return $this->success(
+            'Customer interaction timeline',
+            $this->callCenterService->getCustomerTimeline($customer->id, $data['limit'] ?? 30),
+        );
+    }
+
+    /**
+     * GET /api/call-center/reports/performance
+     * Real per-agent call metrics computed from call_tickets (not the static employee.performance JSON).
+     */
+    public function agentPerformance(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'branch_id' => 'nullable|integer|exists:branches,id',
+            'from' => 'nullable|date',
+            'to' => 'nullable|date',
+        ]);
+
+        $user = $request->user();
+        $branchId = $user?->hasRole('super-admin') ? ($data['branch_id'] ?? null) : $user?->branch_id;
+
+        return $this->success(
+            'Call center agent performance report',
+            $this->callCenterService->getAgentPerformance($branchId, $data['from'] ?? null, $data['to'] ?? null),
+        );
+    }
+
+    /**
      * GET /api/call-center/customers/analytics
      */
     public function analytics(): JsonResponse

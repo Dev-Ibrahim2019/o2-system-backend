@@ -23,19 +23,27 @@ class SettlementEngine
 
     /**
      * @param  array<int, array{payment_method_id: int, amount: float, reference_number?: string, entity_type?: string, entity_id?: int}>  $payments
+     * @param  array{type: string, id: int, name: string}|null  $register  صندوق المبيعات الذي تُحصَّل عليه الدفعات — مطلوب دائماً
      * @return array{order: Order, invoice: Invoice, transaction: \App\Models\Transaction|null}
      */
-    public function settle(Order $order, array $payments): array
+    public function settle(Order $order, array $payments, ?array $register = null): array
     {
-        if ($order->tickets()->exists() === false && $order->items()->exists()) {
-            throw new RuntimeException('الطلب غير مقسّم للأقسام — نفّذ confirm أولاً.');
+        if ($register === null) {
+            throw new RuntimeException('لا يمكن إتمام عملية البيع بدون تحديد صندوق المبيعات.');
         }
 
-        if ($order->status === 'pending' && $order->tickets()->exists()) {
-            $order->update(['status' => 'confirmed']);
+        // طلبات الكول سنتر تُدفع قبل تقسيمها لتذاكر الأقسام (التذاكر تُنشأ بعد الدفع عند إرسالها للمطبخ)
+        if ($order->source !== 'call_center') {
+            if ($order->tickets()->exists() === false && $order->items()->exists()) {
+                throw new RuntimeException('الطلب غير مقسّم للأقسام — نفّذ confirm أولاً.');
+            }
+
+            if ($order->status === 'pending' && $order->tickets()->exists()) {
+                $order->update(['status' => 'confirmed']);
+            }
         }
 
-        return DB::transaction(function () use ($order, $payments) {
+        return DB::transaction(function () use ($order, $payments, $register) {
             $invoice = $order->invoice;
             if (! $invoice) {
                 $invoice = $this->invoiceFromOrderService->createFromOrder($order, [
@@ -69,6 +77,7 @@ class SettlementEngine
 
                 Payment::create([
                     'invoice_id' => $invoice->id,
+                    'customer_id' => $order->customer_id,
                     'number' => Payment::generateNumber(),
                     'method' => $paymentMethod->type,
                     'payment_method_id' => $paymentMethod->id,
@@ -77,6 +86,8 @@ class SettlementEngine
                     'notes' => $row['reference_number'] ?? null,
                     'branch_id' => $order->branch_id,
                     'user_id' => auth()->id(),
+                    'register_type' => $register['type'],
+                    'register_id' => $register['id'],
                     'entity_type' => $entityType,
                     'entity_id' => $entityId,
                     'subledger_type' => $entityType,

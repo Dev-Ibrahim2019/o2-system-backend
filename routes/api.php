@@ -178,6 +178,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment']);
     Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry']);
 
+    // ── Settlement & Payment Routing (نسخة غير محمية بشبكة الفرع — لاستخدام الكول سنتر) ──
+    Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle']);
+    Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
+    Route::get('payment-methods', [\App\Http\Controllers\Api\PaymentMethodController::class, 'index']);
+
     // â”€â”€ Invoice Details Drawer (lazy-load endpoints) â”€â”€
     Route::prefix('invoices/{invoice}')->group(function () {
         Route::get('details', [InvoiceDetailsController::class, 'details']);
@@ -490,6 +495,12 @@ Route::middleware(['auth:sanctum', 'role_or_permission:call-center|super-admin|a
     Route::post('customer-addresses/{address}/use', [CallCenterController::class, 'markAddressUsed']);
     Route::get('customers/{customer}/complaints', [CallCenterController::class, 'customerComplaints']);
     Route::get('customers/{customer}/alerts', [CallCenterController::class, 'customerAlerts']);
+    Route::get('customers/{customer}/timeline', [CallCenterController::class, 'customerTimeline']);
+    Route::get('reports/performance', [CallCenterController::class, 'agentPerformance']);
+    Route::get('canned-responses', [\App\Http\Controllers\Api\CannedResponseController::class, 'index']);
+    Route::post('canned-responses', [\App\Http\Controllers\Api\CannedResponseController::class, 'store']);
+    Route::patch('canned-responses/{cannedResponse}', [\App\Http\Controllers\Api\CannedResponseController::class, 'update']);
+    Route::delete('canned-responses/{cannedResponse}', [\App\Http\Controllers\Api\CannedResponseController::class, 'destroy']);
     Route::get('customers/{customer}/occasions', [CallCenterController::class, 'customerOccasions']);
     Route::post('customers/{customer}/occasions', [CallCenterController::class, 'storeOccasion']);
     Route::patch('customer-occasions/{occasion}', [CallCenterController::class, 'updateOccasion']);
@@ -517,6 +528,8 @@ Route::middleware(['auth:sanctum', 'role_or_permission:call-center|super-admin|a
     Route::post('tickets/{ticket}/order', [CallTicketController::class, 'linkOrder']);
     Route::post('tickets/{ticket}/notes', [CallTicketController::class, 'note']);
     Route::post('tickets/{ticket}/complete', [CallTicketController::class, 'complete']);
+    Route::patch('tickets/{ticket}/classify', [CallTicketController::class, 'classify']);
+    Route::post('tickets/{ticket}/rate', [CallTicketController::class, 'rate']);
     Route::get('tickets/{ticket}/workspace', [CallTicketController::class, 'workspace']);
 });
 

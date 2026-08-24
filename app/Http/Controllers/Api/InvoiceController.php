@@ -18,6 +18,7 @@ use App\Models\Supplier;
 use App\Models\PosRegister;
 use App\Models\Transaction;
 use App\Services\AccountingService;
+use App\Services\Accounting\RegisterResolver;
 use App\Services\Invoice\InvoiceFromOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,6 +28,7 @@ class InvoiceController extends ApiController
 {
     public function __construct(
         private readonly InvoiceFromOrderService $invoiceFromOrderService,
+        private readonly RegisterResolver $registerResolver,
     ) {}
 
     /**
@@ -38,12 +40,15 @@ class InvoiceController extends ApiController
             return $this->error('لا يمكن إنشاء فاتورة لهذا الطلب.', 422);
         }
 
-        if (! $order->tickets()->exists()) {
-            return $this->error('الطلب غير مقسّم للأقسام — نفّذ confirm أولاً.', 422);
-        }
+        // طلبات الكول سنتر تُدفع قبل تقسيمها لتذاكر الأقسام (التذاكر تُنشأ بعد الدفع عند إرسالها للمطبخ)
+        if ($order->source !== 'call_center') {
+            if (! $order->tickets()->exists()) {
+                return $this->error('الطلب غير مقسّم للأقسام — نفّذ confirm أولاً.', 422);
+            }
 
-        if ($order->status === 'pending') {
-            $order->update(['status' => 'confirmed']);
+            if ($order->status === 'pending') {
+                $order->update(['status' => 'confirmed']);
+            }
         }
 
         if ($order->invoice()->exists()) {
@@ -125,8 +130,11 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
             $entityType = $data['entity_type'] ?? $data['subledger_type'] ?? null;
             $entityId = $data['entity_id'] ?? $data['subledger_id'] ?? null;
 
+            $register = $this->registerResolver->resolveFromRequest($request);
+
             $payment = Payment::create([
                 'invoice_id' => $invoice->id,
+                'customer_id' => $invoice->customer_id,
                 'number' => Payment::generateNumber(),
                 'method' => $data['method'],
                 'payment_method_id' => $data['payment_method_id'] ?? null,
@@ -135,6 +143,8 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
                 'notes' => $data['notes'] ?? null,
                 'branch_id' => $data['branch_id'] ?? $invoice->branch_id,
                 'user_id' => $request->user()?->id,
+                'register_type' => $register['type'] ?? null,
+                'register_id' => $register['id'] ?? null,
                 'entity_type' => $entityType,
                 'entity_id' => $entityId,
                 'subledger_type' => $entityType,
