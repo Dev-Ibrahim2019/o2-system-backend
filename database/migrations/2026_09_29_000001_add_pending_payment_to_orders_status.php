@@ -15,10 +15,10 @@ return new class extends Migration
             return;
         }
 
-        // MySQL 8.0 does not support DROP CONSTRAINT IF EXISTS
-        // Use DROP CHECK instead (MySQL 8.0.16+)
+        // MariaDB does not support DROP CHECK; use DROP CONSTRAINT instead
+        // (works on both MariaDB and MySQL 8.0.16+)
         try {
-            DB::statement("ALTER TABLE orders DROP CHECK orders_status_check");
+            DB::statement("ALTER TABLE orders DROP CONSTRAINT orders_status_check");
         } catch (\Throwable $e) {
             // Constraint may not exist
         }
@@ -35,7 +35,7 @@ return new class extends Migration
         }
 
         try {
-            DB::statement("ALTER TABLE orders DROP CHECK orders_status_check");
+            DB::statement("ALTER TABLE orders DROP CONSTRAINT orders_status_check");
         } catch (\Throwable $e) {
             // Constraint may not exist
         }

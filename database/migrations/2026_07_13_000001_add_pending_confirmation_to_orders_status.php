@@ -16,7 +16,7 @@ return new class extends Migration
 
         // حذف القيد القديم وإعادة إنشائه مع pending_confirmation
         try {
-            DB::statement("ALTER TABLE orders DROP CHECK orders_status_check");
+            DB::statement("ALTER TABLE orders DROP CONSTRAINT orders_status_check");
         } catch (\Throwable $e) {
             // Constraint may not exist
         }
@@ -31,7 +31,7 @@ return new class extends Migration
         if (!Schema::hasTable('orders')) return;
 
         try {
-            DB::statement("ALTER TABLE orders DROP CHECK orders_status_check");
+            DB::statement("ALTER TABLE orders DROP CONSTRAINT orders_status_check");
         } catch (\Throwable $e) {
             // Constraint may not exist
         }
