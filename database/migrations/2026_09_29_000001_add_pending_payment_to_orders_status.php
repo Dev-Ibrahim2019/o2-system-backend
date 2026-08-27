@@ -7,13 +7,36 @@ return new class extends Migration
 {
     public function up(): void
     {
-        DB::statement("ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check");
-        DB::statement("ALTER TABLE orders ADD CONSTRAINT orders_status_check CHECK (status IN ('pending', 'pending_confirmation', 'confirmed', 'in_progress', 'ready', 'served', 'paid', 'cancelled', 'pending_payment'))");
+        DB::statement("
+            ALTER TABLE orders
+            MODIFY COLUMN status ENUM(
+                'pending',
+                'pending_confirmation',
+                'confirmed',
+                'in_progress',
+                'ready',
+                'served',
+                'pending_payment',
+                'paid',
+                'cancelled'
+            ) NOT NULL DEFAULT 'pending'
+        ");
     }
 
     public function down(): void
     {
-        DB::statement("ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check");
-        DB::statement("ALTER TABLE orders ADD CONSTRAINT orders_status_check CHECK (status IN ('pending', 'pending_confirmation', 'confirmed', 'in_progress', 'ready', 'served', 'paid', 'cancelled'))");
+        DB::statement("
+            ALTER TABLE orders
+            MODIFY COLUMN status ENUM(
+                'pending',
+                'pending_confirmation',
+                'confirmed',
+                'in_progress',
+                'ready',
+                'served',
+                'paid',
+                'cancelled'
+            ) NOT NULL DEFAULT 'pending'
+        ");
     }
 };

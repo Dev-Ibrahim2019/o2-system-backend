@@ -1,4 +1,5 @@
 <?php
+
 // database/migrations/2026_04_28_000001_create_orders_table.php
 
 use Illuminate\Database\Migrations\Migration;
@@ -26,13 +27,15 @@ return new class extends Migration
 
             // حالة الطلب الكلية
             $table->enum('status', [
-                'pending',      // حُفظ ولم يُرسل بعد
-                'confirmed',    // أُرسل للأقسام
-                'in_progress',  // الأقسام تعمل عليه
-                'ready',        // جاهز للتسليم
-                'served',       // سُلِّم للزبون
-                'paid',         // مدفوع ومغلق
-                'cancelled',    // ملغي
+                'pending',
+                'pending_confirmation',
+                'confirmed',
+                'in_progress',
+                'ready',
+                'served',
+                'pending_payment',
+                'paid',
+                'cancelled',
             ])->default('pending');
 
             // معلومات الطاولة (للمحلي)
