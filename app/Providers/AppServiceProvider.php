@@ -10,6 +10,7 @@ use App\Services\Printing\Renderers\ArabicReceiptRenderer;
 use App\Services\Printing\Renderers\ArabicTextRenderer;
 use App\Services\Printing\Renderers\ReceiptImageBuilder;
 use App\Services\PrintRoutingService;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -34,5 +35,6 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         //
+        Schema::defaultStringLength(191);
     }
 }

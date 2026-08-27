@@ -31,7 +31,7 @@ class EmployeeAccountingService
 {
     // الأكواد الثابتة لحسابات التحكم
     private const ADVANCE_ACCOUNT_CODE       = '1130';  // Asset — سلف الموظفين
-    private const LOAN_ACCOUNT_CODE          = '2130';  // Asset — قروض الموظفين
+    private const LOAN_ACCOUNT_CODE          = '2130';  // Asset — قروض/ذمم الموظفين
     private const SALARY_PAYABLE_ACCOUNT_CODE = '2120';  // Liability — رواتب مستحقة
     private const SALARY_EXPENSE_ACCOUNT_CODE = '5110';  // Expense — مصروف رواتب
 
@@ -86,6 +86,50 @@ class EmployeeAccountingService
                     'credit'      => $amount,
                     'description' => "صرف سلفة - {$employee->name}",
                     // الصندوق لا يحتاج subledger
+                ],
+            ],
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // سحب نقدي للموظف — يُحمَّل على حساب السلف مع رقم حركة مستقل
+    // ──────────────────────────────────────────────────────────
+    public function recordWithdrawal(
+        Employee $employee,
+        float $amount,
+        int $cashAccountId,
+        string $date,
+        ?string $description = null,
+        ?int $branchId = null,
+    ): Transaction {
+        $this->ensurePositiveAmount($amount);
+
+        $advanceAccountId = $this->getAccountId(self::ADVANCE_ACCOUNT_CODE);
+
+        return $this->postingService->createAndPost(
+            data: [
+                'date' => $date,
+                'type' => 'payment',
+                'description' => $description ?? "سحب نقدي للموظف: {$employee->name}",
+                'branch_id' => $branchId,
+                'source_type' => Employee::class,
+                'source_id' => $employee->id,
+                'prefix' => 'EWD',
+            ],
+            entries: [
+                [
+                    'account_id' => $advanceAccountId,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'description' => "سحب نقدي للموظف: {$employee->name}",
+                    'subledger_type' => 'employee',
+                    'subledger_id' => $employee->id,
+                ],
+                [
+                    'account_id' => $cashAccountId,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'description' => "صرف سحب موظف - {$employee->name}",
                 ],
             ],
         );
@@ -478,7 +522,7 @@ class EmployeeAccountingService
         return $this->postingService->createAndPost(
             data: [
                 'date'        => $date,
-                'type'        => 'settlement',
+                'type'        => 'adjustment',
                 'description' => $description ?? "تسوية مالية: {$employee->name}",
                 'branch_id'   => $branchId,
                 'source_type' => Employee::class,

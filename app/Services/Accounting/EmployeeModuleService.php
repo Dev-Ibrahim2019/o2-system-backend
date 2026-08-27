@@ -4,7 +4,9 @@ namespace App\Services\Accounting;
 
 use App\Models\Account;
 use App\Models\Employee;
+use App\Models\EmployeeAttendance;
 use App\Models\EmployeeLoan;
+use App\Models\EmployeeWithdrawal;
 use App\Models\Entry;
 use App\Models\JobTitle;
 use App\Models\Order;
@@ -29,8 +31,8 @@ class EmployeeModuleService
     {
         [$month, $year, $periodStart, $periodEnd] = $this->resolvePeriod($filters);
         $employees = $this->baseEmployeeQuery($filters)->get();
-        $active = $employees->where('status', 'active');
-        $inactive = $employees->where('status', '!=', 'active');
+        $active = $employees->where('status', 'ACTIVE');
+        $inactive = $employees->where('status', '!=', 'ACTIVE');
 
         $activeIds = $active->pluck('id');
         $advanceMap = $this->bulkAdvanceBalances($activeIds);
@@ -54,11 +56,18 @@ class EmployeeModuleService
             }
         }
 
-        $employeesWithLoans = EmployeeLoan::query()
+        // القرض الحقيقي يُقاس من الـ subledger، وليس من جدول employee_loans فقط،
+        // لأن الإصدارات السابقة كانت تسجل القيد المحاسبي بدون إنشاء سجل القرض.
+        $employeesWithLoans = collect($loanMap)->filter(fn ($balance) => (float) $balance > 0.001)->count();
+
+        $attendanceRecords = EmployeeAttendance::query()
             ->whereIn('employee_id', $activeIds)
-            ->whereIn('status', ['pending', 'partially_repaid'])
-            ->distinct('employee_id')
-            ->count('employee_id');
+            ->whereBetween('work_date', [$periodStart->toDateString(), $periodEnd->toDateString()])
+            ->whereNotIn('status', ['DAY_OFF', 'LEAVE'])
+            ->get(['status']);
+        $attendancePercentage = $attendanceRecords->count() > 0
+            ? round(($attendanceRecords->whereIn('status', ['PRESENT', 'LATE'])->count() / $attendanceRecords->count()) * 100, 1)
+            : null;
 
         $employeesWithoutSalary = $active->filter(fn ($e) => (float) ($e->salary ?? 0) <= 0)->count();
         $departmentsCount = $active->pluck('department_id')->filter()->unique()->count();
@@ -85,7 +94,7 @@ class EmployeeModuleService
             'total_payments'           => round($totalNetPayable, 2),
             'average_salary'           => $active->count() > 0 ? round((float) $active->sum('salary') / $active->count(), 2) : 0,
             'departments_count'        => $departmentsCount,
-            'attendance_percentage'    => null,
+            'attendance_percentage'    => $attendancePercentage,
             'employees_with_loans'     => $employeesWithLoans,
             'employees_without_salary' => $employeesWithoutSalary,
             'pending_salary_employees' => $pendingSalaryCount,
@@ -101,7 +110,7 @@ class EmployeeModuleService
     public function analytics(array $filters): array
     {
         [$month, $year] = [$this->intFilter($filters, 'month', now()->month), $this->intFilter($filters, 'year', now()->year)];
-        $employees = $this->baseEmployeeQuery($filters)->where('status', 'active')->get();
+        $employees = $this->baseEmployeeQuery($filters)->where('status', 'ACTIVE')->get();
         $employeeIds = $employees->pluck('id');
         $advanceMap = $this->bulkAdvanceBalances($employeeIds);
         $salaryMap  = $this->bulkSalaryBalances($employeeIds);
@@ -168,12 +177,13 @@ class EmployeeModuleService
                 'phone'                 => $emp->phone,
                 'status'                => $emp->status,
                 'salary'                => (float) ($emp->salary ?? 0),
-                'salary_type'           => $emp->typeId,
+                'salary_type'           => $emp->salary_type ?? 'monthly',
                 'department'            => $emp->department?->name,
                 'department_id'         => $emp->department_id,
                 'branch'                => $emp->branch?->name,
                 'branch_id'             => $emp->branch_id,
-                'job_title'             => $this->resolveJobTitle($emp->jobTitleId),
+                'job_title'             => $emp->jobTitle?->name ?? $this->resolveJobTitle($emp->jobTitleId),
+                'job_description'       => $emp->jobTitle?->description,
                 'hireDate'              => $emp->hireDate?->toDateString(),
                 'outstanding_advance'   => $advBalance,
                 'outstanding_loan'      => $loanMap[$emp->id] ?? 0,
@@ -187,7 +197,7 @@ class EmployeeModuleService
             'employees' => $result->values(),
             'totals'    => [
                 'total_employees'            => $result->count(),
-                'active_employees'           => $result->where('status', 'active')->count(),
+                'active_employees'           => $result->where('status', 'ACTIVE')->count(),
                 'total_salaries'             => round($result->sum('salary'), 2),
                 'total_outstanding_advances' => round($result->sum('outstanding_advance'), 2),
                 'total_accrued_salaries'     => round($result->sum('accrued_salary'), 2),
@@ -199,7 +209,7 @@ class EmployeeModuleService
 
     public function employeeSummary(Employee $employee): array
     {
-        $employee->load(['branch:id,name', 'department:id,name']);
+        $employee->load(['branch:id,name', 'department:id,name', 'jobTitle:id,name,description,is_active']);
 
         $balances = $this->subledgerService->getEmployeeBalances($employee->id);
         $manager  = $employee->managerId
@@ -222,6 +232,18 @@ class EmployeeModuleService
             ->orderByDesc('date')
             ->first();
 
+        $lastWithdrawal = EmployeeWithdrawal::query()
+            ->where('employee_id', $employee->id)
+            ->where('status', 'posted')
+            ->orderByDesc('date')
+            ->orderByDesc('id')
+            ->first();
+
+        $totalWithdrawals = (float) EmployeeWithdrawal::query()
+            ->where('employee_id', $employee->id)
+            ->where('status', 'posted')
+            ->sum('amount');
+
         $salesAgg = Order::query()
             ->where('cashier_id', $employee->id)
             ->whereIn('status', ['paid', 'completed', 'served'])
@@ -240,8 +262,9 @@ class EmployeeModuleService
                 'status'       => $employee->status,
                 'hireDate'     => $employee->hireDate?->toDateString(),
                 'salary'       => (float) ($employee->salary ?? 0),
-                'salary_type'  => $employee->typeId,
-                'job_title'    => $this->resolveJobTitle($employee->jobTitleId),
+                'salary_type'  => $employee->salary_type ?? 'monthly',
+                'job_title'    => $employee->jobTitle?->name ?? $this->resolveJobTitle($employee->jobTitleId),
+                'job_description' => $employee->jobTitle?->description,
                 'department'   => $employee->department?->name,
                 'branch'       => $employee->branch?->name,
                 'manager'      => $manager ? ['id' => $manager->id, 'name' => $manager->name] : null,
@@ -262,7 +285,13 @@ class EmployeeModuleService
                 'current_balance'          => max(0, $balances['accrued_salary'] - $balances['outstanding_advance']),
                 'total_sales_withdrawals'  => round((float) ($salesAgg->total_sales ?? 0), 2),
                 'sales_count'              => (int) ($salesAgg->sales_count ?? 0),
+                'total_withdrawals'        => round($totalWithdrawals, 2),
                 'last_withdrawal'          => [
+                    'date'   => $lastWithdrawal?->date?->toDateString(),
+                    'amount' => round((float) ($lastWithdrawal?->amount ?? 0), 2),
+                    'number' => $lastWithdrawal?->transaction_id,
+                ],
+                'last_advance'             => [
                     'date'   => $lastAdvance?->date?->toDateString(),
                     'amount' => round($lastAdvanceAmount, 2),
                     'number' => $lastAdvance?->transaction_number,
@@ -278,7 +307,7 @@ class EmployeeModuleService
      */
     private function baseEmployeeQuery(array $filters)
     {
-        $query = Employee::query()->with(['department:id,name', 'branch:id,name']);
+        $query = Employee::query()->with(['department:id,name', 'branch:id,name', 'jobTitle:id,name,description,is_active']);
 
         if (!empty($filters['department_id'])) {
             $query->where('department_id', (int) $filters['department_id']);
@@ -287,7 +316,7 @@ class EmployeeModuleService
             $query->where('branch_id', (int) $filters['branch_id']);
         }
         if (!empty($filters['status'])) {
-            $query->where('status', $filters['status']);
+            $query->where('status', strtoupper((string) $filters['status']));
         }
         if (!empty($filters['employment_type']) || !empty($filters['type_id'])) {
             $query->where('typeId', $filters['employment_type'] ?? $filters['type_id']);

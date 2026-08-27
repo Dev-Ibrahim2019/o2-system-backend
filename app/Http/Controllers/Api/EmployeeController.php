@@ -1,11 +1,4 @@
 <?php
-// app/Http/Controllers/Api/EmployeeController.php
-//
-// ✅ الإصلاحات المطبّقة:
-// 1. حذف إنشاء الحسابات من store() — الـ EmployeeObserver يتولى المهمة تلقائياً
-// 2. حذف generateEmployeeAccountCode() و getEmployeesParentAccountId() — لم تعد ضرورية
-// 3. حذف use App\Models\Account و use Illuminate\Support\Facades\DB — لم تعد ضرورية
-// 4. store() أصبح بسيطاً وواضحاً بدون DB transaction يدوي
 
 namespace App\Http\Controllers\Api;
 
@@ -13,108 +6,105 @@ use App\Http\Controllers\ApiController;
 use App\Http\Requests\V1\EmployeeRequest;
 use App\Http\Resources\EmployeeResource;
 use App\Models\Employee;
+use App\Services\Accounting\SubledgerService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class EmployeeController extends ApiController
 {
-    public function index(Request $request)
+    public function __construct(private readonly SubledgerService $subledgerService) {}
+
+    public function index(Request $request): JsonResponse
     {
-        $employees = Employee::with([
-            'branch:id,name',
-            'department:id,name',
-        ])
-            ->select([
-                'id',
-                'name',
-                'phone',
-                'email',
-                'image',
-                'branch_id',
-                'department_id',
-                'jobTitleId',
-                'role',
-                'status',
-                'hireDate',
-                'salary',
-                'employeeId',
-                'username',
-                'rating',
-                'permissions',
-                'notes',
+        $employees = Employee::query()
+            ->with([
+                'branch:id,name',
+                'department:id,name',
+                'jobTitle:id,name,description,is_active',
+                'manager:id,name',
             ])
-            ->when($request->branch_id,     fn($q) => $q->where('branch_id',     $request->branch_id))
-            ->when($request->department_id, fn($q) => $q->where('department_id', $request->department_id))
-            ->when($request->status,        fn($q) => $q->where('status',        $request->status))
-            ->when($request->search,        fn($q) => $q->where(
-                fn($qb) =>
-                $qb->where('name',       'like', "%{$request->search}%")
-                    ->orWhere('phone',      'like', "%{$request->search}%")
+            ->when($request->branch_id, fn ($q) => $q->where('branch_id', $request->branch_id))
+            ->when($request->department_id, fn ($q) => $q->where('department_id', $request->department_id))
+            ->when($request->status, fn ($q) => $q->where('status', strtoupper((string) $request->status)))
+            ->when($request->salary_type, fn ($q) => $q->where('salary_type', $request->salary_type))
+            ->when($request->search, fn ($q) => $q->where(fn ($qb) =>
+                $qb->where('name', 'like', "%{$request->search}%")
+                    ->orWhere('phone', 'like', "%{$request->search}%")
                     ->orWhere('employeeId', 'like', "%{$request->search}%")
+                    ->orWhere('nationalId', 'like', "%{$request->search}%")
             ))
-            ->paginate($request->per_page ?? 50);
+            ->orderBy('name')
+            ->paginate(min((int) ($request->per_page ?? 100), 200));
 
         return $this->success('Employees fetched', [
-            'data'       => EmployeeResource::collection($employees->items()),
+            'data' => EmployeeResource::collection($employees->items()),
             'pagination' => [
                 'current_page' => $employees->currentPage(),
-                'last_page'    => $employees->lastPage(),
-                'total'        => $employees->total(),
-                'per_page'     => $employees->perPage(),
+                'last_page' => $employees->lastPage(),
+                'total' => $employees->total(),
+                'per_page' => $employees->perPage(),
             ],
         ]);
     }
 
-    public function store(EmployeeRequest $request)
+    public function store(EmployeeRequest $request): JsonResponse
     {
         $data = $request->validated();
+        if (!empty($data['password'])) $data['password'] = bcrypt($data['password']);
+        if (empty($data['managerId'])) $data['managerId'] = null;
+        if (empty($data['jobTitleId'])) $data['jobTitleId'] = null;
+        $data['salary_type'] ??= 'monthly';
+        $data['standard_daily_hours'] ??= 8;
 
-        if (!empty($data['password'])) {
-            $data['password'] = bcrypt($data['password']);
-        }
-
-        // ✅ إنشاء الموظف فقط — EmployeeObserver سيُنشئ حسابي السلف والراتب تلقائياً
-        // Observer: app/Observers/EmployeeObserver.php → created()
-        //   └─ AccountCreationService::createForEmployee()
-        //       ├─ advance_account_id  (1130-xxx) Asset
-        //       └─ salary_account_id   (2120-xxx) Liability
         $employee = Employee::create($data);
 
-        return $this->success(
-            'Employee created',
-            new EmployeeResource($employee->load(['branch:id,name', 'department:id,name'])),
-            201
-        );
+        return $this->success('Employee created', new EmployeeResource($this->loadRelations($employee)), 201);
     }
 
-    public function show(Employee $employee)
+    public function show(Employee $employee): JsonResponse
     {
-        return $this->success(
-            'Employee fetched',
-            new EmployeeResource($employee->load(['branch:id,name', 'department:id,name']))
-        );
+        return $this->success('Employee fetched', new EmployeeResource($this->loadRelations($employee)));
     }
 
-    public function update(EmployeeRequest $request, Employee $employee)
+    public function update(EmployeeRequest $request, Employee $employee): JsonResponse
     {
         $data = $request->validated();
-
-        if (!empty($data['password'])) {
-            $data['password'] = bcrypt($data['password']);
-        } else {
-            unset($data['password']);
-        }
+        if (!empty($data['password'])) $data['password'] = bcrypt($data['password']);
+        else unset($data['password']);
+        if (array_key_exists('managerId', $data) && empty($data['managerId'])) $data['managerId'] = null;
+        if (array_key_exists('jobTitleId', $data) && empty($data['jobTitleId'])) $data['jobTitleId'] = null;
 
         $employee->update($data);
-
-        return $this->success(
-            'Employee updated',
-            new EmployeeResource($employee->load(['branch:id,name', 'department:id,name']))
-        );
+        return $this->success('Employee updated', new EmployeeResource($this->loadRelations($employee->fresh())));
     }
 
-    public function destroy(Employee $employee)
+    public function destroy(Employee $employee): JsonResponse
     {
+        $balances = $this->subledgerService->getEmployeeBalances($employee->id);
+        $hasFinancialBalance = collect([
+            $balances['outstanding_advance'] ?? 0,
+            $balances['outstanding_loan'] ?? 0,
+            $balances['accrued_salary'] ?? 0,
+        ])->contains(fn ($value) => abs((float) $value) > 0.001);
+
+        if ($hasFinancialBalance) {
+            return $this->error(
+                'لا يمكن حذف موظف لديه أرصدة مالية قائمة. صفِّ السلف/القروض/الرواتب أولاً أو غيّر حالته إلى منتهي/مستقيل.',
+                422
+            );
+        }
+
         $employee->delete();
         return $this->success('Employee deleted', []);
+    }
+
+    private function loadRelations(Employee $employee): Employee
+    {
+        return $employee->load([
+            'branch:id,name',
+            'department:id,name',
+            'jobTitle:id,name,description,is_active',
+            'manager:id,name',
+        ]);
     }
 }

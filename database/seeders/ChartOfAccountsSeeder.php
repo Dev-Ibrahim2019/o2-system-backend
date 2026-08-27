@@ -288,19 +288,26 @@ class ChartOfAccountsSeeder extends Seeder
         ]);
 
         // ─────────────────────────────────────────────────────
-        // 2130 Employee Loans
+        // 2130 Employee Loans (Receivable / Asset)
         // ─────────────────────────────────────────────────────
+        // هذا الحساب رقمه التاريخي 2130، لكنه محاسبياً ذمة مدينة على الموظف.
+        // نربطه بالأصول المتداولة حتى يكون الـ parent والنوع متوافقين.
+        $currentAssets = Account::where('code', '11')->firstOrFail();
 
         $this->create([
             'code'           => '2130',
             'name'           => 'قروض الموظفين',
-            'name_en'        => 'Employee Loans',
-            'type'           => 'liability',
-            'normal_balance' => 'credit',
+            'name_en'        => 'Employee Loans Receivable',
+            'type'           => 'asset',
+            'normal_balance' => 'debit',
             'level'          => 3,
-            'parent_id'      => $currentLiab->id,
+            'parent_id'      => $currentAssets->id,
             'allow_posting'  => true,
             'is_system'      => true,
+            'meta' => [
+                'subledger'   => true,
+                'entity_type' => 'employee',
+            ],
         ]);
 
         // ─────────────────────────────────────────────────────

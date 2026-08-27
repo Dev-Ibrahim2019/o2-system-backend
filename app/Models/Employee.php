@@ -34,6 +34,10 @@ class Employee extends Model
         'managerId',
         'hireDate',
         'salary',
+        'salary_type',
+        'hourly_rate',
+        'daily_rate',
+        'standard_daily_hours',
         'role',
         'status',
         'username',
@@ -55,6 +59,9 @@ class Employee extends Model
         'dob' => 'date',
         'hireDate' => 'date',
         'salary' => 'decimal:2',
+        'hourly_rate' => 'decimal:2',
+        'daily_rate' => 'decimal:2',
+        'standard_daily_hours' => 'decimal:2',
         'rating' => 'decimal:1',
     ];
 
@@ -73,6 +80,41 @@ class Employee extends Model
     public function loans(): HasMany
     {
         return $this->hasMany(EmployeeLoan::class);
+    }
+
+    public function jobTitle(): BelongsTo
+    {
+        return $this->belongsTo(JobTitle::class, 'jobTitleId');
+    }
+
+    public function manager(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'managerId');
+    }
+
+    public function subordinates(): HasMany
+    {
+        return $this->hasMany(Employee::class, 'managerId');
+    }
+
+    public function workSchedules(): HasMany
+    {
+        return $this->hasMany(EmployeeWorkSchedule::class);
+    }
+
+    public function attendances(): HasMany
+    {
+        return $this->hasMany(EmployeeAttendance::class);
+    }
+
+    public function withdrawals(): HasMany
+    {
+        return $this->hasMany(EmployeeWithdrawal::class);
+    }
+
+    public function payrolls(): HasMany
+    {
+        return $this->hasMany(EmployeePayroll::class);
     }
 
     // ── Subledger Financial Accessors ─────────────────────────────────────────

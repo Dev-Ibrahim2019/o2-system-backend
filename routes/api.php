@@ -134,27 +134,65 @@ Route::middleware('auth:sanctum')->group(function () {
     // â”€â”€ Items â”€â”€
     Route::post('items/upload-image', [ItemController::class, 'uploadImage']);
     Route::apiResource('items', ItemController::class);
-    Route::apiResource('job-titles', JobTitleController::class);
-
-    // â”€â”€ Employees â”€â”€
-    Route::prefix("employees")->group(function () {
-        Route::get("/financial-batch", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "financialBatch"]);
-        Route::get("/dashboard", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "dashboard"]);
-        Route::get("/analytics", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "analytics"]);
-        Route::post("/{employee}/advance", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordAdvance"]);
-        Route::post("/{employee}/advance-repayment", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordAdvanceRepayment"]);
-        Route::post("/{employee}/salary-accrual", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accrualSalary"]);
-        Route::post("/{employee}/salary-payment", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "paySalary"]);
-        Route::get("/{employee}/financial-summary", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "financialSummary"]);
-        Route::get("/{employee}/account-statement", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accountStatement"]);
-        Route::get("/{employee}/account-statement/export", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accountStatementExport"]);
-        Route::get("/{employee}/account-statement/pdf", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "accountStatementPdf"]);
-        Route::post("/{employee}/loan", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordLoan"]);
-        Route::post("/{employee}/loan-repayment", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordLoanRepayment"]);
-        Route::get("/{employee}/loans", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "getLoans"]);
-        Route::post("/{employee}/settlement", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordSettlement"]);
+    // ── Job Titles / المسميات الوظيفية ──
+    // القراءة متاحة لكل مستخدم مسجل لأن قوائم الموظفين ونماذج الطلبات تعتمد عليها.
+    Route::get('job-titles', [JobTitleController::class, 'index']);
+    Route::get('job-titles/{jobTitle}', [JobTitleController::class, 'show']);
+    Route::middleware('permission:manage-employees')->group(function () {
+        Route::post('job-titles', [JobTitleController::class, 'store']);
+        Route::put('job-titles/{jobTitle}', [JobTitleController::class, 'update']);
+        Route::patch('job-titles/{jobTitle}', [JobTitleController::class, 'update']);
+        Route::delete('job-titles/{jobTitle}', [JobTitleController::class, 'destroy']);
     });
-    Route::apiResource('employees', EmployeeController::class);
+
+    // ── Employee HR + Financial Module / الموظفون ──
+    // جميع العمليات المالية/الدوام تحتاج صلاحية الموارد البشرية أو المحاسبة.
+    Route::prefix('employees')->middleware('permission:manage-employees|manage-accounting')->group(function () {
+        Route::get('/financial-batch', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'financialBatch']);
+        Route::get('/dashboard', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'dashboard']);
+        Route::get('/analytics', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'analytics']);
+
+        Route::post('/{employee}/advance', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'recordAdvance']);
+        Route::post('/{employee}/advance-repayment', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'recordAdvanceRepayment']);
+        Route::post('/{employee}/salary-accrual', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'accrualSalary']);
+        Route::post('/{employee}/salary-payment', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'paySalary']);
+        Route::get('/{employee}/financial-summary', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'financialSummary']);
+        Route::get('/{employee}/account-statement', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'accountStatement']);
+        Route::get('/{employee}/account-statement/export', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'accountStatementExport']);
+        Route::get('/{employee}/account-statement/pdf', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'accountStatementPdf']);
+        Route::post('/{employee}/loan', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'recordLoan']);
+        Route::post('/{employee}/loan-repayment', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'recordLoanRepayment']);
+        Route::get('/{employee}/loans', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'getLoans']);
+        Route::post('/{employee}/settlement', [\App\Http\Controllers\Api\EmployeeFinancialController::class, 'recordSettlement']);
+
+        // الدوام الأسبوعي
+        Route::get('/{employee}/work-schedule', [\App\Http\Controllers\Api\EmployeeWorkScheduleController::class, 'index']);
+        Route::put('/{employee}/work-schedule', [\App\Http\Controllers\Api\EmployeeWorkScheduleController::class, 'upsert']);
+
+        // الحضور والساعات
+        Route::get('/{employee}/attendance', [\App\Http\Controllers\Api\EmployeeAttendanceController::class, 'index']);
+        Route::post('/{employee}/attendance', [\App\Http\Controllers\Api\EmployeeAttendanceController::class, 'store']);
+        Route::delete('/{employee}/attendance/{attendance}', [\App\Http\Controllers\Api\EmployeeAttendanceController::class, 'destroy']);
+
+        // السحوبات — سجل مستقل مع أثر محاسبي على رصيد السلف
+        Route::get('/{employee}/withdrawals', [\App\Http\Controllers\Api\EmployeeWithdrawalController::class, 'index']);
+        Route::post('/{employee}/withdrawals', [\App\Http\Controllers\Api\EmployeeWithdrawalController::class, 'store']);
+        Route::delete('/{employee}/withdrawals/{withdrawal}', [\App\Http\Controllers\Api\EmployeeWithdrawalController::class, 'destroy']);
+
+        // سجل الرواتب الشهري + المعالجة الموحدة
+        Route::get('/{employee}/payrolls', [\App\Http\Controllers\Api\EmployeePayrollController::class, 'index']);
+        Route::post('/{employee}/payrolls/process', [\App\Http\Controllers\Api\EmployeePayrollController::class, 'process']);
+    });
+
+    // قراءة بيانات الموظفين مطلوبة في أكثر من وحدة تشغيلية. التعديل محمي بصلاحية الموظفين.
+    Route::get('employees', [EmployeeController::class, 'index']);
+    Route::get('employees/{employee}', [EmployeeController::class, 'show']);
+    Route::middleware('permission:manage-employees')->group(function () {
+        Route::post('employees', [EmployeeController::class, 'store']);
+        Route::put('employees/{employee}', [EmployeeController::class, 'update']);
+        Route::patch('employees/{employee}', [EmployeeController::class, 'update']);
+        Route::delete('employees/{employee}', [EmployeeController::class, 'destroy']);
+    });
 
     // â”€â”€ Orders â”€â”€
     Route::post('orders/batch-invoice-ids', [InvoiceDetailsController::class, 'batchInvoiceIds']); // MUST be before apiResource
@@ -282,9 +320,6 @@ Route::middleware('auth:sanctum')->prefix('admin/pos-registers')->group(function
         Route::delete('/{discount}', [\App\Http\Controllers\Api\DiscountController::class, 'destroy']);
     });
 });
-
-// â”€â”€ Job Titles (public) â”€â”€
-Route::apiResource('job-titles', \App\Http\Controllers\Api\JobTitleController::class);
 
 // â”€â”€ Departments â”€â”€
 Route::middleware('auth:sanctum')->prefix('departments')->group(function () {

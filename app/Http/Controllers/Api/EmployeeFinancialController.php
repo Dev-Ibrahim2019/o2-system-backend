@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\ApiController;
 use App\Models\Employee;
+use App\Models\EmployeeLoan;
 use App\Models\Entry;
 use App\Models\Account;
 use App\Models\Invoice;
@@ -20,6 +21,7 @@ use App\Services\Accounting\SubledgerService;
 use Mpdf\Mpdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class EmployeeFinancialController extends ApiController
 {
@@ -178,25 +180,42 @@ class EmployeeFinancialController extends ApiController
             'amount'          => ['required', 'numeric', 'min:0.001'],
             'cash_account_id' => ['required', 'integer', 'exists:accounts,id'],
             'date'            => ['required', 'date'],
+            'repayment_date'  => ['nullable', 'date', 'after_or_equal:date'],
             'description'     => ['nullable', 'string', 'max:500'],
             'branch_id'       => ['nullable', 'integer', 'exists:branches,id'],
         ]);
 
         try {
-            $transaction = $this->employeeService->recordLoan(
-                employee: $employee,
-                amount: $data['amount'],
-                cashAccountId: $data['cash_account_id'],
-                date: $data['date'],
-                description: $data['description'] ?? null,
-                branchId: $data['branch_id'] ?? $request->user()?->branch_id,
-            );
+            $result = DB::transaction(function () use ($data, $employee, $request) {
+                $transaction = $this->employeeService->recordLoan(
+                    employee: $employee,
+                    amount: $data['amount'],
+                    cashAccountId: $data['cash_account_id'],
+                    date: $data['date'],
+                    description: $data['description'] ?? null,
+                    branchId: $data['branch_id'] ?? $request->user()?->branch_id,
+                );
 
-            $balances = $this->subledgerService->getEmployeeBalances($employee->id);
+                $loan = EmployeeLoan::create([
+                    'employee_id'   => $employee->id,
+                    'amount'        => $data['amount'],
+                    'date_granted'  => $data['date'],
+                    'repayment_date'=> $data['repayment_date'] ?? null,
+                    'amount_paid'   => 0,
+                    'status'        => 'pending',
+                    'notes'         => $data['description'] ?? null,
+                    'transaction_id'=> $transaction->id,
+                ]);
+
+                return [$transaction, $loan];
+            });
+
+            [$transaction, $loan] = $result;
 
             return $this->success('تم تسجيل القرض بنجاح', [
-                'transaction'            => $transaction,
-                'outstanding_loan'       => $this->subledgerService->getBalance('employee', $employee->id, '2130'),
+                'transaction'      => $transaction,
+                'loan'             => $loan->fresh(),
+                'outstanding_loan' => $this->subledgerService->getBalance('employee', $employee->id, '2130'),
             ], 201);
         } catch (\RuntimeException $e) {
             return $this->error($e->getMessage(), 422);
@@ -212,28 +231,72 @@ class EmployeeFinancialController extends ApiController
             'amount'          => ['required', 'numeric', 'min:0.001'],
             'cash_account_id' => ['required', 'integer', 'exists:accounts,id'],
             'date'            => ['required', 'date'],
-            'description'     => ['nullable', 'string'],
+            'description'     => ['nullable', 'string', 'max:500'],
             'branch_id'       => ['nullable', 'integer', 'exists:branches,id'],
         ]);
 
         try {
-            $transaction = $this->employeeService->recordLoanRepayment(
-                employee: $employee,
-                amount: $data['amount'],
-                cashAccountId: $data['cash_account_id'],
-                date: $data['date'],
-                description: $data['description'] ?? null,
-                branchId: $data['branch_id'] ?? null,
-            );
+            $transaction = DB::transaction(function () use ($data, $employee) {
+                $transaction = $this->employeeService->recordLoanRepayment(
+                    employee: $employee,
+                    amount: $data['amount'],
+                    cashAccountId: $data['cash_account_id'],
+                    date: $data['date'],
+                    description: $data['description'] ?? null,
+                    branchId: $data['branch_id'] ?? null,
+                );
 
-            $balances = $this->subledgerService->getEmployeeBalances($employee->id);
+                $this->applyLoanRepayment($employee, (float) $data['amount'], $data['date']);
+
+                return $transaction;
+            });
 
             return $this->success('تم تسجيل سداد القرض', [
-                'transaction'            => $transaction,
-                'outstanding_loan'       => $this->subledgerService->getBalance('employee', $employee->id, '2130'),
+                'transaction'      => $transaction,
+                'outstanding_loan' => $this->subledgerService->getBalance('employee', $employee->id, '2130'),
+                'loans'            => $employee->loans()->orderByDesc('date_granted')->get(),
             ]);
         } catch (\RuntimeException $e) {
             return $this->error($e->getMessage(), 422);
+        }
+    }
+
+    /**
+     * Allocate a repayment over the oldest open loans (FIFO).
+     */
+    private function applyLoanRepayment(Employee $employee, float $amount, string $date): void
+    {
+        $remaining = $amount;
+
+        $loans = EmployeeLoan::query()
+            ->where('employee_id', $employee->id)
+            ->whereIn('status', ['pending', 'partially_repaid'])
+            ->orderBy('date_granted')
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($loans as $loan) {
+            if ($remaining <= 0) {
+                break;
+            }
+
+            $openAmount = max(0, (float) $loan->amount - (float) $loan->amount_paid);
+            if ($openAmount <= 0) {
+                continue;
+            }
+
+            $applied = min($remaining, $openAmount);
+            $newPaid = (float) $loan->amount_paid + $applied;
+            $isRepaid = $newPaid + 0.00001 >= (float) $loan->amount;
+
+            $loan->update([
+                'amount_paid'    => $newPaid,
+                'status'         => $isRepaid ? 'repaid' : 'partially_repaid',
+                'repayment_date' => $isRepaid ? $date : $loan->repayment_date,
+            ]);
+
+            $remaining -= $applied;
         }
     }
 
