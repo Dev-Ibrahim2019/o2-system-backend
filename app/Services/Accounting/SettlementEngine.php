@@ -89,7 +89,12 @@ class SettlementEngine
             ]);
 
             $order->update([
-                'status' => 'PREPARATION',
+                // 'paid' matches the dine-in/POS status vocabulary used everywhere else
+                // (OrderController's edit/cancel guards, active-order filters, invoice
+                // status checks). 'PREPARATION' is a delivery/call-center pipeline status
+                // and was never recognized by those checks, so orders settled through this
+                // engine never actually became read-only or dropped out of "active orders".
+                'status' => 'paid',
                 'payment_status' => 'PAID',
                 'paid_at' => now(),
             ]);

@@ -9,7 +9,7 @@
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            font-family: 'Cairo', 'Tahoma', sans-serif;
+            font-family: 'Tahoma', 'Arial', sans-serif;
         }
 
         body {
@@ -23,8 +23,31 @@
         .receipt-container {
             width: 550px;
             background: #fff;
-            padding: 5px 12px;
+            padding: 3px 10px;
             margin: 0 auto;
+        }
+
+        /* شعار O2 أعلى الفاتورة */
+        .brand-header {
+            text-align: center;
+            padding: 8px 0 6px;
+            margin-bottom: 4px;
+            border-bottom: 2px dashed #000;
+        }
+
+        .o2-logo {
+            font-family: 'Arial Black', 'Arial', sans-serif;
+            font-weight: 900;
+            font-size: 60px;
+            line-height: 1;
+            color: #e2001a;
+            letter-spacing: -1px;
+        }
+
+        .o2-logo sub {
+            font-size: 32px;
+            font-weight: 900;
+            vertical-align: sub;
         }
 
         /* الهيدر بدون إطار خارجي وبمسافة مضغوطة */
@@ -32,16 +55,16 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 6px 4px;
-            margin-bottom: 10px;
+            padding: 3px 2px;
+            margin-bottom: 5px;
         }
 
         .header-info {
             display: flex;
             flex-direction: column;
-            gap: 5px;
-            font-size: 19px; /* تكبير الخط بشكل ملحوظ */
-            font-weight: 700; /* زيادة سُمك الخط ليكون واضحاً */
+            gap: 4px;
+            font-size: 20px;
+            font-weight: 800;
         }
 
         .en-text {
@@ -52,61 +75,49 @@
         .header-badges {
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            width: 150px;
+            gap: 4px;
+            width: 155px;
+            flex-shrink: 0;
         }
 
         /* مربع رقم الطاولة - خط أسود غامق متصل وليس منقط */
         .badge-box {
-            border: 4px solid #000000; /* جعل الإطار أكثر سُمكاً ووضوحاً */
-            border-radius: 12px;
-            padding: 8px;
+            border: 2px solid #000000;
+            border-radius: 8px;
+            padding: 3px;
             text-align: center;
         }
 
         .badge-box .title {
-            font-size: 15px; /* تكبير خط عنوان الطاولة */
+            font-size: 13px;
             color: #000000;
             font-weight: 800;
-            margin-bottom: 2px;
+            margin-bottom: 1px;
         }
 
         .badge-box .value {
-            font-size: 26px; /* تكبير رقم الطاولة ليكون ضخماً وواضحاً */
+            font-size: 24px;
             font-weight: 800;
             color: #000;
         }
 
-        /* نوع الخدمة سفري / صالة */
-        .badge-box.service-type {
-            background: #000000;
-            color: #ffffff;
-            border: none;
-        }
-
-        .badge-box.service-type .value {
-            color: #ffffff;
-            font-size: 19px; /* تكبير الخط */
-            font-family: 'Arial', sans-serif;
-        }
-
         /* كرت العميل المحدد */
         .customer-card {
-            border: 3px dashed #000000;
+            border: 2px dashed #000000;
             text-align: center;
-            font-size: 22px; /* تكبير خط اسم العميل */
+            font-size: 20px;
             font-weight: 800;
-            padding: 10px;
-            border-radius: 12px;
-            margin-bottom: 12px;
+            padding: 7px;
+            border-radius: 8px;
+            margin-bottom: 6px;
         }
 
         /* كرت الجدول محاط بالكامل بإطار دائري صريح */
         .table-card {
-            border: 3px solid #000000; /* زيادة سُمك إطار الجدول */
-            border-radius: 14px;
+            border: 1.5px solid #000000;
+            border-radius: 8px;
             padding: 0;
-            margin-bottom: 12px;
+            margin-bottom: 5px;
             overflow: hidden;
         }
 
@@ -115,12 +126,12 @@
             border-collapse: collapse;
         }
 
-        /* تباين رأس الجدول بـ خطوط سوداء صريحة وخط كبير */
+        /* تباين رأس الجدول بـ خطوط سوداء صريحة */
         .items-table th {
             background: #f2f2f2;
-            border-bottom: 3px solid #000000;
-            padding: 10px 6px;
-            font-size: 18px; /* تكبير خط العناوين (الصنف، السعر...) */
+            border-bottom: 2px solid #000000;
+            padding: 7px 4px;
+            font-size: 19px;
             font-weight: 800;
         }
 
@@ -129,12 +140,12 @@
         .col-qty { text-align: center; width: 15%; font-family: 'Arial', sans-serif; }
         .col-total { text-align: left; width: 22%; font-family: 'Arial', sans-serif; font-weight: 800; }
 
-        /* خطوط منقطة سوداء حادة لتقرأها الطابعة بوضوح مع خط كبير جداً ومريح للأصناف */
+        /* خطوط منقطة سوداء حادة لتقرأها الطابعة بوضوح */
         .items-table td {
-            padding: 12px 6px; /* مسافة داخلية ممتازة للخطوط الكبيرة */
-            border-bottom: 3px dotted #000000; /* جعل نقاط الفصل أكثر سُمكاً ووضوحاً */
-            font-size: 19px; /* تكبير خط الأصناف والأسعار داخل الجدول */
-            font-weight: 700;
+            padding: 8px 4px;
+            border-bottom: 1.5px dotted #000000;
+            font-size: 21px;
+            font-weight: 800;
             vertical-align: middle;
         }
 
@@ -143,57 +154,60 @@
         }
 
         .item-notes {
-            font-size: 15px; /* تكبير خط الملاحظات */
+            font-size: 16px;
             color: #000000;
-            margin-top: 3px;
-            font-weight: 700;
+            margin-top: 2px;
+            font-weight: 800;
         }
 
-        /* صندوق المجموع النهائي الفخم والواضح جداً */
+        /* صندوق المجموع النهائي */
         .total-box {
-            border: 3px solid #000000; /* زيادة سُمك الإطار */
-            border-radius: 14px;
-            padding: 14px 18px;
+            border: 1.5px solid #000000;
+            border-radius: 8px;
+            padding: 5px 8px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 12px;
+            margin-bottom: 5px;
         }
 
         .total-label {
-            font-size: 22px; /* تكبير كلمة المجموع الإجمالي */
+            font-size: 20px;
             font-weight: 800;
         }
 
         .total-amount {
-            font-size: 34px; /* تكبير خط الرقم النهائي ليكون ضخماً جداً وواضحاً */
+            font-size: 30px;
             font-weight: 800;
             font-family: 'Arial', sans-serif;
         }
 
         .employee-card {
-            border: 2px solid #000000;
-            border-radius: 10px;
-            padding: 8px 14px;
-            font-size: 16px; /* تكبير خط اسم الموظف */
-            font-weight: 700;
-            margin-bottom: 12px;
+            border: 1.5px solid #000000;
+            border-radius: 6px;
+            padding: 6px 8px;
+            font-size: 16px;
+            font-weight: 800;
+            margin-bottom: 4px;
             text-align: right;
         }
 
         .footer {
             text-align: center;
-            font-size: 16px; /* تكبير خط التذييل */
-            font-weight: 700;
-            border-top: 3px dashed #000000;
-            padding-top: 10px;
-            margin-top: 6px;
+            font-size: 16px;
+            font-weight: 800;
+            border-top: 2px dashed #000000;
+            padding-top: 6px;
+            margin-top: 4px;
         }
     </style>
 </head>
 <body>
 
     <div class="receipt-container">
+        <div class="brand-header">
+            <span class="o2-logo">O<sub>2</sub></span>
+        </div>
         <div class="header-section">
             <div class="header-info">
                 <div>التاريخ: <span class="en-text">{{ date('d/m/Y') }}</span></div>
@@ -201,9 +215,6 @@
                 <div>الرقم: <span class="en-text">#{{ $order->order_number ?? $order->id }}</span></div>
             </div>
             <div class="header-badges">
-                <div class="badge-box service-type">
-                    <div class="value">{{ strtoupper($order->order_type ?? 'T.W') }}</div>
-                </div>
                 @if(!empty($order->table_number))
                 <div class="badge-box">
                     <div class="title">رقم الطاولة</div>
@@ -213,7 +224,12 @@
             </div>
         </div>
 
-        <div class="customer-card">اسم العميل: {{ $order->customer_name ?? 'زبون خارجي' }}</div>
+        @isset($filteredItems)
+            {{-- نسخة القسم (محلي) — نعرض اسم القسم بدل اسم العميل --}}
+            <div class="customer-card">القسم: {{ ltrim(str_replace('طابعة', '', $printerName ?? ''), ' ') ?: 'قسم' }}</div>
+        @else
+            <div class="customer-card">اسم الزبون: {{ $order->customer_name ?? 'زبون خارجي' }}</div>
+        @endisset
 
         <div class="table-card">
             <table class="items-table">
@@ -246,20 +262,41 @@
             </table>
         </div>
 
+        @php
+            // الخصم إجمالي (تلقائي من محرك الخصومات + يدوي) يُعرض بس بفاتورة
+            // الطلب الكاملة (مش بالنسخ المفلترة لكل قسم، لأنه ما بينقسم بشكل منطقي).
+            $totalDiscount = !isset($filteredItems)
+                ? (float) ($order->engine_discount_amount ?? 0) + (float) ($order->discount_amount ?? 0)
+                : 0;
+        @endphp
+
+        @if($totalDiscount > 0)
+        <div class="total-box" style="margin-bottom: 3px;">
+            <span class="total-label" style="font-size: 17px;">المجموع الفرعي</span>
+            <span class="total-amount" style="font-size: 21px;">₪{{ number_format($order->subtotal ?? 0, 2) }}</span>
+        </div>
+        <div class="total-box" style="margin-bottom: 3px;">
+            <span class="total-label" style="font-size: 17px;">الخصم</span>
+            <span class="total-amount" style="font-size: 21px;">-₪{{ number_format($totalDiscount, 2) }}</span>
+        </div>
+        @endif
+
         <div class="total-box">
             <span class="total-label">المجموع الإجمالي</span>
             <span class="total-amount">₪{{ number_format($filteredTotal ?? $order->total ?? 0, 2) }}</span>
         </div>
 
-        @if(!empty($order->printer->name))
         <div class="employee-card">
-            طُبعت بواسطة: {{ $order->printer->name }}
+            @if(!empty($order->printedByUser->name))
+                طُبعت بواسطة: {{ $order->printedByUser->name }}
+            @elseif(!empty($order->cashier->name))
+                طُبعت بواسطة: {{ $order->cashier->name }}
+            @else
+                طُبعت بواسطة: —
+            @endif
             <br>
             <small>{{ $order->printed_at ? $order->printed_at->format('d/m/Y h:i A') : date('d/m/Y h:i A') }}</small>
         </div>
-        @elseif(!empty($order->cashier->name))
-        <div class="employee-card">الموظف: {{ $order->cashier->name }}</div>
-        @endif
 
         <div class="footer">
             <div>شكراً لطلبكم .. نتمنى لكم تجربة رائعة ❤️</div>

@@ -21,6 +21,8 @@ use App\Models\Transaction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use App\Services\Accounting\TransactionPostingService;
 use App\Jobs\PrintInvoiceJob;
 use App\Jobs\PrintTicketsJob;
 use App\Jobs\PrintOrderJob;
@@ -29,12 +31,24 @@ class OrderController extends ApiController
 {
     public function index(Request $request): JsonResponse
     {
-        $orders = Order::with(['items.department', 'tickets.department', 'cashier'])
+        // active=1 → الطلبات المفتوحة فقط (بدون paid/cancelled). يستخدمه الـ POS/الضيافة
+        // عند جلب طلبات طاولة معيّنة: كان يسحب كل تاريخ الطاولة (مئات السجلات مع
+        // علاقاتها) 3 مرات في كل ضغطة "إرسال الطلب" — بطيء جداً. الفلترة على مستوى
+        // الـ DB + سقف اختياري يقصّرها بشكل كبير.
+        $isActiveOnly = $request->boolean('active');
+
+        $eager = $isActiveOnly
+            ? ['items.department', 'tickets.department', 'cashier']
+            : ['items.department', 'tickets.department', 'cashier', 'invoice.payments'];
+
+        $orders = Order::with($eager)
             ->when($request->branch_id, fn($q) => $q->where('branch_id', $request->branch_id))
             ->when($request->status, fn($q) => $q->where('status', $request->status))
+            ->when($isActiveOnly, fn($q) => $q->whereNotIn('status', ['paid', 'cancelled']))
             ->when($request->date, fn($q) => $q->whereDate('created_at', $request->date))
             ->when($request->table_number, fn($q) => $q->where('table_number', $request->table_number))
             ->orderByDesc('id')
+            ->when($request->integer('limit') > 0, fn($q) => $q->limit($request->integer('limit')))
             ->get();
 
         return $this->success('Orders fetched', OrderResource::collection($orders));
@@ -77,6 +91,12 @@ class OrderController extends ApiController
                 'table_number' => $data['table_number'] ?? null,
                 'customer_name' => $data['customer_name'] ?? null,
                 'customer_phone' => $data['customer_phone'] ?? null,
+                'customer_mobile' => $data['customer_mobile'] ?? null,
+                'customer_address' => $data['customer_address'] ?? null,
+                'customer_notes' => $data['customer_notes'] ?? null,
+                'scheduled_at' => $data['scheduled_at'] ?? null,
+                'currency' => $data['currency'] ?? 'ILS',
+                'exchange_rate' => $data['exchange_rate'] ?? 1,
                 'customer_id' => $data['customer_id'] ?? null,
                 'employee_id' => $data['employee_id'] ?? null,
                 'supplier_id' => $data['supplier_id'] ?? null,
@@ -105,7 +125,8 @@ class OrderController extends ApiController
                         (float) $row['quantity'],
                         isset($row['unit_price']) ? (float) $row['unit_price'] : null,
                         $row['notes'] ?? null,
-                        $row['is_takeaway'] ?? false
+                        $row['is_takeaway'] ?? false,
+                        $row['is_complimentary'] ?? false
                     );
                 }
                 $order->recalculateTotals();
@@ -174,13 +195,15 @@ class OrderController extends ApiController
                     ->get()
                     ->keyBy('item_id');
 
-                // تحديث is_takeaway للأصناف المطبوعة (المحفوظة مسبقاً)
+                // تحديث is_takeaway/is_complimentary/الملاحظة للأصناف المطبوعة (المحفوظة مسبقاً)
                 foreach ($request->items as $row) {
                     $existingItem = $printedDirectItems->get($row['item_id']);
 
                     if ($existingItem) {
                         $existingItem->update([
                             'is_takeaway' => $row['is_takeaway'] ?? false,
+                            'is_complimentary' => $row['is_complimentary'] ?? false,
+                            'notes' => $row['notes'] ?? $existingItem->notes,
                         ]);
                     }
                 }
@@ -203,7 +226,8 @@ class OrderController extends ApiController
                         (float) $row['quantity'],
                         isset($row['unit_price']) ? (float) $row['unit_price'] : null,
                         $row['notes'] ?? null,
-                        $row['is_takeaway'] ?? false
+                        $row['is_takeaway'] ?? false,
+                        $row['is_complimentary'] ?? false
                     );
                 }
 
@@ -264,7 +288,8 @@ class OrderController extends ApiController
                 (float) $data['quantity'],
                 isset($data['unit_price']) ? (float) $data['unit_price'] : null,
                 $data['notes'] ?? null,
-                $data['is_takeaway'] ?? false
+                $data['is_takeaway'] ?? false,
+                $data['is_complimentary'] ?? false
             );
 
             $order->recalculateTotals();
@@ -285,6 +310,65 @@ class OrderController extends ApiController
             return $this->error($e->getMessage(), 422);
         } catch (\Throwable $e) {
             return $this->error('فشل إضافة الصنف: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * إضافة عدة أصناف دفعة واحدة — إدراج كلها في معاملة واحدة مع إعادة حساب
+     * الإجماليات مرة واحدة فقط. يستبدل حلقة addItem صنف-صنف (طلب HTTP لكل صنف +
+     * recalculateTotals لكل صنف) التي كانت تُبطئ "إرسال الطلب" بالضيافة كثيراً.
+     */
+    public function addItemsBatch(Request $request, Order $order): JsonResponse
+    {
+        if (in_array($order->status, ['paid', 'cancelled', 'served', 'ready'])) {
+            return $this->error('لا يمكن إضافة أصناف لهذا الطلب.', 422);
+        }
+
+        $data = $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.item_id' => 'required|exists:items,id',
+            'items.*.quantity' => 'required|numeric|min:0.001',
+            'items.*.unit_price' => 'nullable|numeric|min:0',
+            'items.*.notes' => 'nullable|string',
+            'items.*.is_takeaway' => 'nullable|boolean',
+            'items.*.is_complimentary' => 'nullable|boolean',
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $added = [];
+            foreach ($data['items'] as $row) {
+                $added[] = $this->createOrderItem(
+                    $order,
+                    (int) $row['item_id'],
+                    (float) $row['quantity'],
+                    isset($row['unit_price']) ? (float) $row['unit_price'] : null,
+                    $row['notes'] ?? null,
+                    $row['is_takeaway'] ?? false,
+                    $row['is_complimentary'] ?? false,
+                );
+            }
+
+            $order->recalculateTotals();
+
+            DB::commit();
+
+            return $this->success(
+                'تمت إضافة الأصناف',
+                [
+                    'order' => new OrderResource($order->fresh()->load(['items.department', 'cashier'])),
+                    'added_count' => count($added),
+                ],
+                201
+            );
+        } catch (\InvalidArgumentException $e) {
+            DB::rollBack();
+
+            return $this->error($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return $this->error('فشل إضافة الأصناف: ' . $e->getMessage(), 500);
         }
     }
 
@@ -322,7 +406,12 @@ class OrderController extends ApiController
      */
     public function confirm(Order $order): JsonResponse
     {
-        if (! in_array($order->status, ['pending', 'pending_confirmation'], true)) {
+        // 'confirmed' مسموحة هون كمان: لما تنضاف جولة جديدة من الأصناف على
+        // نفس الطلب الموجود (بدل ما تنعمل Order منفصلة لكل جولة)، الطلب
+        // أصلاً بيكون status='confirmed' من الجولة الأولى، وبدنا نرسل بس
+        // الأصناف الجديدة (status='pending' على مستوى الصنف) للمطبخ —
+        // المنطق تحت أصلاً بيفلتر على مستوى الصنف مش الطلب ككل.
+        if (! in_array($order->status, ['pending', 'pending_confirmation', 'confirmed'], true)) {
             return $this->error('لا يمكن تأكيد هذا الطلب في حالته الحالية.', 422);
         }
 
@@ -418,6 +507,21 @@ class OrderController extends ApiController
         }
     }
 
+    /**
+     * هل بقي للطاولة أي طلب نشط آخر (جولة تانية لسا مفتوحة) غير الطلب الحالي؟
+     * نفس القائمة المستخدمة بـ transfer() — لتفادي تحرير طاولة عليها جولة لسا شغالة.
+     */
+    private function tableHasOtherActiveOrders(DiningTable $table, Order $order): bool
+    {
+        return Order::where(function ($q) use ($table) {
+                $q->where('dining_table_id', $table->id)
+                  ->orWhere('table_number', $table->table_number);
+            })
+            ->whereIn('status', ['pending', 'pending_confirmation', 'confirmed', 'in_progress', 'ready'])
+            ->where('id', '!=', $order->id)
+            ->exists();
+    }
+
     public function cancel(Order $order): JsonResponse
     {
         if (! in_array($order->status, ['pending', 'pending_confirmation', 'confirmed'], true)) {
@@ -430,10 +534,10 @@ class OrderController extends ApiController
                 $order->tickets()->update(['status' => 'cancelled']);
                 $order->items()->update(['status' => 'cancelled']);
 
-                // تحرير الطاولة إذا كانت مرتبطة
+                // تحرير الطاولة إذا كانت مرتبطة، وفقط إذا ما بقي عليها طلب نشط تاني
                 if ($order->dining_table_id) {
                     $table = DiningTable::find($order->dining_table_id);
-                    if ($table && $table->current_order_id == $order->id) {
+                    if ($table && $table->current_order_id == $order->id && ! $this->tableHasOtherActiveOrders($table, $order)) {
                         $table->setAvailable();
                     }
                 }
@@ -442,6 +546,62 @@ class OrderController extends ApiController
             return $this->success('تم إلغاء الطلب', new OrderResource($order->fresh()));
         } catch (\Throwable $e) {
             return $this->error('فشل إلغاء الطلب: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * عكس/إلغاء بيع تم تحصيله بالكامل (Void) — يختلف عن cancel():
+     * cancel() تلغي طلب لسا ما تحاسب (pending/confirmed)، أما void() تعكس
+     * بيع مدفوع فعلياً: بترجع قيد اليومية بعكس مدين/دائن، تلغي الفاتورة،
+     * وتحوّل الطلب لملغي — مع سبب إلزامي للتدقيق.
+     */
+    public function void(Request $request, Order $order): JsonResponse
+    {
+        $data = $request->validate([
+            'reason' => 'required|string|max:500',
+        ]);
+
+        if ($order->status !== 'paid') {
+            return $this->error(
+                'لا يمكن استخدام Void إلا على طلب مدفوع بالكامل. للطلبات غير المدفوعة استخدم الإلغاء العادي.',
+                422
+            );
+        }
+
+        try {
+            $order = DB::transaction(function () use ($order, $data) {
+                $transaction = $order->journalEntry();
+                if ($transaction && $transaction->status === 'posted' && ! $transaction->reversal()->exists()) {
+                    app(TransactionPostingService::class)->reverse($transaction, $data['reason']);
+                }
+
+                $invoice = $order->invoice;
+                if ($invoice && $invoice->status !== 'cancelled') {
+                    // ما بنمسح الدفعات (Payment) — سجل تدقيقي لما تحصّل فعلياً،
+                    // والعكس المحاسبي أعلاه هو يلي بيصحح الأرصدة.
+                    $invoice->update(['status' => 'cancelled']);
+                }
+
+                $order->update([
+                    'status' => 'cancelled',
+                    'cancellation_reason' => $data['reason'],
+                    'cancelled_at' => now(),
+                ]);
+
+                return $order;
+            });
+
+            return $this->success(
+                'تم عكس/إلغاء البيع بنجاح',
+                new OrderResource($order->fresh(['items', 'invoice.payments']))
+            );
+        } catch (\Throwable $e) {
+            \Log::error('فشل Void للطلب #' . $order->id, [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+            return $this->error('فشل إلغاء/عكس البيع: ' . $e->getMessage(), 500);
         }
     }
 
@@ -504,7 +664,7 @@ class OrderController extends ApiController
                         ->first();
                 }
 
-                if ($table) {
+                if ($table && ! $this->tableHasOtherActiveOrders($table, $order)) {
                     $table->setAvailable();
                 }
 
@@ -746,10 +906,23 @@ class OrderController extends ApiController
         ?float $unitPrice = null,
         ?string $notes = null,
         bool $isTakeaway = false,
+        bool $isComplimentary = false,
     ): OrderItem {
         $item = Item::with('department')->findOrFail($itemId);
+        $catalogPrice = $item->priceForBranch($order->branch_id);
 
-        $price = $unitPrice ?? $item->priceForBranch($order->branch_id);
+        // نثق بسعر الفرع من الكتالوج دايماً، إلا إذا المستخدم فعلياً معه صلاحية
+        // تعديل السعر (adjust-order-total) وبعت سعر مختلف عمداً. بدون هالفحص،
+        // أي طلب addItem/store كان يقدر يمرر أي unit_price كيفما كان (حتى 0.01)
+        // ويتقبل كما هو — الفرونت اند العادي أصلاً بيبعت نفس سعر الكتالوج دايماً،
+        // فهاد الفحص ما بيأثر على الاستخدام الطبيعي إطلاقاً.
+        $price = $catalogPrice;
+        if ($unitPrice !== null && (float) $unitPrice !== (float) $catalogPrice) {
+            $user = auth()->user();
+            if ($user && method_exists($user, 'can') && $user->can('adjust-order-total')) {
+                $price = $unitPrice;
+            }
+        }
 
         if ($price === null) {
             throw new \InvalidArgumentException('الصنف غير مفعّل أو بدون سعر في هذا الفرع.');
@@ -774,6 +947,7 @@ class OrderController extends ApiController
             'status' => 'pending',
             'notes' => $notes,
             'is_takeaway' => $isTakeaway,
+            'is_complimentary' => $isComplimentary,
         ]);
     }
 
@@ -784,12 +958,28 @@ class OrderController extends ApiController
      */
     public function printInvoice(Order $order): JsonResponse
     {
+        // قفل قصير جداً يمنع بس تكرار فعلي بنفس اللحظة (ضغطة مزدوجة/طلب
+        // مكرر من الواجهة خلال نفس الثانية) — مش مقصود يمنع إعادة طباعة
+        // متعمدة بعد شوي، فلازم يضل قصير.
+        $lock = Cache::lock("print-invoice:{$order->id}", 3);
+
+        if (!$lock->get()) {
+            return $this->success('أمر الطباعة قيد التنفيذ لهذا الطلب بالفعل');
+        }
+
         $printerId = request('printer_id');
+
+        // mode: 'all' | 'merged' | 'departments' | 'fawri' (فاتورة كل قسم على طابعة الكاشير)
+        $mode = request('mode', 'all');
+        if (!in_array($mode, ['all', 'merged', 'departments', 'fawri'], true)) {
+            $mode = 'all';
+        }
 
         PrintInvoiceJob::dispatch(
             $order,
             $printerId ? (int) $printerId : null,
             auth()->id(),
+            $mode,
         );
 
         return $this->success('تم إرسال أمر طباعة الفاتورة');
@@ -875,7 +1065,14 @@ class OrderController extends ApiController
 
             // الطباعة الفعلية (Browsershot + إرسال للطابعة) بطيئة (ثواني)،
             // فتُنفَّذ بالخلفية عبر Queue Job بدل حجز الـ request عليها.
-            \App\Jobs\DirectPrintJob::dispatch($order->id, $cashierDeviceId);
+            // وقت ضغط "تنفيذ وطباعة" = وقت إغلاق الفاتورة الفوري — يُطبع على التيكيت
+            // (نلتقطه هون لأن التيكيت يُرسم بالخلفية وقد يتأخر ثوانٍ عن هذه اللحظة).
+            \App\Jobs\DirectPrintJob::dispatch(
+                $order->id,
+                $cashierDeviceId,
+                auth()->id(),
+                now()->toIso8601String(),
+            );
 
             return response()->json([
                 'success' => true,

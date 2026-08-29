@@ -36,6 +36,10 @@ class StoreOrderRequest extends FormRequest
             'delivery_fee' => 'nullable|numeric|min:0',
             'delivery_address_snapshot' => 'nullable|json',
             'customer_notes' => 'nullable|string',
+            'customer_address' => 'nullable|string|max:255',
+            'scheduled_at' => 'nullable|date',
+            'currency' => 'nullable|string|max:8',
+            'exchange_rate' => 'nullable|numeric|min:0',
             'delivery_notes' => 'nullable|string',
             'call_notes' => 'nullable|string',
             'needs_attention' => 'nullable|boolean',
@@ -56,6 +60,7 @@ class StoreOrderRequest extends FormRequest
             'items.*.unit_price' => 'nullable|numeric|min:0',
             'items.*.notes' => 'nullable|string',
             'items.*.is_takeaway' => 'nullable|boolean',
+            'items.*.is_complimentary' => 'nullable|boolean',
         ];
     }
 
@@ -111,6 +116,10 @@ class StoreOrderRequest extends FormRequest
             'delivery_fee' => $this->input('delivery_fee') ?? $this->input('deliveryFee'),
             'delivery_address_snapshot' => $this->input('delivery_address_snapshot') ?? $this->input('deliveryAddressSnapshot'),
             'customer_notes' => $this->input('customer_notes') ?? $this->input('customerNotes'),
+            'customer_address' => $this->input('customer_address') ?? $this->input('customerAddress'),
+            'scheduled_at' => $this->input('scheduled_at') ?? $this->input('scheduledAt'),
+            'currency' => $this->input('currency'),
+            'exchange_rate' => $this->input('exchange_rate') ?? $this->input('exchangeRate'),
             'delivery_notes' => $this->input('delivery_notes') ?? $this->input('deliveryNotes'),
             'call_notes' => $this->input('call_notes') ?? $this->input('callNotes'),
             'needs_attention' => $this->input('needs_attention') ?? $this->input('needsAttention'),

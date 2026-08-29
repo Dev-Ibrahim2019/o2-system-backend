@@ -9,6 +9,7 @@ use Mike42\Escpos\CapabilityProfile;
 use Mike42\Escpos\EscposImage;
 use Mike42\Escpos\Printer as EscposPrinter;
 use Mike42\Escpos\PrintConnectors\NetworkPrintConnector;
+use Mike42\Escpos\PrintConnectors\WindowsPrintConnector;
 
 class EscPosPrinterDriver implements PrinterDriverInterface
 {
@@ -145,15 +146,44 @@ class EscPosPrinterDriver implements PrinterDriverInterface
         }
     }
 
+    /**
+     * فتح صندوق النقدية المربوط بمنفذ الدرج (drawer kick) — بدون تغذية ورق أو قص،
+     * لأنه ما في إيصال منطبع أصلاً.
+     */
+    public function openDrawer(Printer $printer): array
+    {
+        $escpos = null;
+
+        try {
+            $escpos = $this->connect($printer, 3);
+            $escpos->pulse();
+
+            return $this->success($printer);
+        } catch (\Exception $e) {
+            return $this->error($printer, $e);
+        } finally {
+            $this->close($escpos);
+        }
+    }
+
     // ── Connection Helpers ──────────────────────────────────
 
     private function connect(Printer $printer, int $timeout = 5): EscposPrinter
     {
-        $connector = new NetworkPrintConnector(
-            $printer->ip_address,
-            (int) ($printer->port ?? 9100),
-            $timeout
-        );
+        $target = trim((string) $printer->ip_address);
+
+        // إذا كانت خانة "IP" اسم طابعة ويندوز محلية (XP-80C) أو مشاركة
+        // (smb://localhost/XP80) بدل عنوان IP رقمي → نطبع عبر مزود ويندوز
+        // مباشرة على الطابعة الموصولة USB بنفس الجهاز الذي يشغّل الـ worker.
+        if ($target !== '' && ! filter_var($target, FILTER_VALIDATE_IP)) {
+            $connector = new WindowsPrintConnector($target);
+        } else {
+            $connector = new NetworkPrintConnector(
+                $target,
+                (int) ($printer->port ?? 9100),
+                $timeout
+            );
+        }
 
         $profile = CapabilityProfile::load('default');
 

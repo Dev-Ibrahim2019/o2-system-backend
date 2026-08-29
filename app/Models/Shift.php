@@ -96,27 +96,35 @@ class Shift extends Model
 
     /**
      * Get or create an open shift for a branch today.
+     * قفل + معاملة عشان طلبين متزامنين (مثلاً أول أوردر باليوم من كاشيرين
+     * مختلفين بنفس اللحظة) ما ينشئوا يوميتين مفتوحتين لنفس الفرع/اليوم.
      */
     public static function getOrCreateToday(int $branchId, int $userId, float $openingBalance = 0): self
     {
-        $existing = static::getOpenForBranch($branchId);
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($branchId, $userId, $openingBalance) {
+            $existing = static::where('branch_id', $branchId)
+                ->where('status', 'open')
+                ->whereDate('date', now()->toDateString())
+                ->lockForUpdate()
+                ->first();
 
-        if ($existing) {
-            return $existing;
-        }
+            if ($existing) {
+                return $existing;
+            }
 
-        // البحث عن السنة المالية النشطة لتاريخ اليوم
-        $fiscalYear = FiscalYear::findForDate(now());
+            // البحث عن السنة المالية النشطة لتاريخ اليوم
+            $fiscalYear = FiscalYear::findForDate(now());
 
-        return static::create([
-            'branch_id' => $branchId,
-            'fiscal_year_id' => $fiscalYear?->id,
-            'opened_by' => $userId,
-            'date' => now()->toDateString(),
-            'opened_at' => now(),
-            'status' => 'open',
-            'opening_balance' => $openingBalance,
-        ]);
+            return static::create([
+                'branch_id' => $branchId,
+                'fiscal_year_id' => $fiscalYear?->id,
+                'opened_by' => $userId,
+                'date' => now()->toDateString(),
+                'opened_at' => now(),
+                'status' => 'open',
+                'opening_balance' => $openingBalance,
+            ]);
+        });
     }
 
     // ── Instance Methods ───────────────────────────────────────────────────────

@@ -39,6 +39,7 @@ class Discount extends Model
         'get_discount_percent',
         'max_discount_amount',
         'min_order_amount',
+        'usage_limit',
     ];
 
     protected $casts = [
@@ -53,6 +54,7 @@ class Discount extends Model
         'get_discount_percent' => 'decimal:2',
         'max_discount_amount' => 'decimal:3',
         'min_order_amount' => 'decimal:3',
+        'usage_limit' => 'integer',
     ];
 
     // ── Scopes ──────────────────────────────────────────────────────────

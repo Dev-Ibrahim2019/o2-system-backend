@@ -312,6 +312,7 @@ class DiscountController extends ApiController
             'is_active' => 'nullable|boolean',
             'max_discount_amount' => 'nullable|numeric|min:0',
             'min_order_amount' => 'nullable|numeric|min:0',
+            'usage_limit' => 'nullable|integer|min:1',
             'targets' => 'nullable|array',
             'targets.*.target_type' => 'required|string|in:' . implode(',', self::TARGET_TYPES),
             'targets.*.target_id' => 'nullable|integer',
@@ -366,6 +367,7 @@ class DiscountController extends ApiController
             'is_active',
             'max_discount_amount',
             'min_order_amount',
+            'usage_limit',
         ] as $key) {
             if (array_key_exists($key, $data)) {
                 $attributes[$key] = $data[$key];

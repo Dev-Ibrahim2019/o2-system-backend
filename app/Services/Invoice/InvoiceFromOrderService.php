@@ -35,6 +35,9 @@ class InvoiceFromOrderService
         $supplierId = $data['supplier_id'] ?? $order->supplier_id;
         $branchId = $order->branch_id;
 
+        // هاي الحقول كانت توصل بـ $data من الكنترولر وتنرمى — Invoice::create()
+        // تحت ما كانت تستخدمها إطلاقاً، يعني pos_register_id/opened_by/currency
+        // وغيرها كانت تضل NULL على كل فاتورة بترجع مربوطة بنقطة بيع.
         $invoice = Invoice::create([
             'number' => Invoice::generateNumber(),
             'order_id' => $order->id,
@@ -46,6 +49,16 @@ class InvoiceFromOrderService
             'total' => 0,
             'invoice_date' => now(),
             'notes' => $data['notes'] ?? $order->note,
+            'pos_register_id' => $data['pos_register_id'] ?? null,
+            'pos_code' => $data['pos_code'] ?? null,
+            'pos_name' => $data['pos_name'] ?? null,
+            'opened_by' => $data['opened_by'] ?? $appliedBy,
+            'opened_at' => $data['opened_at'] ?? now(),
+            'currency' => $data['currency'] ?? ($order->currency ?? 'ILS'),
+            'exchange_rate' => $data['exchange_rate'] ?? ($order->exchange_rate ?? 1),
+            'account_number' => $data['account_number'] ?? null,
+            'reference_number' => $data['reference_number'] ?? null,
+            'daily_sequence' => Invoice::nextDailySequence($data['pos_register_id'] ?? null),
         ]);
 
         $grossSubtotal = 0.0;

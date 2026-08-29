@@ -23,11 +23,13 @@ class DiningTable extends Model
         'customer_count',
         'last_order_at',
         'merged_with_id',
+        'waiter_called_at',
     ];
 
     protected $casts = [
         'seated_at' => 'datetime',
         'last_order_at' => 'datetime',
+        'waiter_called_at' => 'datetime',
         'customer_count' => 'integer',
         'capacity' => 'integer',
     ];
@@ -83,6 +85,7 @@ class DiningTable extends Model
             'seated_at' => null,
             'customer_count' => 0,
             'last_order_at' => now(),
+            'waiter_called_at' => null,
         ]);
     }
 
@@ -94,12 +97,23 @@ class DiningTable extends Model
             'seated_at' => null,
             'customer_count' => 0,
             'last_order_at' => now(),
+            'waiter_called_at' => null,
         ]);
     }
 
     public function setCleaning(): void
     {
         $this->update(['status' => 'CLEANING']);
+    }
+
+    public function callWaiter(): void
+    {
+        $this->update(['waiter_called_at' => now()]);
+    }
+
+    public function acknowledgeWaiterCall(): void
+    {
+        $this->update(['waiter_called_at' => null]);
     }
 
     public function setReserved(): void

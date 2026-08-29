@@ -82,6 +82,9 @@ class RolesAndPermissionsSeeder extends Seeder
             // ── القاعات والطاولات ──
             'manage-dining-zones',
 
+            // ── الطابعات ──
+            'manage-printers',
+
             // ── واجهة الكاشير ──
             'access-pos',
             'view-menu',
@@ -125,6 +128,10 @@ class RolesAndPermissionsSeeder extends Seeder
             'view-reports',
             'view-accounting',
             'manage-customers',
+            'manage-hospitality-devices',
+            'manage-dining-zones',
+            'manage-printers',
+            'manage-pos-registers',
         ]);
 
         // ── 3. المحاسب (accountant) ──
@@ -163,6 +170,14 @@ class RolesAndPermissionsSeeder extends Seeder
             'view-orders',
             'manage-orders',
             'manage-customers',
+            'view-menu',
+            // نفس صلاحيات إغلاق/تحصيل الفاتورة يلي عند الكاشير — بدونها زر
+            // "تحصيل الفاتورة" بطلع "User does not have the right permissions"
+            // (orders/{order}/invoice ثم invoices/{invoice}/payments).
+            'close-invoices',
+            'add-payments',
+            'manage-payments',
+            'manage-invoices',
         ]);
 
         // ── 6. موظف القسم (dept-staff) ──

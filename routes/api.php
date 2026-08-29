@@ -97,21 +97,28 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware('permission:manage-orders');
         Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry'])
             ->middleware('permission:manage-accounting|post-journal');
-        // â”€â”€ Orders â”€â”€
-        Route::post('orders/{order}/void', [OrderController::class, 'void']);
-        Route::apiResource('orders', OrderController::class)->except(['destroy']);
-        Route::post('orders/{order}/items', [OrderController::class, 'addItem']);
-        Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
-        Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
-        Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
-    Route::post('orders/{order}/defer', [OrderController::class, 'deferOrder']);
-    Route::post('orders/{order}/transfer', [OrderController::class, 'transfer']);
-        Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
-        Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
-        Route::post('orders/{order}/print-invoice', [OrderController::class, 'printInvoice']);
-        Route::post('orders/{order}/print-tickets', [OrderController::class, 'printTickets']);
-        Route::post('orders/{order}/print-order', [OrderController::class, 'printOrder']);
-        Route::post('orders/{order}/direct-print', [OrderController::class, 'directPrint']);
+        // ── Orders ──
+        // NOTE: this used to re-register void/apiResource(orders)/items/confirm/serve/
+        // journal-entry WITHOUT a permission gate, right after the correctly-gated
+        // versions above. Laravel's router keeps the LAST route registered for an
+        // identical method+URI (not the first), so those ungated duplicates were
+        // silently overriding the gated ones — every order-management endpoint was
+        // reachable by any authenticated user of any role. Removed; only routes that
+        // don't already exist above stay here, now gated.
+        Route::post('orders/{order}/defer', [OrderController::class, 'deferOrder'])
+            ->middleware('permission:manage-orders');
+        Route::post('orders/{order}/transfer', [OrderController::class, 'transfer'])
+            ->middleware('permission:manage-orders');
+        Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections'])
+            ->middleware('permission:manage-orders|access-pos|access-pos-interface');
+        Route::post('orders/{order}/print-invoice', [OrderController::class, 'printInvoice'])
+            ->middleware('permission:manage-orders|access-pos|access-pos-interface');
+        Route::post('orders/{order}/print-tickets', [OrderController::class, 'printTickets'])
+            ->middleware('permission:manage-orders|access-pos|access-pos-interface');
+        Route::post('orders/{order}/print-order', [OrderController::class, 'printOrder'])
+            ->middleware('permission:manage-orders|access-pos|access-pos-interface');
+        Route::post('orders/{order}/direct-print', [OrderController::class, 'directPrint'])
+            ->middleware('permission:manage-orders|access-pos|access-pos-interface');
         Route::post('orders/{order}/cancel', [OrderController::class, 'cancel'])->middleware('permission:manage-orders');
 
         Route::get('production-tickets', [ProductionTicketController::class, 'index']);
@@ -131,14 +138,45 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware('permission:manage-accounting|post-journal');
 
         // ── Settlement & Payment Routing ──
-        Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle']);
-        Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
-        Route::apiResource('payment-methods', \App\Http\Controllers\Api\PaymentMethodController::class);
+        // Same set of roles allowed to actually take/close an order (cashier, hospitality,
+        // call-center, super-admin) — this is the endpoint that marks an order as paid.
+        Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle'])
+            ->middleware('permission:manage-orders|access-pos|access-pos-interface|close-invoices|manage-invoices');
+        Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show'])
+            ->middleware('permission:manage-orders|access-pos|access-pos-interface|close-invoices|manage-invoices');
+        // Reading the list of payment methods is needed by every checkout screen; only
+        // creating/editing/deleting a payment method (tied to a financial account) is restricted.
+        Route::get('payment-methods', [\App\Http\Controllers\Api\PaymentMethodController::class, 'index'])
+            ->middleware('permission:manage-orders|access-pos|access-pos-interface|close-invoices|manage-invoices');
+        Route::get('payment-methods/{payment_method}', [\App\Http\Controllers\Api\PaymentMethodController::class, 'show'])
+            ->middleware('permission:manage-orders|access-pos|access-pos-interface|close-invoices|manage-invoices');
+        Route::post('payment-methods', [\App\Http\Controllers\Api\PaymentMethodController::class, 'store'])
+            ->middleware('permission:manage-accounting|manage-settings');
+        Route::put('payment-methods/{payment_method}', [\App\Http\Controllers\Api\PaymentMethodController::class, 'update'])
+            ->middleware('permission:manage-accounting|manage-settings');
+        Route::delete('payment-methods/{payment_method}', [\App\Http\Controllers\Api\PaymentMethodController::class, 'destroy'])
+            ->middleware('permission:manage-accounting|manage-settings');
+
+        // ── أرقام الحسابات المحاسبية (تبويب "أرقام الحسابات") ──
+        Route::get('accounting-settings', [\App\Http\Controllers\Admin\AccountingSettingController::class, 'index'])
+            ->middleware('permission:manage-accounting|access-pos|access-pos-interface|manage-settings');
+        Route::put('accounting-settings', [\App\Http\Controllers\Admin\AccountingSettingController::class, 'update'])
+            ->middleware('permission:manage-accounting|manage-settings');
 
         // ── Shifts / الورديات ──
-        Route::get('shifts', [ShiftController::class, 'index']);
-        Route::get('shifts/current', [ShiftController::class, 'current']);
-        Route::post('shifts/rollover', [ShiftController::class, 'rollover']);
+        Route::middleware('permission:manage-orders|access-pos|access-pos-interface')->group(function () {
+            Route::get('shifts', [ShiftController::class, 'index']);
+            Route::get('shifts/current', [ShiftController::class, 'current']);
+            Route::post('shifts/open', [ShiftController::class, 'open']);
+            Route::post('shifts/close', [ShiftController::class, 'close']);
+            Route::post('shifts/rollover', [ShiftController::class, 'rollover']);
+
+            // ── فتح صندوق النقدية (F9) ──
+            Route::post('pos/open-drawer', [\App\Http\Controllers\Api\CashDrawerController::class, 'open']);
+
+            // ── التنقل بين الفواتير (التالي/السابق/الأول/الأخير) ──
+            Route::get('invoices/{invoice}/adjacent', [InvoiceController::class, 'adjacent']);
+        });
 
         // ── Order Timeline / سجل الطلب الزمني ──
         Route::get('orders/{order}/timeline', [\App\Http\Controllers\Api\OrderTimelineController::class, 'timeline']);
@@ -146,15 +184,18 @@ Route::middleware('auth:sanctum')->group(function () {
     }); // نهاية مسار POS المحمي بـ CheckPosNetwork
 
     // ── Tables Management (موحدة للكاشير/الضيافة/المحاسب/المدير) ──
-    Route::get('tables', [\App\Http\Controllers\Api\TableOperationsController::class, 'index']);
-    Route::get('tables/{table}', [\App\Http\Controllers\Api\TableOperationsController::class, 'show']);
-    Route::post('tables/{table}/seat', [\App\Http\Controllers\Api\TableOperationsController::class, 'seat']);
-    Route::put('tables/{table}/status', [\App\Http\Controllers\Api\TableOperationsController::class, 'updateStatus']);
-    Route::post('tables/{table}/free', [\App\Http\Controllers\Api\TableOperationsController::class, 'free']);
-    Route::post('tables/transfer', [\App\Http\Controllers\Api\TableOperationsController::class, 'transfer']);
-    Route::post('tables/merge', [\App\Http\Controllers\Api\TableOperationsController::class, 'merge']);
-    Route::post('tables/{table}/unmerge', [\App\Http\Controllers\Api\TableOperationsController::class, 'unmerge']);
-    Route::post('tables/{table}/defer-all', [\App\Http\Controllers\Api\TableOperationsController::class, 'deferAll']);
+    Route::middleware('permission:manage-orders|access-pos|access-pos-interface|manage-branches')->group(function () {
+        Route::get('tables', [\App\Http\Controllers\Api\TableOperationsController::class, 'index']);
+        Route::get('tables/{table}', [\App\Http\Controllers\Api\TableOperationsController::class, 'show']);
+        Route::post('tables/{table}/seat', [\App\Http\Controllers\Api\TableOperationsController::class, 'seat']);
+        Route::put('tables/{table}/status', [\App\Http\Controllers\Api\TableOperationsController::class, 'updateStatus']);
+        Route::post('tables/{table}/free', [\App\Http\Controllers\Api\TableOperationsController::class, 'free']);
+        Route::post('tables/transfer', [\App\Http\Controllers\Api\TableOperationsController::class, 'transfer']);
+        Route::post('tables/merge', [\App\Http\Controllers\Api\TableOperationsController::class, 'merge']);
+        Route::post('tables/{table}/unmerge', [\App\Http\Controllers\Api\TableOperationsController::class, 'unmerge']);
+        Route::post('tables/{table}/defer-all', [\App\Http\Controllers\Api\TableOperationsController::class, 'deferAll']);
+        Route::post('tables/{table}/acknowledge-waiter-call', [\App\Http\Controllers\Api\TableOperationsController::class, 'acknowledgeWaiterCall']);
+    });
 
     // ── إدارة المستخدمين ──
     Route::get('users', [UserController::class, 'index'])->middleware('permission:manage-users');
@@ -219,6 +260,8 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:view-orders|create-orders|manage-orders');
     Route::post('orders/{order}/items', [OrderController::class, 'addItem'])
         ->middleware('permission:create-orders|manage-orders');
+    Route::post('orders/{order}/items/batch', [OrderController::class, 'addItemsBatch'])
+        ->middleware('permission:create-orders|manage-orders');
     Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem'])
         ->middleware('permission:create-orders|manage-orders');
     Route::post('orders/offline-deliveries/sync', [OrderController::class, 'syncOfflineDeliveries'])
@@ -246,22 +289,18 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:manage-orders');
     Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry'])
         ->middleware('permission:manage-accounting|post-journal');
-    Route::post('orders/{order}/void', [OrderController::class, 'void']);
-    Route::apiResource('orders', OrderController::class)->except(['destroy']);
-    Route::post('orders/{order}/items', [OrderController::class, 'addItem']);
-    Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
-    Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
-    Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
-    Route::post('orders/{order}/defer', [OrderController::class, 'deferOrder']);
-    Route::post('orders/{order}/transfer', [OrderController::class, 'transfer']);
-    Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
-    Route::get('orders/{order}/print-sections', [OrderController::class, 'printSections']);
-    Route::post('orders/{order}/print-invoice', [OrderController::class, 'printInvoice']);
-    Route::post('orders/{order}/print-tickets', [OrderController::class, 'printTickets']);
-    Route::post('orders/{order}/direct-print', [OrderController::class, 'directPrint']);
-    Route::post('orders/{order}/cancel', [OrderController::class, 'cancel'])->middleware('permission:manage-orders');
-    Route::post('orders/{order}/sync-pricing', [OrderController::class, 'syncPricing']);
-    Route::get('orders/{order}/invoice-id', [InvoiceDetailsController::class, 'getInvoiceIdFromOrder']);
+    // NOTE: this used to re-register void/apiResource(orders)/items/confirm/serve/
+    // journal-entry/defer/transfer/print-*/direct-print/cancel a second time here
+    // WITHOUT permission gates — since Laravel's router keeps the LAST route
+    // registered for an identical method+URI, these ungated duplicates were
+    // silently overriding the gated versions defined earlier in this same file
+    // (both above at ~line 233 and inside the check.pos.network group at ~line 69).
+    // All of those already have a single, gated definition now — removed here.
+    // Only sync-pricing and invoice-id were unique to this block; gated now.
+    Route::post('orders/{order}/sync-pricing', [OrderController::class, 'syncPricing'])
+        ->middleware('permission:manage-orders');
+    Route::get('orders/{order}/invoice-id', [InvoiceDetailsController::class, 'getInvoiceIdFromOrder'])
+        ->middleware('permission:view-orders|manage-orders');
 
     Route::get('production-tickets', [ProductionTicketController::class, 'index']);
     Route::post('production-tickets/{ticket}/start', [ProductionTicketController::class, 'startPreparing']);
@@ -352,14 +391,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('fiscal-years/{fiscalYear}/close', [\App\Http\Controllers\Api\FiscalYearController::class, 'close']);
 });
 
-// أ¢â€‌â‚¬أ¢â€‌â‚¬ POS Registers (Admin) أ¢â€‌â‚¬أ¢â€‌â‚¬
+// ── POS Registers (Admin) ──
 Route::middleware('auth:sanctum')->prefix('admin/pos-registers')->group(function () {
-    Route::get('/', [\App\Http\Controllers\Admin\PosRegisterController::class, 'index']);
-    Route::post('/', [\App\Http\Controllers\Admin\PosRegisterController::class, 'store']);
-    Route::post('{id}/generate-token', [\App\Http\Controllers\Admin\PosRegisterController::class, 'generateActivationToken']);
-    Route::post('{id}/revoke', [\App\Http\Controllers\Admin\PosRegisterController::class, 'revokeDevice']);
-    // أ¢â€‌â‚¬أ¢â€‌â‚¬ Discount Management أ¢â€‌â‚¬أ¢â€‌â‚¬
-    // All endpoints accessible to all authenticated users
+    Route::get('/', [\App\Http\Controllers\Admin\PosRegisterController::class, 'index'])
+        ->middleware('permission:manage-pos-registers');
+    Route::post('/', [\App\Http\Controllers\Admin\PosRegisterController::class, 'store'])
+        ->middleware('permission:manage-pos-registers');
+    Route::post('{id}/generate-token', [\App\Http\Controllers\Admin\PosRegisterController::class, 'generateActivationToken'])
+        ->middleware('permission:manage-pos-registers');
+    Route::post('{id}/revoke', [\App\Http\Controllers\Admin\PosRegisterController::class, 'revokeDevice'])
+        ->middleware('permission:manage-pos-registers');
+    Route::delete('{id}', [\App\Http\Controllers\Admin\PosRegisterController::class, 'destroy'])
+        ->middleware('permission:manage-pos-registers');
+    // ── Discount Management ──
+    // Read/calculate endpoints stay open to any authenticated staff member (needed at checkout).
+    // Only create/update/delete of discount definitions is restricted.
     Route::prefix('discounts')->group(function () {
         Route::get('/calculate', [\App\Http\Controllers\Api\DiscountController::class, 'calculate']);
         Route::post('/calculate', [\App\Http\Controllers\Api\DiscountController::class, 'calculate']);
@@ -369,10 +415,13 @@ Route::middleware('auth:sanctum')->prefix('admin/pos-registers')->group(function
         Route::post('/debug', [\App\Http\Controllers\Api\DiscountController::class, 'debug']);
         Route::post('/validate-target', [\App\Http\Controllers\Api\DiscountController::class, 'validateTarget']);
         Route::get('/', [\App\Http\Controllers\Api\DiscountController::class, 'index']);
-        Route::post('/', [\App\Http\Controllers\Api\DiscountController::class, 'store']);
         Route::get('/{discount}', [\App\Http\Controllers\Api\DiscountController::class, 'show']);
-        Route::put('/{discount}', [\App\Http\Controllers\Api\DiscountController::class, 'update']);
-        Route::delete('/{discount}', [\App\Http\Controllers\Api\DiscountController::class, 'destroy']);
+        Route::post('/', [\App\Http\Controllers\Api\DiscountController::class, 'store'])
+            ->middleware('permission:manage-accounting|manage-branches');
+        Route::put('/{discount}', [\App\Http\Controllers\Api\DiscountController::class, 'update'])
+            ->middleware('permission:manage-accounting|manage-branches');
+        Route::delete('/{discount}', [\App\Http\Controllers\Api\DiscountController::class, 'destroy'])
+            ->middleware('permission:manage-accounting|manage-branches');
     });
 });
 
@@ -489,12 +538,13 @@ Route::middleware('auth:sanctum')->prefix("customers")->group(function () {
         ->middleware('permission:manage-customers|view-accounting|manage-accounting');
 });
 
-Route::post('pos/activate', [\App\Http\Controllers\Admin\PosRegisterController::class, 'activate']);
+Route::post('pos/activate', [\App\Http\Controllers\Admin\PosRegisterController::class, 'activate'])
+    ->middleware('throttle:20,1');
 
 Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);
 
 // ── Printers & Print Routes (Admin) ──
-Route::middleware('auth:sanctum')->prefix('admin/printers')->group(function () {
+Route::middleware(['auth:sanctum', 'permission:manage-printers|manage-branches'])->prefix('admin/printers')->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\PrinterController::class, 'index']);
     Route::post('/', [\App\Http\Controllers\Api\PrinterController::class, 'store']);
     Route::get('/{id}', [\App\Http\Controllers\Api\PrinterController::class, 'show']);
@@ -505,27 +555,29 @@ Route::middleware('auth:sanctum')->prefix('admin/printers')->group(function () {
     Route::get('/{id}/routes', [\App\Http\Controllers\Api\PrinterController::class, 'routes']);
 });
 
-Route::middleware('auth:sanctum')->prefix('admin/print-routes')->group(function () {
+Route::middleware(['auth:sanctum', 'permission:manage-printers|manage-branches'])->prefix('admin/print-routes')->group(function () {
     Route::get('/', [\App\Http\Controllers\Api\PrintRouteController::class, 'index']);
     Route::post('/', [\App\Http\Controllers\Api\PrintRouteController::class, 'store']);
     Route::put('/{printRoute}', [\App\Http\Controllers\Api\PrintRouteController::class, 'update']);
     Route::delete('/{printRoute}', [\App\Http\Controllers\Api\PrintRouteController::class, 'destroy']);
 });
 
-// â”€â”€ Hospitality Devices (Admin) â”€â”€
-Route::middleware('auth:sanctum')->prefix('admin/hospitality-devices')->group(function () {
+// ── Hospitality Devices (Admin) ──
+Route::middleware(['auth:sanctum', 'permission:manage-hospitality-devices|manage-branches'])->prefix('admin/hospitality-devices')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'index']);
     Route::post('/', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'store']);
     Route::post('{id}/generate-token', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'generateActivationToken']);
     Route::post('{id}/revoke', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'revokeDevice']);
+    Route::delete('{id}', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'destroy']);
 });
 
-// أ¢â€‌â‚¬أ¢â€‌â‚¬ Hospitality Activation (Public) أ¢â€‌â‚¬أ¢â€‌â‚¬
-Route::post('hospitality/activate', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'activate']);
+// ── Hospitality Activation (Public) ──
+Route::post('hospitality/activate', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'activate'])
+    ->middleware('throttle:20,1');
 Route::middleware('auth:sanctum')->post('hospitality/check-status', [\App\Http\Controllers\Admin\HospitalityDeviceController::class, 'checkStatus']);
 
-// أ¢â€‌â‚¬أ¢â€‌â‚¬ Dining Zones (Admin) أ¢â€‌â‚¬أ¢â€‌â‚¬
-Route::middleware('auth:sanctum')->prefix('admin/dining-zones')->group(function () {
+// ── Dining Zones (Admin) ──
+Route::middleware(['auth:sanctum', 'permission:manage-dining-zones|manage-branches'])->prefix('admin/dining-zones')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\DiningZoneController::class, 'index']);
     Route::post('/', [\App\Http\Controllers\Admin\DiningZoneController::class, 'store']);
     Route::get('/{id}', [\App\Http\Controllers\Admin\DiningZoneController::class, 'show']);
@@ -599,17 +651,9 @@ Route::middleware('auth:sanctum')->prefix('pbx')->group(function () {
     Route::get('/recordings/stats', [\App\Http\Controllers\Api\PbxRecordingController::class, 'stats']);
     Route::get('/recordings/play', [\App\Http\Controllers\Api\PbxRecordingController::class, 'play']);
     Route::get('/recordings/download', [\App\Http\Controllers\Api\PbxRecordingController::class, 'download']);
-// ── Unified Tables API (POS, Hospitality, Accountant, Manager) ──
-Route::middleware('auth:sanctum')->prefix('tables')->group(function () {
-    Route::get('/', [\App\Http\Controllers\Api\TableOperationsController::class, 'index']);
-    Route::get('/{table}', [\App\Http\Controllers\Api\TableOperationsController::class, 'show']);
-    Route::post('/{table}/seat', [\App\Http\Controllers\Api\TableOperationsController::class, 'seat']);
-    Route::put('/{table}/status', [\App\Http\Controllers\Api\TableOperationsController::class, 'updateStatus']);
-    Route::post('/{table}/free', [\App\Http\Controllers\Api\TableOperationsController::class, 'free']);
-    Route::post('/transfer', [\App\Http\Controllers\Api\TableOperationsController::class, 'transfer']);
-    Route::post('/merge', [\App\Http\Controllers\Api\TableOperationsController::class, 'merge']);
-    Route::post('/{table}/unmerge', [\App\Http\Controllers\Api\TableOperationsController::class, 'unmerge']);
 });
-
-Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);
-});
+// NOTE: a duplicate "Unified Tables API" group and a duplicate pos/check-status route
+// used to be accidentally nested inside the pbx prefix() above (registering them at
+// /api/pbx/tables/... instead of /api/tables/..., making them dead/unreachable).
+// Removed — the real, reachable versions already exist at line ~148 (tables/*) and
+// line ~494 (pos/check-status).

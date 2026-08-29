@@ -31,4 +31,10 @@ interface PrinterDriverInterface
      * Send a test print to verify connectivity.
      */
     public function testPrint(Printer $printer): array;
+
+    /**
+     * Kick the cash drawer connected to this printer's drawer port
+     * (ESC/POS pulse — no paper feed/cut).
+     */
+    public function openDrawer(Printer $printer): array;
 }

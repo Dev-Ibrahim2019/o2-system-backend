@@ -175,12 +175,24 @@ class DiscountEngineService
             ->byPriority()
             ->get();
 
+        // عدد مرات استخدام كل خصم — نحسبه ديناميكياً من سجل الاستخدام (كل أوردر/فاتورة
+        // مرة وحدة) بدل عمود counter منفصل ممكن ينحرف عن الواقع. استعلام واحد مجمّع.
+        $usageCounts = DiscountUsageLog::whereIn('discount_id', $discounts->pluck('id'))
+            ->selectRaw('discount_id, COUNT(DISTINCT COALESCE(order_id, invoice_id)) as used_count')
+            ->groupBy('discount_id')
+            ->pluck('used_count', 'discount_id');
+
         $matched = collect();
         $rejected = [];
         $excluded = [];
 
         foreach ($discounts as $discount) {
             $lineOriginal = $itemPrice * $quantity;
+
+            if ($discount->usage_limit && ($usageCounts[$discount->id] ?? 0) >= $discount->usage_limit) {
+                $rejected[] = $this->ruleSummary($discount, 'Usage limit reached.');
+                continue;
+            }
 
             if ($discount->min_order_amount && $lineOriginal < (float) $discount->min_order_amount) {
                 $rejected[] = $this->ruleSummary($discount, 'Minimum order amount not reached.');

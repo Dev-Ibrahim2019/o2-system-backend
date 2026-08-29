@@ -86,6 +86,23 @@ class HospitalityDeviceController extends Controller
         return response()->json(['success' => true, 'message' => 'تم إلغاء تفعيل جهاز الضيافة بنجاح. أي محاولة استخدام له سترفض فوراً.']);
     }
 
+    // 4ب. حذف سجل جهاز ضيافة (بعد إلغاء تفعيله أو قبل ما يتفعل أصلاً)
+    public function destroy($id)
+    {
+        $device = HospitalityDevice::findOrFail($id);
+
+        if ($device->status === 'ACTIVE') {
+            return response()->json([
+                'success' => false,
+                'message' => 'الجهاز مفعّل حالياً — ألغِ تفعيله أولاً قبل الحذف.',
+            ], 422);
+        }
+
+        $device->delete();
+
+        return response()->json(['success' => true, 'message' => 'تم حذف جهاز الضيافة بنجاح']);
+    }
+
     /**
      * 5. فحص حالة الجهاز — يُستدعى من React Route Guard
      */
@@ -157,53 +174,52 @@ class HospitalityDeviceController extends Controller
             ], 422);
         }
 
-        // ── 2. البحث عن جهاز الضيافة بواسطة كود التفعيل ──────────
-        $device = HospitalityDevice::where('activation_token', strtoupper($request->token))
-            ->with('branch:id,name,static_ip')
-            ->first();
+        // ── 2-6: البحث + الفحوصات + التفعيل جوا معاملة واحدة مع قفل الصف —
+        //      نفس فحص السباق يلي انصلح بـ PosRegisterController::activate().
+        $result = \Illuminate\Support\Facades\DB::transaction(function () use ($request) {
+            $device = HospitalityDevice::where('activation_token', strtoupper($request->token))
+                ->lockForUpdate()
+                ->with('branch:id,name,static_ip')
+                ->first();
 
-        // ── 3. فحص (أ): هل الكود صحيح وموجود أصلاً؟ ───────────
-        if (!$device) {
-            return response()->json([
-                'success' => false,
-                'message' => 'كود التفعيل غير صحيح أو تم استخدامه مسبقاً!',
-            ], 422);
-        }
-
-        // ── 4. فحص (ب): هل انتهت صلاحية الكود (15 دقيقة)؟ ────
-        if (!$device->token_expires_at || Carbon::now()->greaterThan($device->token_expires_at)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'انتهت صلاحية كود التفعيل (15 دقيقة). يُرجى طلب كود جديد من الأدمن.',
-            ], 422);
-        }
-
-        // 🛑 ── 4 مكرر. فحص (ج): التحقق من نطاق الشبكة (Static IP) ────
-        $clientIp = $request->ip();
-        $branchIp = $device->branch?->static_ip;
-
-        if ($branchIp) {
-            $clientNetwork = implode('.', array_slice(explode('.', $clientIp), 0, 3));
-            $branchNetwork = implode('.', array_slice(explode('.', $branchIp), 0, 3));
-
-            if ($clientNetwork !== $branchNetwork) {
-                return response()->json([
-                    'success' => false,
-                    'message' => "عذراً، جهازك متصل بشبكة خارجية غير مصرح بها! شبكة الجهاز الحالية: ({$clientIp}) والشبكة المطلوبة لفرعك تنتهي بـ: ({$branchNetwork}.X)",
-                ], 422);
+            if (!$device) {
+                return ['error' => 'كود التفعيل غير صحيح أو تم استخدامه مسبقاً!'];
             }
+
+            if (!$device->token_expires_at || Carbon::now()->greaterThan($device->token_expires_at)) {
+                return ['error' => 'انتهت صلاحية كود التفعيل (15 دقيقة). يُرجى طلب كود جديد من الأدمن.'];
+            }
+
+            $clientIp = $request->ip();
+            $branchIp = $device->branch?->static_ip;
+
+            if ($branchIp) {
+                $clientNetwork = implode('.', array_slice(explode('.', $clientIp), 0, 3));
+                $branchNetwork = implode('.', array_slice(explode('.', $branchIp), 0, 3));
+
+                if ($clientNetwork !== $branchNetwork) {
+                    return ['error' => "عذراً، جهازك متصل بشبكة خارجية غير مصرح بها! شبكة الجهاز الحالية: ({$clientIp}) والشبكة المطلوبة لفرعك تنتهي بـ: ({$branchNetwork}.X)"];
+                }
+            }
+
+            $deviceUuid = (string) Str::uuid();
+
+            $device->update([
+                'device_uuid'       => $deviceUuid,
+                'activation_token'  => null,
+                'token_expires_at'  => null,
+                'status'            => 'ACTIVE',
+            ]);
+
+            return ['device' => $device, 'device_uuid' => $deviceUuid];
+        });
+
+        if (isset($result['error'])) {
+            return response()->json(['success' => false, 'message' => $result['error']], 422);
         }
 
-        // ── 5. توليد UUID فريد للجهاز ──
-        $deviceUuid = (string) Str::uuid();
-
-        // ── 6. قفل التفعيل: تحديث السجل ومسح الكود ──
-        $device->update([
-            'device_uuid'       => $deviceUuid,
-            'activation_token'  => null,
-            'token_expires_at'  => null,
-            'status'            => 'ACTIVE',
-        ]);
+        $device = $result['device'];
+        $deviceUuid = $result['device_uuid'];
 
         // ── 7. إرجاع الرد الناجح ─────────────────────────────
         return response()->json([

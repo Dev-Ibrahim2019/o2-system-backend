@@ -54,10 +54,10 @@ class ArabicReceiptRenderer implements ReceiptRendererInterface
      * @param  array|null  $sectionItems Optional filtered items for department-specific KOTs.
      * @return string                   Path to the generated PNG file
      */
-    public function renderKot(Order $order, string $printerName, ?array $sectionItems = null): string
+    public function renderKot(Order $order, string $printerName, ?array $sectionItems = null, ?array $meta = null): string
     {
         try {
-            return $this->builder->buildKotReceipt($order, $printerName, $sectionItems);
+            return $this->builder->buildKotReceipt($order, $printerName, $sectionItems, $meta);
         } catch (\Exception $e) {
             Log::error('Failed to render KOT image', [
                 'error' => $e->getMessage(),
@@ -132,27 +132,6 @@ class ArabicReceiptRenderer implements ReceiptRendererInterface
                 'order_id'      => $order->id,
                 'section_name'  => $sectionName,
                 'error'         => $e->getMessage(),
-            ]);
-            throw $e;
-        }
-    }
-
-    /**
-     * Render ONE combined ticket image containing all cashier sections
-     * (avoids one Chrome launch per section — see ReceiptImageBuilder::buildCombinedCashierTicket).
-     *
-     * @param  Order  $order    The order model.
-     * @param  array  $sections Array of ['section_name' => string, 'items' => array] groups.
-     * @return string           Path to the generated PNG file.
-     */
-    public function renderCombinedCashierTicket(Order $order, array $sections): string
-    {
-        try {
-            return $this->builder->buildCombinedCashierTicket($order, $sections);
-        } catch (\Exception $e) {
-            Log::error('Failed to render combined cashier ticket image', [
-                'order_id' => $order->id,
-                'error'    => $e->getMessage(),
             ]);
             throw $e;
         }

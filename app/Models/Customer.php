@@ -17,6 +17,7 @@ class Customer extends Model
         'name',
         'name_en',
         'code',
+        'membership_number',
         'tax_number',
         'phone',
         'mobile',

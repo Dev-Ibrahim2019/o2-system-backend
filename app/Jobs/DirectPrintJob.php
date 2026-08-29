@@ -20,11 +20,18 @@ class DirectPrintJob implements ShouldQueue
     public function __construct(
         public int $orderId,
         public int $cashierDeviceId,
+        public ?int $printedByUserId = null,
+        public ?string $closedAt = null,
     ) {}
 
     public function handle(DirectPrintRoutingService $service): void
     {
-        $result = $service->execute($this->orderId, $this->cashierDeviceId);
+        $result = $service->execute(
+            $this->orderId,
+            $this->cashierDeviceId,
+            $this->printedByUserId,
+            $this->closedAt,
+        );
 
         if (! ($result['success'] ?? false)) {
             Log::error('DirectPrintJob failed', [

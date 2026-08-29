@@ -58,6 +58,10 @@ class Order extends Model
         'customer_mobile',
         'customer_id',
         'customer_address_id',
+        'customer_address',
+        'scheduled_at',
+        'currency',
+        'exchange_rate',
         'delivery_zone_id',
         'delivery_fee',
         'delivery_address_snapshot',
@@ -104,6 +108,21 @@ class Order extends Model
         'discount_amount' => 'decimal:3',
         'engine_discount_amount' => 'decimal:3',
         'total' => 'decimal:3',
+        // بدون هالـ casts، أي حقل تاريخ هون بيرجع string خام من الداتابيس، وOrderResource
+        // بينادي ?->toIso8601String() عليه بافتراض إنه Carbon — فبيطلع 500 لحظة أول
+        // مرة يتعبى فيها أي حقل منها (مثلاً paid_at لحظة أول عملية دفع ناجحة).
+        'seated_at' => 'datetime',
+        'printed_at' => 'datetime',
+        'paid_at' => 'datetime',
+        'expedited_at' => 'datetime',
+        'assembled_at' => 'datetime',
+        'assembly_started_at' => 'datetime',
+        'delivery_started_at' => 'datetime',
+        'delivered_at' => 'datetime',
+        'cancelled_at' => 'datetime',
+        'adjusted_at' => 'datetime',
+        'scheduled_at' => 'datetime',
+        'exchange_rate' => 'decimal:6',
     ];
 
     public function branch(): BelongsTo
@@ -114,6 +133,12 @@ class Order extends Model
     public function cashier(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'cashier_id');
+    }
+
+    /** المستخدم اللي طبع الفاتورة فعلياً (مش بالضرورة نفس الكاشير المسؤول عن الطلب) */
+    public function printedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'printed_by');
     }
 
     public function items(): HasMany

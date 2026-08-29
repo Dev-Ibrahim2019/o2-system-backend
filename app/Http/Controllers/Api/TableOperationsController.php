@@ -13,15 +13,44 @@ use Illuminate\Support\Facades\DB;
 class TableOperationsController extends Controller
 {
     /**
+     * هل بقي عالطاولة أي طلب نشط (جولة تانية لسا مفتوحة)؟
+     * نفس قائمة الحالات المستخدمة بباقي الميثودز بهالكونترولر (merge/deferAll/show).
+     */
+    private function tableHasActiveOrders(DiningTable $table, ?int $excludeOrderId = null): bool
+    {
+        return Order::withoutGlobalScope(\App\Models\Scopes\BranchScope::class)
+            ->where(function ($q) use ($table) {
+                $q->where('dining_table_id', $table->id)
+                  ->orWhere('table_number', $table->table_number);
+            })
+            ->whereIn('status', ['pending', 'pending_confirmation', 'confirmed', 'in_progress', 'ready'])
+            ->when($excludeOrderId, fn($q) => $q->where('id', '!=', $excludeOrderId))
+            ->exists();
+    }
+
+    /**
      * عرض جميع القاعات والطاولات بناءً على الفرع (للكاشير/الضيافة/المحاسب/المدير)
      * GET /api/tables?branch_id=1
      */
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $branchId = $request->input('branch_id', $user->branch_id);
 
-        if (!$user->hasRole('super-admin') && $user->branch_id != $branchId) {
+        // فرع نقطة البيع (المربوطة بالجهاز عبر X-Device-UUID) هو المرجع لواجهة
+        // الكاشير — الجهاز مثبّت على فرع معيّن بغض النظر عن فرع اليوزر المسجّل دخول.
+        $deviceUuid = $request->header('X-Device-UUID');
+        $registerBranchId = $deviceUuid
+            ? \App\Models\PosRegister::where('device_uuid', $deviceUuid)->value('branch_id')
+            : null;
+
+        $branchId = $request->input('branch_id', $registerBranchId ?? $user->branch_id);
+
+        // نسمح دائماً بفرع الجهاز المُفعّل؛ وإلا نطبّق فحص فرع اليوزر.
+        $allowed = $user->hasRole('super-admin')
+            || ($registerBranchId && $registerBranchId == $branchId)
+            || $user->branch_id == $branchId;
+
+        if (!$allowed) {
             return response()->json([
                 'success' => false,
                 'message' => 'لا تملك صلاحية الوصول لبيانات هذا الفرع!'
@@ -84,6 +113,7 @@ class TableOperationsController extends Controller
                         'seated_at' => $table->seated_at?->toIso8601String(),
                         'customer_count' => $table->customer_count,
                         'current_order_id' => $table->current_order_id ? (string) $table->current_order_id : null,
+                        'waiter_called_at' => $table->waiter_called_at?->toIso8601String(),
                         'merged_with_id' => $table->merged_with_id ? (string) $table->merged_with_id : null,
                         'merged_with_table_number' => $mergedWith?->table_number,
                         'merge_info' => $table->status === 'MERGED' && $mergedWith ? [
@@ -174,6 +204,13 @@ class TableOperationsController extends Controller
             'customer_count' => 'nullable|integer',
         ]);
 
+        if ($request->status === 'AVAILABLE' && $this->tableHasActiveOrders($table)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'لسا في طلب نشط (جولة تانية) على هذه الطاولة — أغلق أو أجّل كل الطلبات أولاً قبل تحرير الطاولة.'
+            ], 422);
+        }
+
         $updateData = ['status' => $request->status];
 
         if ($request->status === 'AVAILABLE') {
@@ -208,6 +245,13 @@ class TableOperationsController extends Controller
             ], 422);
         }
 
+        if ($this->tableHasActiveOrders($table)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'لسا في طلب نشط (جولة تانية) على هذه الطاولة — أغلق أو أجّل كل الطلبات أولاً قبل تحرير الطاولة.'
+            ], 422);
+        }
+
         \Log::info('[TABLE FREE] Called for table', [
             'id' => $table->id,
             'table_number' => $table->table_number,
@@ -230,6 +274,20 @@ class TableOperationsController extends Controller
             'success' => true,
             'message' => 'تم تحرير الطاولة ' . $table->table_number,
             'data' => $this->formatTable($fresh),
+        ]);
+    }
+
+    /**
+     * تأكيد استلام نداء النادل من الزبون (يمسح التنبيه من شاشة الطاولات)
+     * POST /api/tables/{table}/acknowledge-waiter-call
+     */
+    public function acknowledgeWaiterCall(DiningTable $table): JsonResponse
+    {
+        $table->acknowledgeWaiterCall();
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->formatTable($table->fresh()),
         ]);
     }
 
@@ -280,10 +338,24 @@ class TableOperationsController extends Controller
         }
 
         DB::transaction(function () use ($fromTable, $toTable) {
-            $orderId = $fromTable->current_order_id;
-            Order::where('id', $orderId)->update(['dining_table_id' => $toTable->id, 'table_number' => $toTable->table_number]);
+            // ننقل كل الطلبات النشطة عالطاولة (مش بس current_order_id) — ممكن يكون
+            // فيها أكثر من جولة مفتوحة (نفس المنطق المستخدم بـ merge()).
+            $activeOrders = Order::withoutGlobalScope(\App\Models\Scopes\BranchScope::class)
+                ->where(function ($q) use ($fromTable) {
+                    $q->where('dining_table_id', $fromTable->id)
+                      ->orWhere('table_number', $fromTable->table_number);
+                })
+                ->whereIn('status', ['pending', 'pending_confirmation', 'confirmed', 'in_progress', 'ready'])
+                ->get();
+
+            $lastOrderId = $fromTable->current_order_id;
+            foreach ($activeOrders as $order) {
+                $order->update(['dining_table_id' => $toTable->id, 'table_number' => $toTable->table_number]);
+                $lastOrderId = $order->id;
+            }
+
             $fromTable->setAvailable();
-            $toTable->setOccupied($orderId);
+            $toTable->setOccupied($lastOrderId);
         });
 
         return response()->json([
@@ -441,6 +513,7 @@ class TableOperationsController extends Controller
             'seated_at' => $table->seated_at?->toIso8601String(),
             'customer_count' => $table->customer_count,
             'current_order_id' => $table->current_order_id ? (string) $table->current_order_id : null,
+            'waiter_called_at' => $table->waiter_called_at?->toIso8601String(),
             'merged_with_id' => $table->merged_with_id ? (string) $table->merged_with_id : null,
             'merged_with_table_number' => $mergedWith?->table_number,
             'merge_info' => $table->status === 'MERGED' && $mergedWith ? [

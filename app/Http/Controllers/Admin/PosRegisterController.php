@@ -22,7 +22,9 @@ class PosRegisterController extends Controller
     {
         $request->validate([
             'branch_id' => 'required|exists:branches,id',
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:pos_registers,name',
+        ], [
+            'name.unique' => 'اسم نقطة البيع هذا مستخدم بالفعل! يرجى اختيار اسم آخر.',
         ]);
 
         $register = PosRegister::create([
@@ -84,6 +86,23 @@ class PosRegisterController extends Controller
         ]);
 
         return response()->json(['success' => true, 'message' => 'تم إلغاء تفعيل الجهاز بنجاح. أي محاولة استخدام له سترفض فوراً.']);
+    }
+
+    // 4ب. حذف سجل نقطة بيع (بعد إلغاء تفعيلها أو قبل ما تتفعل أصلاً)
+    public function destroy($id)
+    {
+        $register = PosRegister::findOrFail($id);
+
+        if ($register->status === 'ACTIVE') {
+            return response()->json([
+                'success' => false,
+                'message' => 'نقطة البيع مفعّلة حالياً — ألغِ تفعيلها أولاً قبل الحذف.',
+            ], 422);
+        }
+
+        $register->delete();
+
+        return response()->json(['success' => true, 'message' => 'تم حذف نقطة البيع بنجاح']);
     }
 
     /**
@@ -162,59 +181,56 @@ class PosRegisterController extends Controller
             ], 422);
         }
 
-        // ── 2. البحث عن نقطة البيع بواسطة كود التفعيل ──────────
-        $register = PosRegister::where('activation_token', strtoupper($request->token))
-            ->with('branch:id,name,static_ip')
-            ->first();
+        // ── 2-6: البحث + الفحوصات + التفعيل كلها جوا معاملة واحدة مع قفل الصف
+        //      (lockForUpdate) — طلبين متزامنين بنفس الكود الصحيح، بدون القفل،
+        //      ممكن الاثنين يعدّوا فحص الصلاحية وينجحوا معاً على نفس نقطة البيع
+        //      بجهازين مختلفين. القفل يخلي الطلب الثاني ينتظر لحد ما الأول يمسح
+        //      الكود، فبيوصل "الكود مستخدم مسبقاً" بدل ما ينجح خطأً.
+        $result = \Illuminate\Support\Facades\DB::transaction(function () use ($request) {
+            $register = PosRegister::where('activation_token', strtoupper($request->token))
+                ->lockForUpdate()
+                ->with('branch:id,name,static_ip')
+                ->first();
 
-        // ── 3. فحص (أ): هل الكود صحيح وموجود أصلاً؟ ───────────
-        if (!$register) {
-            return response()->json([
-                'success' => false,
-                'message' => 'كود التفعيل غير صحيح أو تم استخدامه مسبقاً!',
-            ], 422);
-        }
-
-        // ── 4. فحص (ب): هل انتهت صلاحية الكود (15 دقيقة)؟ ────
-        if (!$register->token_expires_at || Carbon::now()->greaterThan($register->token_expires_at)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'انتهت صلاحية كود التفعيل (15 دقيقة). يُرجى طلب كود جديد من الأدمن.',
-            ], 422);
-        }
-
-        // 🛑 ── 4 مكرر. فحص (ج): التحقق من نطاق الشبكة (Static IP) للفرع المربوط ────
-        $clientIp = $request->ip(); // الـ IP الحالي للجهاز
-        $branchIp = $register->branch?->static_ip; // الـ IP المخزن في جدول الفروع
-
-        // نقوم بالفحص فقط إذا كان الفرع يمتلك IP مسجل في قاعدة البيانات
-        if ($branchIp) {
-            // تفكيك واستخراج أول 3 خانات من الـ IP الحالي (مثال: 192.168.1)
-            $clientNetwork = implode('.', array_slice(explode('.', $clientIp), 0, 3));
-            // تفكيك واستخراج أول 3 خانات من IP الفرع (مثال: 192.168.1)
-            $branchNetwork = implode('.', array_slice(explode('.', $branchIp), 0, 3));
-
-            // إذا اختلف نطاق الشبكة، نمنع التفعيل فوراً قبل توليد الـ UUID
-            if ($clientNetwork !== $branchNetwork) {
-                return response()->json([
-                    'success' => false,
-                    'message' => "عذراً، جهازك متصل بشبكة خارجية غير مصرح بها! شبكة الجهاز الحالية: ({$clientIp}) والشبكة المطلوبة لفرعك تنتهي بـ: ({$branchNetwork}.X)",
-                ], 422);
+            if (!$register) {
+                return ['error' => 'كود التفعيل غير صحيح أو تم استخدامه مسبقاً!'];
             }
+
+            if (!$register->token_expires_at || Carbon::now()->greaterThan($register->token_expires_at)) {
+                return ['error' => 'انتهت صلاحية كود التفعيل (15 دقيقة). يُرجى طلب كود جديد من الأدمن.'];
+            }
+
+            $clientIp = $request->ip();
+            $branchIp = $register->branch?->static_ip;
+
+            if ($branchIp) {
+                $clientNetwork = implode('.', array_slice(explode('.', $clientIp), 0, 3));
+                $branchNetwork = implode('.', array_slice(explode('.', $branchIp), 0, 3));
+
+                if ($clientNetwork !== $branchNetwork) {
+                    return ['error' => "عذراً، جهازك متصل بشبكة خارجية غير مصرح بها! شبكة الجهاز الحالية: ({$clientIp}) والشبكة المطلوبة لفرعك تنتهي بـ: ({$branchNetwork}.X)"];
+                }
+            }
+
+            $deviceUuid = (string) Str::uuid();
+
+            $register->update([
+                'device_uuid'       => $deviceUuid,
+                'activation_token'  => null,
+                'token_expires_at'  => null,
+                'status'            => 'ACTIVE',
+            ]);
+
+            return ['register' => $register, 'device_uuid' => $deviceUuid];
+        });
+
+        if (isset($result['error'])) {
+            return response()->json(['success' => false, 'message' => $result['error']], 422);
         }
 
-        // ── 5. توليد UUID فريد للجهاز (مرة واحدة -不可 تغيير) ──
-        $deviceUuid = (string) Str::uuid();
+        $register = $result['register'];
+        $deviceUuid = $result['device_uuid'];
 
-        // ── 6. قفل التفعيل: تحديث السجل ومسح الكود ليموت فوراً ─
-        $register->update([
-            'device_uuid'       => $deviceUuid,          // هوية الجهاز الفريدة
-            'activation_token'  => null,                 // إبطال الكود — استخدام لمرة واحدة فقط
-            'token_expires_at'  => null,                 // مسح صلاحية الكود نهائياً
-            'status'            => 'ACTIVE',             // تغيير الحالة إلى مفعّل
-        ]);
-
-        // ── 7. إرجاع الرد الناجح ─────────────────────────────
         return response()->json([
             'success'   => true,
             'message'   => '✅ تم تفعيل نقطة البيع وربطها بهذا الجهاز بنجاح!',

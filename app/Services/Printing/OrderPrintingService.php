@@ -15,7 +15,9 @@ use Illuminate\Support\Facades\Log;
  * تتعامل مع:
  * 1. طباعة بون المطبخ (KOT) — تُوجه الأصناف للطابعات حسب قواعد التوجيه
  * 2. طباعة فاتورة الكاشير — تطبع الأصناف الموجهة لطابعة الكاشير فقط
- * 3. printOrder() — الدالة الموحدة التي تدير كلTHING
+ * 3. printOrder() — الدالة الموحدة التي تدير كل شي
+ * 4. printLocal() — وضع "محلي": فاتورة كاشير مدمجة بكل الأصناف + فاتورة
+ *    بنفس الشكل لكل قسم تاني، مفلترة على أصنافه فقط
  */
 class OrderPrintingService
 {
@@ -179,6 +181,176 @@ class OrderPrintingService
         }
 
         return $this->printInvoice($order, $printer);
+    }
+
+    /**
+     * طباعة "محلي" — الطباعة اليدوية العادية لفاتورة الطلب.
+     *
+     * أ. فاتورة كاشير واحدة مدمجة — كل أصناف الطلب سوا، بدون فرز أو أسماء أقسام.
+     * ب. لكل قسم تاني (مطبخ/بار/...) — نفس شكل الفاتورة (invoice.blade.php)
+     *    بس مفلترة على أصناف هذا القسم فقط، ترسل لطابعته الخاصة.
+     *
+     * @param  string  $mode  'all' = مدمجة + أقسام | 'merged' = المدمجة فقط
+     *                         | 'departments' = نسخ الأقسام كل على طابعته
+     *                         | 'fawri' = فاتورة منفصلة لكل قسم، كلها على طابعة الكاشير
+     */
+    public function printLocal(Order $order, string $mode = 'all'): array
+    {
+        // وضع "فوري": كل قسم بفاتورة مستقلة، لكن الكل يطبع على طابعة الكاشير.
+        if ($mode === 'fawri') {
+            return $this->printDepartmentInvoicesOnCashier($order);
+        }
+
+        $results = [];
+
+        // أ. فاتورة الكاشير المدمجة (كل الأصناف، بدون تقسيم أقسام)
+        if ($mode === 'all' || $mode === 'merged') {
+            $cashierPrinter = Printer::where('branch_id', $order->branch_id)
+                ->where('type', 'CASHIER')
+                ->where('is_active', true)
+                ->first();
+
+            if ($cashierPrinter) {
+                $results[] = array_merge($this->printInvoice($order, $cashierPrinter), [
+                    'printer_id'   => $cashierPrinter->id,
+                    'printer_name' => $cashierPrinter->name,
+                    'printer_type' => 'CASHIER',
+                ]);
+            } else {
+                $results[] = [
+                    'success'      => false,
+                    'message'      => 'لا توجد طابعة كاشير مفعّلة لهذا الفرع',
+                    'printer_type' => 'CASHIER',
+                ];
+            }
+        }
+
+        // ب. لكل قسم — نفس شكل الفاتورة، مفلترة على أصنافه، على طابعته الخاصة
+        if ($mode === 'all' || $mode === 'departments') {
+            $results = array_merge($results, $this->printDepartmentInvoicesForOrder($order));
+        }
+
+        return $results;
+    }
+
+    /**
+     * وضع "فوري" — فاتورة منفصلة لكل قسم في الطلب (مفلترة على أصناف القسم)،
+     * لكن كلها تُطبع على طابعة الكاشير الوحيدة. ما في توجيه لطابعات أقسام.
+     */
+    private function printDepartmentInvoicesOnCashier(Order $order): array
+    {
+        $cashierPrinter = Printer::where('branch_id', $order->branch_id)
+            ->where('type', 'CASHIER')
+            ->where('is_active', true)
+            ->first();
+
+        if (!$cashierPrinter) {
+            return [[
+                'success'      => false,
+                'message'      => 'لا توجد طابعة كاشير مفعّلة لهذا الفرع',
+                'printer_type' => 'CASHIER',
+            ]];
+        }
+
+        $order->loadMissing('items.department');
+
+        // تجميع أصناف الطلب حسب القسم
+        $groups = [];
+        foreach ($order->items as $item) {
+            $deptId = $item->department_id ?? 0;
+            $groups[$deptId]['label'] ??= $item->department->name ?? ('قسم #' . $deptId);
+            $groups[$deptId]['items'][] = [
+                'item_id'      => $item->item_id,
+                'item_name_ar' => $item->item_name_ar ?: $item->item_name,
+                'item_name'    => $item->item_name,
+                'quantity'     => (float) $item->quantity,
+                'price'        => (float) $item->price,
+                'total'        => (float) $item->total,
+                'notes'        => $item->notes,
+            ];
+        }
+
+        $results = [];
+        foreach ($groups as $group) {
+            $imagePath = $this->receiptRenderer->renderFilteredInvoice(
+                $order,
+                $group['label'],
+                $group['items']
+            );
+            $result = $this->printerService->printReceiptImage($cashierPrinter, $imagePath);
+            $this->receiptRenderer->cleanup($imagePath);
+
+            $results[] = array_merge($result, [
+                'printer_id'   => $cashierPrinter->id,
+                'printer_name' => $cashierPrinter->name,
+                'printer_type' => 'CASHIER',
+                'department'   => $group['label'],
+                'items_count'  => count($group['items']),
+            ]);
+        }
+
+        return $results;
+    }
+
+    /**
+     * توزيع أصناف الطلب على طابعات أقسامها (printer_item ثم printer_department)،
+     * وطباعة فاتورة بنفس شكل invoice.blade.php لكل طابعة، مفلترة على أصنافها فقط.
+     */
+    private function printDepartmentInvoicesForOrder(Order $order): array
+    {
+        $printers = Printer::where('branch_id', $order->branch_id)
+            ->where('is_active', true)
+            ->where('type', '!=', 'CASHIER')
+            ->with(['departments', 'items'])
+            ->get();
+
+        // فهرسة: item_id → طابعة، department_id → طابعة
+        $itemToPrinter = [];
+        $deptToPrinter = [];
+        foreach ($printers as $printer) {
+            foreach ($printer->items as $printerItem) {
+                $itemToPrinter[$printerItem->id] ??= $printer;
+            }
+            foreach ($printer->departments as $dept) {
+                $deptToPrinter[$dept->id] ??= $printer;
+            }
+        }
+
+        // تجميع أصناف الطلب حسب الطابعة المستهدفة
+        $groupedByPrinter = [];
+        foreach ($order->items as $item) {
+            $printer = $itemToPrinter[$item->item_id] ?? $deptToPrinter[$item->department_id] ?? null;
+
+            if (!$printer) {
+                continue;
+            }
+
+            $groupedByPrinter[$printer->id]['printer'] ??= $printer;
+            $groupedByPrinter[$printer->id]['items'][] = [
+                'item_id'      => $item->item_id,
+                'item_name_ar' => $item->item_name_ar ?: $item->item_name,
+                'item_name'    => $item->item_name,
+                'quantity'     => (float) $item->quantity,
+                'price'        => (float) $item->price,
+                'total'        => (float) $item->total,
+                'notes'        => $item->notes,
+            ];
+        }
+
+        $results = [];
+        foreach ($groupedByPrinter as $group) {
+            $printer = $group['printer'];
+            $result = $this->printInvoiceForItems($order, $printer, $group['items']);
+
+            $results[] = array_merge($result, [
+                'printer_id'   => $printer->id,
+                'printer_name' => $printer->name,
+                'printer_type' => $printer->type,
+                'items_count'  => count($group['items']),
+            ]);
+        }
+
+        return $results;
     }
 
     /**

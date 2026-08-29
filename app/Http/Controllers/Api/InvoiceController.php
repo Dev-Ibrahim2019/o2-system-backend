@@ -20,6 +20,7 @@ use App\Models\ProductionTicket;
 use App\Models\ProductionTicketItem;
 use App\Models\Transaction;
 use App\Services\AccountingService;
+use App\Services\Accounting\TransactionPostingService;
 use App\Services\Invoice\InvoiceFromOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -126,8 +127,13 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
         'opened_by'       => $user?->id,
         'opened_at'       => now(),
 
-        'currency'        => $data['currency'] ?? 'ILS',
+        // الكاشير العادي ما بيبعت currency مع طلب إنشاء الفاتورة (بيتحدد أول
+        // مرة على الطلب نفسه عبر شاشة "بيانات التواصل") — كان الافتراضي هون
+        // 'ILS' الثابت بيدهس عملة الطلب الفعلية دايماً.
+        'currency'        => $data['currency'] ?? $order->currency ?? 'ILS',
+        'exchange_rate'   => $data['exchange_rate'] ?? $order->exchange_rate ?? 1,
         'account_number'  => $data['account_number'] ?? null,
+        'reference_number' => $data['reference_number'] ?? null,
     ]),
     $request->user()?->id
 );
@@ -157,6 +163,22 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
 
         if ($invoice->status === 'paid') {
             return $this->error('الفاتورة مدفوعة بالكامل.', 422);
+        }
+
+        // نفس فحص السنة المالية المقفلة يلي عند SettleController::settle() — كان
+        // موجود هناك بس مش هون، يعني نفس الدفع ممكن يُرفض من مسار وينعمل من
+        // التاني حسب مين المسار يلي الفرونت اند استخدمه بالصدفة.
+        if ($invoice->order_id) {
+            $order = $invoice->order;
+            if ($order && $order->shift_id) {
+                $shift = \App\Models\Shift::find($order->shift_id);
+                if ($shift && $shift->fiscal_year_id) {
+                    $fiscalYear = \App\Models\FiscalYear::find($shift->fiscal_year_id);
+                    if ($fiscalYear && $fiscalYear->status === 'closed') {
+                        return $this->error('السنة المالية مغلقة. لا يمكن تسجيل دفعات في هذه الفترة.', 422);
+                    }
+                }
+            }
         }
 
         $data = $request->validated();
@@ -379,6 +401,9 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
             'entity_id' => 'nullable|integer',
             'branch_id' => 'required|integer|exists:branches,id',
             'currency' => 'nullable|string|max:10',
+            'reference_number' => 'nullable|string|max:100',
+            'financial_voucher_number' => 'nullable|string|max:100',
+            'vat_report_number' => 'nullable|string|max:100',
             'subtotal' => 'required|numeric|min:0',
             'tax_total' => 'nullable|numeric|min:0',
             'discount' => 'nullable|numeric|min:0',
@@ -423,6 +448,9 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
                 'branch_id' => $validated['branch_id'],
                 'status' => $totalPaid >= $validated['total'] - 0.001 ? 'paid' : ($totalPaid > 0 ? 'partial' : 'draft'),
                 'currency' => $validated['currency'] ?? 'SAR',
+                'reference_number' => $validated['reference_number'] ?? null,
+                'financial_voucher_number' => $validated['financial_voucher_number'] ?? null,
+                'vat_report_number' => $validated['vat_report_number'] ?? null,
                 'payment_method' => $validated['payments'][0]['method'] ?? null,
                 'subtotal' => $validated['subtotal'],
                 'discount' => $validated['discount'] ?? 0,
@@ -492,6 +520,9 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
             'entity_id' => 'nullable|integer',
             'branch_id' => 'required|integer|exists:branches,id',
             'currency' => 'nullable|string|max:10',
+            'reference_number' => 'nullable|string|max:100',
+            'financial_voucher_number' => 'nullable|string|max:100',
+            'vat_report_number' => 'nullable|string|max:100',
             'subtotal' => 'required|numeric|min:0',
             'tax_total' => 'nullable|numeric|min:0',
             'discount' => 'nullable|numeric|min:0',
@@ -525,6 +556,9 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
                 'customer_id' => $validated['entity_type'] === 'customer' ? $validated['entity_id'] : null,
                 'branch_id' => $validated['branch_id'],
                 'currency' => $validated['currency'] ?? $invoice->currency,
+                'reference_number' => $validated['reference_number'] ?? $invoice->reference_number,
+                'financial_voucher_number' => $validated['financial_voucher_number'] ?? $invoice->financial_voucher_number,
+                'vat_report_number' => $validated['vat_report_number'] ?? $invoice->vat_report_number,
                 'subtotal' => $validated['subtotal'],
                 'discount' => $validated['discount'] ?? 0,
                 'tax_total' => $validated['tax_total'] ?? 0,
@@ -570,6 +604,20 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
 
     public function financialDestroy(Invoice $invoice): JsonResponse
     {
+        // كانت هاي بتحذف أي فاتورة نهائياً بدون أي فحص لحالتها — يعني فاتورة
+        // مدفوعة بالكامل، إلها دفعات (Payment) وقيد محاسبي مرحّل، تنحذف وتضل
+        // هاي السجلات معلّقة على فاتورة مش موجودة. لازم تُلغى (void) أولاً.
+        if (in_array($invoice->status, ['paid', 'partial'], true)) {
+            return $this->error(
+                'لا يمكن حذف فاتورة مدفوعة (كلياً أو جزئياً) نهائياً — ألغِها (Void) أولاً بدل الحذف.',
+                422
+            );
+        }
+
+        if ($invoice->payments()->exists()) {
+            return $this->error('لا يمكن حذف فاتورة عليها دفعات مسجّلة.', 422);
+        }
+
         $invoice->items()->delete();
         $invoice->delete();
         return $this->success('تم حذف الفاتورة');
@@ -584,12 +632,88 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
         return $this->success('تم تعميد الفاتورة', new InvoiceResource($invoice->fresh()->load(['items', 'payments', 'branch'])));
     }
 
+    /**
+     * إلغاء/عكس فاتورة — كانت بس بتغيّر الحالة لـ"ملغاة" بدون أي عكس حقيقي:
+     * حالة الطلب المرتبط تضل "مدفوع"، والقيد المحاسبي يضل مرحّل (الإيراد ما
+     * بينعكس)، والدفعات تضل مسجّلة كأنها سارية. صارت تعكس القيد فعلياً
+     * (مدين/دائن مقلوبين عبر TransactionPostingService::reverse) وترجّع حالة
+     * الطلب المرتبط.
+     */
     public function voidFinancial(Invoice $invoice): JsonResponse
     {
         if ($invoice->status === 'cancelled') {
             return $this->error('الفاتورة ملغاة بالفعل.', 422);
         }
-        $invoice->update(['status' => 'cancelled']);
-        return $this->success('تم إلغاء الفاتورة', new InvoiceResource($invoice->fresh()->load(['items', 'payments', 'branch'])));
+
+        try {
+            $invoice = DB::transaction(function () use ($invoice) {
+                $transaction = $invoice->journalEntry();
+                if ($transaction && $transaction->status === 'posted' && ! $transaction->reversal()->exists()) {
+                    app(TransactionPostingService::class)->reverse(
+                        $transaction,
+                        'إلغاء الفاتورة ' . $invoice->number
+                    );
+                }
+
+                if ($invoice->order_id) {
+                    $order = $invoice->order;
+                    if ($order && $order->status === 'paid') {
+                        $order->update([
+                            'status' => 'cancelled',
+                            'cancellation_reason' => 'إلغاء الفاتورة ' . $invoice->number,
+                            'cancelled_at' => now(),
+                        ]);
+                    }
+                }
+
+                $invoice->update(['status' => 'cancelled']);
+
+                return $invoice;
+            });
+
+            return $this->success(
+                'تم إلغاء الفاتورة',
+                new InvoiceResource($invoice->fresh()->load(['items', 'payments', 'branch']))
+            );
+        } catch (\Throwable $e) {
+            return $this->error('فشل إلغاء الفاتورة: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * التنقل بين الفواتير (التالي/السابق/الأول/الأخير) — مقيّد بنفس نقطة البيع
+     * التي أُنشئت منها الفاتورة الحالية، مرتبة بوقت الإنشاء.
+     */
+    public function adjacent(Request $request, Invoice $invoice): JsonResponse
+    {
+        $direction = $request->query('direction', 'next');
+
+        $query = Invoice::where('pos_register_id', $invoice->pos_register_id);
+
+        $target = match ($direction) {
+            'first' => $query->orderBy('created_at')->orderBy('id')->first(),
+            'last' => $query->orderByDesc('created_at')->orderByDesc('id')->first(),
+            'prev' => $query->where(function ($q) use ($invoice) {
+                $q->where('created_at', '<', $invoice->created_at)
+                    ->orWhere(function ($q2) use ($invoice) {
+                        $q2->where('created_at', $invoice->created_at)->where('id', '<', $invoice->id);
+                    });
+            })->orderByDesc('created_at')->orderByDesc('id')->first(),
+            default => $query->where(function ($q) use ($invoice) {
+                $q->where('created_at', '>', $invoice->created_at)
+                    ->orWhere(function ($q2) use ($invoice) {
+                        $q2->where('created_at', $invoice->created_at)->where('id', '>', $invoice->id);
+                    });
+            })->orderBy('created_at')->orderBy('id')->first(),
+        };
+
+        if (!$target) {
+            return $this->error('لا توجد فاتورة أخرى بهذا الاتجاه.', 404);
+        }
+
+        return $this->success(
+            'الفاتورة',
+            new InvoiceResource($target->load(['items', 'payments', 'branch', 'order', 'openedByUser', 'closedByUser']))
+        );
     }
 }

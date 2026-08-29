@@ -38,6 +38,7 @@ class OrderItem extends Model
         'sent_to_kitchen_at',
         'is_printed_direct',
         'is_takeaway',
+        'is_complimentary',
         'item_prepared_at',
         'prepared_duration_seconds',
     ];
@@ -54,6 +55,7 @@ class OrderItem extends Model
         'sent_to_kitchen_at' => 'datetime',
         'is_printed_direct' => 'boolean',
         'is_takeaway' => 'boolean',
+        'is_complimentary' => 'boolean',
         'item_prepared_at' => 'datetime',
         'prepared_duration_seconds' => 'integer',
     ];

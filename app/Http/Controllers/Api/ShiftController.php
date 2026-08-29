@@ -61,6 +61,88 @@ class ShiftController extends ApiController
     }
 
     /**
+     * فتح يومية جديدة (بداية شغل الكاشير) — لم يكن لها endpoint من قبل رغم
+     * وجود Shift::getOrCreateToday() جاهزة؛ الواجهة كانت بتخترع رقم يومية
+     * وهمي محلياً بدون ما تتصل بالباك اند إطلاقاً.
+     */
+    public function open(Request $request): JsonResponse
+    {
+        $user = auth()->user();
+        $branchId = $user->branch_id;
+
+        $validated = $request->validate([
+            'opening_balance' => 'nullable|numeric|min:0',
+        ]);
+
+        $wasOpen = Shift::getOpenForBranch($branchId) !== null;
+        // getOrCreateToday() نفسها معاملة+قفل داخلياً — آمنة من التزامن
+        $shift = Shift::getOrCreateToday($branchId, $user->id, (float) ($validated['opening_balance'] ?? 0));
+
+        return $this->success(
+            $wasOpen ? 'يومية مفتوحة أصلاً' : 'تم فتح يومية جديدة',
+            $shift->load(['opener', 'fiscalYear']),
+            $wasOpen ? 200 : 201
+        );
+    }
+
+    /**
+     * إغلاق اليومية الحالية بدون ترحيل تلقائي ليومية جديدة (Blind Drop) —
+     * بتمنع الإغلاق إذا في طلبات لسا مفتوحة/غير مدفوعة، وبترجع فرق التسوية
+     * النقدية (المبلغ المتوقع مقابل المبلغ المعدود من الكاشير).
+     */
+    public function close(Request $request): JsonResponse
+    {
+        $user = auth()->user();
+        $branchId = $user->branch_id;
+
+        $validated = $request->validate([
+            'closing_balance' => 'required|numeric|min:0',
+        ]);
+
+        return DB::transaction(function () use ($branchId, $user, $validated) {
+            $shift = Shift::where('branch_id', $branchId)
+                ->where('status', 'open')
+                ->whereDate('date', now()->toDateString())
+                ->lockForUpdate()
+                ->first();
+
+            if (!$shift) {
+                return $this->error('لا توجد يومية مفتوحة لإغلاقها.', 422);
+            }
+
+            $openOrders = $shift->orders()
+                ->whereIn('status', ['pending', 'pending_confirmation', 'confirmed', 'in_progress', 'ready', 'served'])
+                ->count();
+
+            if ($openOrders > 0) {
+                return $this->error(
+                    "يوجد {$openOrders} طلب لسا مفتوح/غير مدفوع على هالوردية — لازم تقفلهم أو تحوّلهم قبل الإغلاق.",
+                    422
+                );
+            }
+
+            $expectedCash = (float) \App\Models\Payment::where('method', 'cash')
+                ->whereHas('invoice.order', fn($q) => $q->where('shift_id', $shift->id))
+                ->sum('amount');
+
+            $closingBalance = (float) $validated['closing_balance'];
+            $variance = round($closingBalance - $expectedCash, 2);
+
+            $closedShift = $shift->close($user->id, $closingBalance);
+
+            return $this->success('تم إغلاق اليومية', [
+                'shift' => $closedShift->load(['opener', 'closer', 'fiscalYear']),
+                'reconciliation' => [
+                    'expected_cash' => round($expectedCash, 2),
+                    'counted_cash' => round($closingBalance, 2),
+                    'variance' => $variance,
+                    'status' => abs($variance) < 0.01 ? 'balanced' : ($variance > 0 ? 'over' : 'short'),
+                ],
+            ]);
+        });
+    }
+
+    /**
      * الترحيل السريع (Rollover)
      *
      * 1. إغلاق الـ shift الحالي
@@ -79,10 +161,11 @@ class ShiftController extends ApiController
 
         DB::beginTransaction();
         try {
-            // 1. البحث عن الـ shift المفتوح
+            // 1. البحث عن الـ shift المفتوح (مع قفل لمنع سباق ترحيل مزدوج)
             $currentShift = Shift::where('branch_id', $branchId)
                 ->where('status', 'open')
                 ->whereDate('date', now()->toDateString())
+                ->lockForUpdate()
                 ->first();
 
             if (!$currentShift) {

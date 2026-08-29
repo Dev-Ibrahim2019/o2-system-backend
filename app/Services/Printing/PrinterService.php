@@ -87,6 +87,20 @@ class PrinterService
     }
 
     /**
+     * فتح صندوق النقدية المربوط بطابعة الكاشير (F9 عند الأمين).
+     */
+    public function openCashDrawer(Printer $printer): array
+    {
+        if (!$printer->is_active) {
+            return $this->inactive($printer);
+        }
+
+        Log::info("Opening cash drawer via [{$printer->name}]", ['printer_id' => $printer->id]);
+
+        return $this->driver->openDrawer($printer);
+    }
+
+    /**
      * Test TCP connection to a printer.
      */
     public function testConnection(Printer $printer): array

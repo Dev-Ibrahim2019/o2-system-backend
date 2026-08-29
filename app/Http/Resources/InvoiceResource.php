@@ -102,12 +102,30 @@ class InvoiceResource extends JsonResource
             //  ًں“‹ طھظپط§طµظٹظ„ ط§ظ„ظپط§طھظˆط±ط© (Invoice Details)
             // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
             'details' => [
-                'number'         => $this->number,
-                'date'           => $this->invoice_date?->format('Y-m-d'),
-                'time'           => $this->invoice_date?->format('H:i:s'),
-                'currency'       => $this->currency ?? 'ILS',
-                'account_number' => $this->account_number,
+                'number'                   => $this->number,
+                'daily_sequence'           => $this->daily_sequence,
+                'date'                     => $this->invoice_date?->format('Y-m-d'),
+                'time'                     => $this->invoice_date?->format('H:i:s'),
+                'currency'                 => $this->currency ?? 'ILS',
+                'exchange_rate'            => (float) ($this->exchange_rate ?? 1),
+                'account_number'           => $this->account_number,
+                'reference_number'         => $this->reference_number,
+                'financial_voucher_number' => $this->financial_voucher_number,
+                'vat_report_number'        => $this->vat_report_number,
+                'journal_entry_number'     => $this->journalEntryNumber(),
             ],
+
+            // ─────────────────────────────────────────────────────────
+            //  📞 بيانات التواصل (Contact Details) — من الطلب المرتبط
+            // ─────────────────────────────────────────────────────────
+            'contact' => $this->whenLoaded('order', fn () => [
+                'customer_name'    => $this->order?->customer_name,
+                'phone'            => $this->order?->customer_phone,
+                'mobile'           => $this->order?->customer_mobile,
+                'address'          => $this->order?->customer_address,
+                'scheduled_at'     => $this->order?->scheduled_at?->toIso8601String(),
+                'notes'            => $this->order?->customer_notes,
+            ]),
 
             // â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ
             //  ًں”“ طھظپط§طµظٹظ„ ظپطھط­ ط§ظ„ظپط§طھظˆط±ط© (Open Details)
@@ -134,6 +152,12 @@ class InvoiceResource extends JsonResource
                 'date'       => $this->closed_at?->format('Y-m-d'),
                 'time'       => $this->closed_at?->format('H:i:s'),
             ] : null,
+
+            // ─────────────────────────────────────────────────────────
+            //  🧾 أرقام الحسابات المحاسبية المرتبطة (إعداد عام على مستوى
+            //  المنشأة — يُدار من لوحة الإدارة، معروض هون للاطلاع فقط)
+            // ─────────────────────────────────────────────────────────
+            'accounts' => \App\Models\AccountingSetting::allAsMap(),
         ];
     }
 }

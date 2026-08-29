@@ -17,16 +17,24 @@ use Illuminate\Support\Facades\Log;
  *  خدمة معزولة تماماً عن مسارات الطباعة الأساسية.
  *  تُستدعى فقط عند النقر على زر "تنفيذ وطباعة" للطلب الفوري.
  *
- *  القواعد:
- *  - طابعة القسم: تطبع تيكيت واحد يحتوي على كل الأصناف المخصصة لها
- *    (سواء من قسمها أو أصناف مخصصة بشكل استثنائي)
- *  - طابعة الكاشير: تطبع تيكيت مقسم — تيكيت واحد لكل مجموعة أقسام
- *    (بدون فاتورة كاملة)
+ *  القاعدة (وضع "فوري"):
+ *  - كل قسم يطبع تيكيت منفصل خاص فيه فقط، على طابعته الخاصة.
+ *  - لا يوجد أي تيكيت أو فاتورة مجمّعة للكاشير في هذا الوضع إطلاقاً —
+ *    هذا حصراً لوضع "محلي" (راجع OrderPrintingService::printLocal).
  */
 class DirectPrintRoutingService
 {
     private PrinterService $printerService;
     private ArabicReceiptRenderer $receiptRenderer;
+
+    /** @var OrderItem[] أصناف ما انطبعت لأنه ما في طابعة مربوطة فيها ولا بقسمها */
+    private array $unmappedItems = [];
+
+    /** اسم المستخدم/الكاشير الذي نفّذ الطباعة — يُطبع على التيكيت */
+    private ?string $printedByName = null;
+
+    /** وقت إغلاق الفاتورة الفوري — يُطبع على التيكيت */
+    private ?\Illuminate\Support\Carbon $closedAt = null;
 
     public function __construct(
         PrinterService $printerService,
@@ -39,10 +47,28 @@ class DirectPrintRoutingService
     /**
      * التنفيذ الرئيسي — معالجة الطلب الفوري وطباعته.
      */
-    public function execute(int $orderId, int $cashierDeviceId): array
-    {
+    public function execute(
+        int $orderId,
+        int $cashierDeviceId,
+        ?int $printedByUserId = null,
+        ?string $closedAt = null
+    ): array {
+        $this->unmappedItems = [];
+        $this->printedByName = $printedByUserId
+            ? \App\Models\User::whereKey($printedByUserId)->value('name')
+            : null;
+
         // ── 1. جلب الطلب ──
-        $order = Order::with(['items.department', 'branch'])->find($orderId);
+        $order = Order::with(['items.department', 'branch', 'invoice'])->find($orderId);
+
+        // وقت الإغلاق: الوقت الممرَّر من لحظة "تنفيذ وطباعة"، وإلا وقت الدفع/التسليم
+        // الفعلي إن وُجد (عند إعادة الطباعة لاحقاً)، وإلا الآن.
+        $this->closedAt = $closedAt
+            ? \Illuminate\Support\Carbon::parse($closedAt)
+            : ($order?->paid_at
+                ?? $order?->delivered_at
+                ?? optional($order?->invoice)->closed_at
+                ?? now());
 
         if (!$order) {
             return [
@@ -77,25 +103,19 @@ class DirectPrintRoutingService
         // ── 4. تعيين كل صنف لطابعته المستهدفة ──
         $itemPrinterMap = $this->mapItemsToPrinters($pendingItems, $printers);
 
-        // ── 5. توليد أوامر الطباعة ──
-        $printJobs = [];
-
-        // 5أ. طابعات الأقسام — تيكيت واحد لكل طابعة يحتوي كل أصنافها
-        $departmentJobs = $this->buildDepartmentPrintJobs(
+        // ── 5. توليد أوامر الطباعة — تيكيت منفصل خاص بكل قسم على طابعته الخاصة ──
+        // (وضع "فوري": لا يوجد أي تيكيت أو فاتورة مجمّعة للكاشير هون إطلاقاً)
+        $printJobs = $this->buildDepartmentPrintJobs(
             $order, $itemPrinterMap, $printers
         );
-        $printJobs = array_merge($printJobs, $departmentJobs);
-
-        // 5ب. طابعة الكاشير — تيكيت مقسم لكل مجموعة أقسام
-        $cashierJob = $this->buildCashierPrintJob(
-            $order, $itemPrinterMap, $cashierDeviceId
-        );
-        if ($cashierJob) {
-            $printJobs[] = $cashierJob;
-        }
 
         // ── 6. تنفيذ الطباعة فعلياً ──
         if (empty($printJobs)) {
+            Log::info('DirectPrint: no department print jobs generated', [
+                'order_id' => $orderId,
+                'cashier_device_id' => $cashierDeviceId,
+            ]);
+
             return [
                 'success' => false,
                 'message' => 'لا توجد طابعة نشطة مرتبطة بهذا الطلب أو هذا الجهاز',
@@ -111,20 +131,35 @@ class DirectPrintRoutingService
         // أي فشل بالطباعة (طابعة غير موجودة/متوقفة) يمنع أي محاولة إعادة طباعة لاحقة).
         $allSucceeded = collect($results)->every(fn($r) => $r['success'] ?? false);
 
+        // الأصناف يلي فعلياً انضافت لأمر طباعة (مش الأصناف بلا طابعة — هاي لازم
+        // تضل is_printed_direct=false عشان تنعاد محاولة طباعتها لاحقاً بدل ما
+        // تنعلّم "مطبوعة" وهي أصلاً ما وصلت لأي طابعة).
+        $attemptedItemIds = collect($itemPrinterMap)->pluck('item.id')->unique()->values()->toArray();
+
         $printedItemIds = [];
-        if ($allSucceeded) {
-            $printedItemIds = $pendingItems->pluck('id')->toArray();
-            if (!empty($printedItemIds)) {
-                OrderItem::whereIn('id', $printedItemIds)
-                    ->update(['is_printed_direct' => true]);
-            }
+        if ($allSucceeded && !empty($attemptedItemIds)) {
+            $printedItemIds = $attemptedItemIds;
+            OrderItem::whereIn('id', $printedItemIds)
+                ->update(['is_printed_direct' => true]);
+        }
+
+        $unmappedCount = count($this->unmappedItems);
+        $message = $allSucceeded
+            ? 'تمت معالجة الطباعة الفورية'
+            : 'فشلت الطباعة على طابعة واحدة أو أكثر';
+        if ($unmappedCount > 0) {
+            $message .= " — تنبيه: {$unmappedCount} صنف بدون طابعة مربوطة، لم تتم طباعتها.";
         }
 
         return [
-            'success' => $allSucceeded,
-            'message' => $allSucceeded
-                ? 'تمت معالجة الطباعة الفورية'
-                : 'فشلت الطباعة على طابعة واحدة أو أكثر',
+            'success' => $allSucceeded && $unmappedCount === 0,
+            'message' => $message,
+            'unmapped_items' => collect($this->unmappedItems)->map(fn($item) => [
+                'order_item_id' => $item->id,
+                'item_id' => $item->item_id,
+                'item_name_ar' => $item->item_name_ar ?: $item->item_name,
+                'department_id' => $item->department_id,
+            ])->values()->all(),
             'print_jobs' => $results,
             'printed_items_count' => count($printedItemIds),
         ];
@@ -195,6 +230,16 @@ class DirectPrintRoutingService
                     'printer' => $targetPrinter,
                     'department_group' => $item->department->name ?? 'قسم #' . $item->department_id,
                 ];
+            } else {
+                // ما في طابعة مربوطة بهذا الصنف ولا بقسمه — كان هذا يختفي بصمت
+                // وتظهر الطباعة "ناجحة" رغم إنه هالصنف ما وصل لأي طابعة إطلاقاً.
+                $this->unmappedItems[] = $item;
+                Log::warning('DirectPrint: item has no mapped printer', [
+                    'order_item_id' => $item->id,
+                    'item_id' => $item->item_id,
+                    'item_name' => $item->item_name_ar ?: $item->item_name,
+                    'department_id' => $item->department_id,
+                ]);
             }
         }
 
@@ -241,63 +286,6 @@ class DirectPrintRoutingService
     }
 
     /**
-     * توليد أمر طباعة لطابعة الكاشير (المجمّعة المقسمة)
-     *
-     * تطبع تيكيت مقسم — تيكيت واحد لكل مجموعة أقسام
-     * (بدون فاتورة كاملة).
-     *
-     * مثال: شاورما + كولا + بيتزا
-     * - شاورما وكولا يذهبان لطابعة الشاورما → مجموعة واحدة
-     * - بيتزا يذهب لطابعة الايطالي → مجموعة ثانية
-     * - طابعة الكاشير: تيكيت 1 (شورما + كولا) + تيكيت 2 (بيتزا)
-     */
-    private function buildCashierPrintJob(
-        Order $order,
-        array $itemPrinterMap,
-        int $cashierDeviceId
-    ): ?array {
-        $cashierPrinter = Printer::where('branch_id', $order->branch_id)
-            ->where('type', 'CASHIER')
-            ->where('linked_pos_register_id', $cashierDeviceId)
-            ->where('is_active', true)
-            ->first();
-
-        if (!$cashierPrinter) {
-            Log::info("DirectPrint: No active CASHIER printer for device #{$cashierDeviceId}");
-            return null;
-        }
-
-        // تجميع الأصناف حسب معرّف الطابعة (للحصول على مجموعات الأقسام)
-        $groupedByPrinter = [];
-        foreach ($itemPrinterMap as $entry) {
-            $printerId = $entry['printer']->id;
-            if (!isset($groupedByPrinter[$printerId])) {
-                $groupedByPrinter[$printerId] = [
-                    'printer_name' => $entry['printer']->name,
-                    'items' => [],
-                ];
-            }
-            $groupedByPrinter[$printerId]['items'][] = $this->formatItem($entry['item']);
-        }
-
-        // تحويل إلى مصفوفة sections للكاشير
-        $sectionReceipts = [];
-        foreach ($groupedByPrinter as $group) {
-            $sectionReceipts[] = [
-                'section_name' => $group['printer_name'],
-                'items' => $group['items'],
-            ];
-        }
-
-        return [
-            'printer' => $cashierPrinter,
-            'type' => 'CASHIER',
-            'sections' => $sectionReceipts,
-            'order' => $order,
-        ];
-    }
-
-    /**
      * تنسيق صنف للطباعة
      */
     private function formatItem(OrderItem $item): array
@@ -325,13 +313,7 @@ class DirectPrintRoutingService
             $printer = $job['printer'];
 
             try {
-                if ($job['type'] === 'CASHIER') {
-                    $result = $this->printCashierSections($job);
-                } else {
-                    $result = $this->printDepartmentKot($job);
-                }
-
-                $results[] = $result;
+                $results[] = $this->printDepartmentKot($job);
             } catch (\Throwable $e) {
                 Log::error("DirectPrint failed for printer [{$printer->name}]", [
                     'printer_id' => $printer->id,
@@ -352,47 +334,6 @@ class DirectPrintRoutingService
     }
 
     /**
-     * طباعة مقسمة لطابعة الكاشير — تيكيت department-ticket لكل مجموعة
-     *
-     * تستخدم قالب department-ticket.blade.php (تيكيتات صغيرة مضغوطة)
-     * بدل kot.blade.php أو invoice.blade.php.
-     */
-    private function printCashierSections(array $job): array
-    {
-        $printer = $job['printer'];
-        $order = $job['order'];
-
-        // كل الأقسام برندر واحد بس (Chrome launch وحدة بدل وحدة لكل قسم) —
-        // أهم تحسين للسرعة، خاصة للطلبات يلي فيها أكتر من قسم.
-        $imagePath = $this->receiptRenderer->renderCombinedCashierTicket(
-            $order,
-            $job['sections']
-        );
-
-        $results = [];
-        try {
-            $printResult = $this->printerService->printReceiptImage($printer, $imagePath);
-            $results[] = array_merge($printResult, [
-                'printer_id' => $printer->id,
-                'printer_name' => $printer->name,
-                'sections' => collect($job['sections'])->pluck('section_name')->implode(', '),
-                'items_count' => collect($job['sections'])->sum(fn($s) => count($s['items'])),
-            ]);
-        } finally {
-            $this->receiptRenderer->cleanup($imagePath);
-        }
-
-        return [
-            'success' => !empty($results) && !collect($results)->contains('success', false),
-            'printer_id' => $printer->id,
-            'printer_name' => $printer->name,
-            'printer_type' => 'CASHIER',
-            'sections_count' => count($job['sections']),
-            'details' => $results,
-        ];
-    }
-
-    /**
      * طباعة KOT لطابعة القسم — تيكيت واحد يحتوي كل الأصناف
      */
     private function printDepartmentKot(array $job): array
@@ -401,10 +342,21 @@ class DirectPrintRoutingService
         $order = $job['order'];
         $items = $job['items'];
 
+        $meta = [
+            'printed_by'    => $this->printedByName,
+            'closed_at'     => $this->closedAt,
+            'order_total'   => (float) ($order->total ?? 0),
+            'section_total' => array_sum(array_map(
+                fn($i) => (float) ($i['total'] ?? 0),
+                $items
+            )),
+        ];
+
         $imagePath = $this->receiptRenderer->renderKot(
             $order,
             $printer->name,
-            $items
+            $items,
+            $meta
         );
 
         try {

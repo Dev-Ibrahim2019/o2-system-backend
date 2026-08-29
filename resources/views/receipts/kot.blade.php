@@ -21,111 +21,179 @@
         .receipt-container {
             width: 550px;
             background: #fff;
-            padding: 10px 5px;
+            padding: 4px 6px;
             margin: 0 auto;
+        }
+
+        /* شعار O2 */
+        .brand-header {
+            text-align: center;
+            padding: 0 0 4px;
+            margin-bottom: 6px;
+            border-bottom: 2px dashed #000;
+        }
+
+        .o2-logo {
+            font-family: 'Arial Black', 'Arial', sans-serif;
+            font-weight: 900;
+            font-size: 42px;
+            line-height: 1;
+            color: #e2001a;
+            letter-spacing: -1px;
+        }
+
+        .o2-logo sub {
+            font-size: 22px;
+            font-weight: 900;
+            vertical-align: sub;
         }
 
         .kitchen-title-box {
             background: #f2f2f2;
             border: 2px dashed #000;
-            border-radius: 14px;
-            padding: 14px;
+            border-radius: 10px;
+            padding: 7px;
             text-align: center;
-            font-size: 28px;
-            font-weight: 700;
-            margin-bottom: 18px;
+            font-size: 26px;
+            font-weight: 800;
+            margin-bottom: 7px;
         }
 
-        .header-section {
+        .header-row {
             display: flex;
-            gap: 15px;
-            margin-bottom: 18px;
-        }
-
-        .header-info {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            gap: 8px;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 2px 12px;
             font-size: 19px;
+            font-weight: 800;
+            padding: 4px 2px 7px;
+            border-bottom: 1.5px solid #000;
+            margin-bottom: 4px;
         }
 
         .en-text {
             font-family: 'Arial', sans-serif;
-            font-weight: 600;
+            font-weight: 800;
         }
 
         .items-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 18px;
+            margin-bottom: 6px;
         }
 
         .items-table th {
             background: #f2f2f2;
-            border-top: 1px solid #000;
-            border-bottom: 1px solid #000;
-            padding: 12px 8px;
+            border-bottom: 2px solid #000;
+            padding: 5px 6px;
             font-size: 18px;
-            font-weight: 700;
+            font-weight: 800;
         }
 
         .items-table td {
-            padding: 16px 10px;
-            border-bottom: 1px dashed #cccccc;
-            font-size: 22px;
+            padding: 7px 6px;
+            border-bottom: 1.5px dashed #bcbcbc;
+            font-size: 23px;
+            font-weight: 700;
             vertical-align: top;
         }
 
+        .items-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .item-name {
+            font-weight: 800;
+            font-size: 23px;
+        }
+
         .qty-badge {
-            background: #222;
+            background: #000;
             color: #fff;
             font-family: 'Arial', sans-serif;
-            font-weight: 700;
-            padding: 4px 14px;
-            border-radius: 8px;
-            font-size: 18px;
+            font-weight: 800;
+            padding: 3px 12px;
+            border-radius: 6px;
+            font-size: 21px;
             display: inline-block;
         }
 
         .item-notes {
-            font-size: 16px;
-            color: #cc0000;
-            margin-top: 4px;
-            font-weight: bold;
+            font-size: 18px;
+            color: #000;
+            margin-top: 3px;
+            font-weight: 800;
+        }
+
+        /* صندوق الإجمالي — مباشرة تحت الطلبات */
+        .total-box {
+            border: 2.5px solid #000;
+            border-radius: 8px;
+            padding: 7px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+
+        .total-box .label {
+            font-size: 22px;
+            font-weight: 800;
+        }
+
+        .total-box .amount {
+            font-size: 30px;
+            font-weight: 900;
+            font-family: 'Arial', sans-serif;
         }
 
         .footer {
             text-align: center;
-            font-size: 18px;
-            font-weight: 600;
-            border-top: 2px solid #000;
-            padding-top: 15px;
+            font-size: 19px;
+            font-weight: 800;
+            border-top: 2px dashed #000;
+            padding-top: 6px;
+            margin-top: 4px;
+        }
+
+        .footer .printed-by {
+            margin-top: 3px;
+            font-size: 17px;
+            font-weight: 700;
+        }
+
+        .footer .stamp {
+            margin-top: 2px;
+            font-size: 15px;
+            font-weight: 700;
         }
     </style>
 </head>
 <body>
 
     <div class="receipt-container">
+        <div class="brand-header">
+            <span class="o2-logo">O<sub>2</sub></span>
+        </div>
+
         <div class="kitchen-title-box">{{ $printJob->printer->name ?? 'مطبخ رئيسي' }}</div>
 
-        <div class="header-section" style="background: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 14px; padding: 12px; margin-bottom: 18px;">
-            <div class="header-info" style="flex-direction: row; justify-content: space-between; font-size: 14px; width: 100%;">
-                <div><strong>طلب رقم:</strong> <span class="en-text">#{{ $order->order_number ?? $order->id }}</span></div>
-                @if(!empty($order->table_number))
-                <div><strong>طاولة:</strong> <span class="en-text">{{ $order->table_number }}</span></div>
-                @endif
-                <div><strong>الوقت:</strong> <span class="en-text">{{ date('h:i A') }}</span></div>
-            </div>
+        @php($kotMeta = $kotMeta ?? null)
+        @php($closedAt = ($kotMeta['closed_at'] ?? null) ?: now())
+        <div class="header-row">
+            <div>طلب: <span class="en-text">#{{ $order->order_number ?? $order->id }}</span></div>
+            @if(!empty($order->table_number))
+            <div>طاولة: <span class="en-text">{{ $order->table_number }}</span></div>
+            @endif
+            <div>الوقت: <span class="en-text">{{ $closedAt->format('h:i A') }}</span></div>
         </div>
 
         <table class="items-table">
             <thead>
                 <tr>
-                    <th style="width: 15%; text-align: center;">الكمية</th>
-                    <th style="width: 65%; text-align: right;">الصنف والملاحظات</th>
-                    <th style="width: 20%; text-align: left;">السعر</th>
+                    <th style="width: 18%; text-align: center;">الكمية</th>
+                    <th style="width: 60%; text-align: right;">الصنف والملاحظات</th>
+                    <th style="width: 22%; text-align: left;">السعر</th>
                 </tr>
             </thead>
             <tbody>
@@ -133,19 +201,31 @@
                 <tr>
                     <td style="text-align: center;"><span class="qty-badge">{{ $item->quantity }}x</span></td>
                     <td>
-                        <div style="font-weight: 600; font-size: 16px;">{{ $item->item_name_ar ?? $item->item_name }}</div>
+                        <div class="item-name">{{ $item->item_name_ar ?? $item->item_name }}</div>
                         @if(!empty($item->notes))
-                        <div class="item-notes">⚠️ تنبيه: {{ $item->notes }}</div>
+                        <div class="item-notes">⚠️ {{ $item->notes }}</div>
                         @endif
                     </td>
-                    <td class="en-text" style="text-align: left; font-weight: 700;">{{ number_format($item->price ?? 0, 2) }}</td>
+                    <td class="en-text" style="text-align: left;">{{ number_format($item->price ?? 0, 2) }}</td>
                 </tr>
                 @endforeach
             </tbody>
         </table>
 
+        {{-- إجمالي مبلغ أصناف هذا القسم مباشرة بعد الطلبات --}}
+        <div class="total-box">
+            <span class="label">إجمالي المبلغ</span>
+            <span class="amount">₪{{ number_format(($kotMeta['section_total'] ?? null) ?: ($kotMeta['order_total'] ?? ($order->total ?? 0)), 2) }}</span>
+        </div>
+
         <div class="footer">
-            <strong>عدد الأصناف: <span class="en-text">{{ count($sectionItems ?? $order->items) }}</span></strong>
+            <div>عدد الأصناف: <span class="en-text">{{ count($sectionItems ?? $order->items) }}</span></div>
+
+            @if($kotMeta && !empty($kotMeta['printed_by']))
+            <div class="printed-by">طبعها: {{ $kotMeta['printed_by'] }}</div>
+            @endif
+
+            <div class="stamp en-text">{{ $closedAt->format('Y-m-d h:i A') }}</div>
         </div>
     </div>
 

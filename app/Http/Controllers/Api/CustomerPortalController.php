@@ -138,7 +138,10 @@ class CustomerPortalController extends Controller
             ], 404);
         }
 
-        $order = Order::with(['items' => function ($q) {
+        // الطاولة ممكن يكون عليها أكثر من جولة/أردر نشط بنفس الوقت (كل جولة بترسل
+        // طلب منفصل للمطبخ). نجمعهم كلهم هون بدل ما نعرض بس آخر جولة، وإلا الزبون
+        // ما بيشوف الأصناف والمبلغ الحقيقي لفاتورته الكاملة.
+        $orders = Order::with(['items' => function ($q) {
             $q->with('item');
         }])
         ->where(function ($q) use ($table) {
@@ -146,10 +149,10 @@ class CustomerPortalController extends Controller
               ->orWhere('table_number', $table->table_number);
         })
         ->whereNotIn('status', ['paid', 'cancelled', 'served'])
-        ->latest()
-        ->first();
+        ->oldest()
+        ->get();
 
-        if (!$order) {
+        if ($orders->isEmpty()) {
             return response()->json([
                 'success' => true,
                 'data' => null,
@@ -157,17 +160,21 @@ class CustomerPortalController extends Controller
             ]);
         }
 
+        $firstOrder = $orders->first();
+        $latestOrder = $orders->last();
+        $items = $orders->flatMap(fn($order) => $order->items);
+
         return response()->json([
             'success' => true,
             'data' => [
-                'order_id' => $order->id,
-                'order_number' => $order->order_number,
-                'status' => $order->status,
-                'subtotal' => (float) $order->subtotal,
-                'discount_value' => (float) ($order->discount ?? 0),
-                'discount_amount' => (float) ($order->discount_amount ?? 0),
-                'total' => (float) $order->total,
-                'items' => $order->items->map(fn($item) => [
+                'order_id' => $firstOrder->id,
+                'order_number' => $firstOrder->order_number,
+                'status' => $latestOrder->status,
+                'subtotal' => (float) $orders->sum('subtotal'),
+                'discount_value' => (float) $orders->sum(fn($o) => $o->discount ?? 0),
+                'discount_amount' => (float) $orders->sum(fn($o) => $o->discount_amount ?? 0),
+                'total' => (float) $orders->sum('total'),
+                'items' => $items->map(fn($item) => [
                     'item_id' => $item->item_id,
                     'item_name' => $item->item?->name ?? '',
                     'item_name_ar' => $item->item?->name_ar ?? $item->item?->name ?? '',
@@ -175,8 +182,8 @@ class CustomerPortalController extends Controller
                     'price' => (float) $item->price,
                     'total' => (float) ($item->quantity * $item->price),
                     'notes' => $item->notes,
-                ]),
-                'created_at' => $order->created_at->toIso8601String(),
+                ])->values(),
+                'created_at' => $firstOrder->created_at->toIso8601String(),
             ]
         ]);
     }
@@ -422,8 +429,9 @@ class CustomerPortalController extends Controller
 
         $table = DiningTable::where('qr_code', $request->qr_code)->firstOrFail();
 
-        // هنا يمكن إرسال إشعار للنادل (نظام الإشعارات)
-        // سيتم تطويره لاحقاً
+        // نسجل وقت النداء على الطاولة نفسها — شاشة إدارة الطاولات (Tables.tsx) عندها
+        // بولينغ دوري على /tables وبتعرض تنبيه بصري لأي طاولة عليها waiter_called_at.
+        $table->callWaiter();
 
         return response()->json([
             'success' => true,

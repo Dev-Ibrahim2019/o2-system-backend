@@ -25,6 +25,10 @@ class OrderResource extends JsonResource
             'customer_phone'   => $this->customer_phone,
             'customer_mobile'  => $this->customer_mobile,
             'customer_address_id' => $this->customer_address_id,
+            'customer_address' => $this->customer_address,
+            'scheduled_at'     => $this->scheduled_at?->toIso8601String(),
+            'currency'         => $this->currency ?? 'ILS',
+            'exchange_rate'    => (float) ($this->exchange_rate ?? 1),
             'delivery_zone_id' => $this->delivery_zone_id,
             'delivery_zone' => $this->whenLoaded('deliveryZone'),
             'delivery_address_snapshot' => $this->delivery_address_snapshot,
@@ -62,6 +66,10 @@ class OrderResource extends JsonResource
             'has_unsent_items' => $this->hasUnsentItems(),
 
             'paid_at' => $this->paid_at?->toIso8601String(),
+            // orders ما إلها عمود payment_method أصلاً — الطريقة الفعلية مخزنة
+            // على الفاتورة المرتبطة (Invoice.payment_method)، وكانت الواجهة
+            // بتقرا order.payment_method مباشرة فبيطلع "لم يحدد" دايماً.
+            'payment_method' => $this->whenLoaded('invoice', fn () => $this->invoice?->payment_method),
             'payment_status' => $this->payment_status,
             'transaction_id' => $this->transaction_id,
             'assembled_at' => $this->assembled_at?->toIso8601String(),

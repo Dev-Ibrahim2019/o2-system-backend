@@ -5,11 +5,25 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\DiningZone;
 use App\Models\DiningTable;
+use App\Models\Order;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
 class DiningZoneController extends Controller
 {
+    private const ACTIVE_ORDER_STATUSES = ['pending', 'pending_confirmation', 'confirmed', 'in_progress', 'ready'];
+
+    private function tableHasActiveOrders(DiningTable $table): bool
+    {
+        return Order::withoutGlobalScope(\App\Models\Scopes\BranchScope::class)
+            ->where(function ($q) use ($table) {
+                $q->where('dining_table_id', $table->id)
+                  ->orWhere('table_number', $table->table_number);
+            })
+            ->whereIn('status', self::ACTIVE_ORDER_STATUSES)
+            ->exists();
+    }
+
     // 1. عرض جميع القاعات مع طاولاتها
     public function index(Request $request)
     {
@@ -131,7 +145,16 @@ class DiningZoneController extends Controller
     // 5. حذف القاعة وطاولاتها
     public function destroy($id)
     {
-        $zone = DiningZone::findOrFail($id);
+        $zone = DiningZone::with('tables')->findOrFail($id);
+
+        $tableWithActiveOrder = $zone->tables->first(fn($t) => $this->tableHasActiveOrders($t));
+        if ($tableWithActiveOrder) {
+            return response()->json([
+                'success' => false,
+                'message' => "لا يمكن حذف القاعة — الطاولة {$tableWithActiveOrder->table_number} عليها طلب نشط حالياً.",
+            ], 422);
+        }
+
         $zone->tables()->delete();
         $zone->delete();
 
@@ -185,6 +208,14 @@ class DiningZoneController extends Controller
     public function destroyTable($zoneId, $tableId)
     {
         $table = DiningTable::where('dining_zone_id', $zoneId)->findOrFail($tableId);
+
+        if ($this->tableHasActiveOrders($table)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'لا يمكن حذف الطاولة — عليها طلب نشط حالياً.',
+            ], 422);
+        }
+
         $table->delete();
 
         return response()->json([

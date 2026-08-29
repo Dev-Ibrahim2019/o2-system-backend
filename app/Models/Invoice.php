@@ -52,6 +52,10 @@ class Invoice extends Model
         'approved_at',
         'supply_date',
         'reference_number',
+        'exchange_rate',
+        'daily_sequence',
+        'financial_voucher_number',
+        'vat_report_number',
     ];
 
     protected $casts = [
@@ -69,6 +73,8 @@ class Invoice extends Model
         'opened_at' => 'datetime',
         'closed_at' => 'datetime',
         'approved_at' => 'datetime',
+        'exchange_rate' => 'decimal:6',
+        'daily_sequence' => 'integer',
     ];
 
     // ═══════════════════════════════════════════════════════
@@ -137,6 +143,12 @@ class Invoice extends Model
             ->first();
     }
 
+    /** رقم القيد المحاسبي المرتبط (لعرضه بتبويب بيانات الفاتورة) */
+    public function journalEntryNumber(): ?string
+    {
+        return $this->journalEntry()?->transaction_number;
+    }
+
     public function paidAmount(): float
     {
         return (float) $this->payments()->sum('amount');
@@ -197,5 +209,22 @@ class Invoice extends Model
         $seq = $last ? (int) substr($last, -4) + 1 : 1;
 
         return $prefix.str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * الرقم التسلسلي اليومي لنقطة بيع معينة — يبدأ من 1 كل يوم لكل جهاز
+     * (بديل "الرقم اليومي" عند الأمين، مستقل عن رقم الفاتورة العام).
+     */
+    public static function nextDailySequence(?int $posRegisterId): int
+    {
+        if (! $posRegisterId) {
+            return 1;
+        }
+
+        $last = static::where('pos_register_id', $posRegisterId)
+            ->whereDate('created_at', now()->toDateString())
+            ->max('daily_sequence');
+
+        return ((int) $last) + 1;
     }
 }

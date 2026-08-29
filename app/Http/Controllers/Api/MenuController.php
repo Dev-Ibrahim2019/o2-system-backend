@@ -46,10 +46,12 @@ class MenuController extends ApiController
             ];
         };
 
-        Log::info('POS MENU TRACE START', [
-            'branch_id' => $branchId,
-            'is_super_admin' => $authUser?->hasRole('super-admin'),
-        ]);
+        if (config('app.debug')) {
+            Log::debug('POS MENU TRACE START', [
+                'branch_id' => $branchId,
+                'is_super_admin' => $authUser?->hasRole('super-admin'),
+            ]);
+        }
 
         // ── لو super-admin أو مفيش branchId: نجيب كل الأقسام وكل الأصناف النشطة ──
         if (($authUser && $authUser->hasRole('super-admin')) || !$branchId) {
@@ -59,26 +61,22 @@ class MenuController extends ApiController
                 ->orDoesntHave('items')
                 ->get();
 
-            // تعيين السعر من أول branch_item متاح لكل صنف
+            // تعيين السعر من أول branch_item متاح لكل صنف — استعلام واحد مجمّع
+            // بدل استعلام منفصل لكل صنف (كان بيعمل N+1 على قائمة المنيو كاملة).
+            $allItemIds = $departments->flatMap->items->pluck('id')->unique()->values();
+            $pricesByItem = DB::table('branch_item')
+                ->whereIn('item_id', $allItemIds)
+                ->where('is_active', true)
+                ->orderBy('item_id')
+                ->get(['item_id', 'price'])
+                ->unique('item_id')
+                ->pluck('price', 'item_id');
+
             foreach ($departments as $department) {
                 foreach ($department->items as $item) {
-                    $price = DB::table('branch_item')
-                        ->where('item_id', $item->id)
-                        ->where('is_active', true)
-                        ->value('price');
-                    $item->price = $price !== null ? (float) $price : 0;
+                    $item->price = (float) ($pricesByItem[$item->id] ?? 0);
                 }
             }
-
-            Log::info('POS MENU TRACE super-admin', [
-                'departments_count' => $departments->count(),
-                'departments' => $departments->map(fn($d) => [
-                    'id' => $d->id,
-                    'name' => $d->name,
-                    'items_count' => $d->items->count(),
-                    'items' => $d->items->map(fn($i) => ['id' => $i->id, 'price' => $i->price]),
-                ]),
-            ]);
 
             return response()->json([
                 'data' => [
@@ -104,27 +102,25 @@ class MenuController extends ApiController
             }])
             ->get();
 
-        // ── تعيين السعر من pivot لكل صنف ──
+        // ── تعيين السعر من pivot لكل صنف — استعلام واحد مجمّع بدل واحد لكل صنف ──
+        $allItemIds = $departments->flatMap->items->pluck('id')->unique()->values();
+        $pricesByItem = DB::table('branch_item')
+            ->where('branch_id', $branchId)
+            ->whereIn('item_id', $allItemIds)
+            ->pluck('price', 'item_id');
+
         foreach ($departments as $department) {
             foreach ($department->items as $item) {
-                $price = DB::table('branch_item')
-                    ->where('branch_id', $branchId)
-                    ->where('item_id', $item->id)
-                    ->value('price');
-                $item->price = $price !== null ? (float) $price : 0;
+                $item->price = (float) ($pricesByItem[$item->id] ?? 0);
             }
         }
 
-        Log::info('POS MENU TRACE cashier', [
-            'branch_id' => $branchId,
-            'departments_count' => $departments->count(),
-            'departments' => $departments->map(fn($d) => [
-                'id' => $d->id,
-                'name' => $d->name,
-                'items_count' => $d->items->count(),
-                'items' => $d->items->pluck('id'),
-            ]),
-        ]);
+        if (config('app.debug')) {
+            Log::debug('POS MENU TRACE cashier', [
+                'branch_id' => $branchId,
+                'departments_count' => $departments->count(),
+            ]);
+        }
 
         return response()->json([
             'data' => [

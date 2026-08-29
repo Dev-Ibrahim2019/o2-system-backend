@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\Order;
+use App\Models\User;
 use App\Services\Printing\OrderPrintingService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -22,23 +23,37 @@ class PrintInvoiceJob implements ShouldQueue
         public Order $order,
         public ?int $printerId,
         public ?int $printedByUserId,
+        public string $mode = 'all', // 'all' | 'merged' | 'departments'
     ) {}
 
     public function handle(OrderPrintingService $printingService): void
     {
-        $result = $this->printerId
-            ? $printingService->printInvoiceById($this->order, $this->printerId)
-            : $printingService->printInvoiceToCashier($this->order);
+        // نعبّي مين طبع الفاتورة ومتى بالذاكرة قبل الطباعة الفعلية، حتى تقدر
+        // ورقة الفاتورة نفسها تعرض هالمعلومة (القيم بتتحفظ بقاعدة البيانات
+        // بس بعد التأكد من نجاح الطباعة).
+        $this->order->printed_by = $this->printedByUserId;
+        $this->order->printed_at = now();
+        if ($this->printedByUserId) {
+            $this->order->setRelation('printedByUser', User::find($this->printedByUserId));
+        }
 
-        if ($result['success'] ?? false) {
-            $this->order->update([
-                'printed_by' => $this->printedByUserId,
-                'printed_at' => now(),
-            ]);
+        if ($this->printerId) {
+            // طباعة موجّهة لطابعة محددة صراحة — فاتورة كاشير فقط، بدون تذاكر أقسام.
+            $result = $printingService->printInvoiceById($this->order, $this->printerId);
+            $success = $result['success'] ?? false;
+            $results = [$result];
+        } else {
+            // وضع "محلي" — حسب $mode: مدمجة + أقسام / مدمجة فقط / أقسام فقط.
+            $results = $printingService->printLocal($this->order, $this->mode);
+            $success = collect($results)->every(fn($r) => $r['success'] ?? false);
+        }
+
+        if ($success) {
+            $this->order->save();
         } else {
             Log::error('PrintInvoiceJob: print failed', [
                 'order_id' => $this->order->id,
-                'message'  => $result['message'] ?? null,
+                'results'  => $results,
             ]);
         }
     }
