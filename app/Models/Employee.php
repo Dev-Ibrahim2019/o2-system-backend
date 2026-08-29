@@ -35,6 +35,8 @@ class Employee extends Model
         'hireDate',
         'salary',
         'role',
+        'operational_role',
+        'vehicle_type',
         'status',
         'username',
         'password',

@@ -497,6 +497,12 @@ Route::middleware(['auth:sanctum', 'role_or_permission:call-center|super-admin|a
     Route::get('customers/{customer}/alerts', [CallCenterController::class, 'customerAlerts']);
     Route::get('customers/{customer}/timeline', [CallCenterController::class, 'customerTimeline']);
     Route::get('reports/performance', [CallCenterController::class, 'agentPerformance']);
+    Route::get('reports/operations-snapshot', [CallCenterController::class, 'operationsSnapshot']);
+    Route::get('sip-accounts', [\App\Http\Controllers\Api\SipAccountController::class, 'index']);
+    Route::get('sip-accounts/my-credentials', [\App\Http\Controllers\Api\SipAccountController::class, 'myCredentials']);
+    Route::post('sip-accounts', [\App\Http\Controllers\Api\SipAccountController::class, 'store']);
+    Route::put('sip-accounts/{sipAccount}', [\App\Http\Controllers\Api\SipAccountController::class, 'update']);
+    Route::delete('sip-accounts/{sipAccount}', [\App\Http\Controllers\Api\SipAccountController::class, 'destroy']);
     Route::get('canned-responses', [\App\Http\Controllers\Api\CannedResponseController::class, 'index']);
     Route::post('canned-responses', [\App\Http\Controllers\Api\CannedResponseController::class, 'store']);
     Route::patch('canned-responses/{cannedResponse}', [\App\Http\Controllers\Api\CannedResponseController::class, 'update']);

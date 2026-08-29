@@ -78,7 +78,12 @@ class OrderController extends ApiController
             $authUser = auth()->user();
             $customer = isset($data['customer_id']) ? Customer::find($data['customer_id']) : null;
 
-            $branchId = $authUser->branch_id ?? $data['branch_id'] ?? \App\Models\Branch::value('id');
+            $branchId = $authUser->branch_id ?? $data['branch_id'] ?? null;
+            if (! $branchId) {
+                DB::rollBack();
+
+                return $this->error('لا يوجد فرع محدد لحسابك — يجب ربط حسابك بفرع قبل إنشاء طلب.', 422);
+            }
 
             $order = Order::create([
                 'order_number' => Order::generateOrderNumber(),

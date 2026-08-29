@@ -33,6 +33,8 @@ class EmployeeController extends ApiController
                 'department_id',
                 'jobTitleId',
                 'role',
+                'operational_role',
+                'vehicle_type',
                 'status',
                 'hireDate',
                 'salary',

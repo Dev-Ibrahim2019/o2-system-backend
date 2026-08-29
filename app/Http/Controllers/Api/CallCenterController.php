@@ -315,6 +315,26 @@ class CallCenterController extends ApiController
     }
 
     /**
+     * GET /api/call-center/reports/operations-snapshot
+     * لقطة موحدة لكل أرقام "لوحة العمليات" — طلبات/مبيعات اليوم مقابل أمس،
+     * حالة الطلبات، نشاط الساعات، أفضل الأصناف، توزيع الفروع (لغير المقيّد بفرع)، وأدائي.
+     */
+    public function operationsSnapshot(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'branch_id' => 'nullable|integer|exists:branches,id',
+        ]);
+
+        $user = $request->user();
+        $branchId = $user?->hasRole('super-admin') ? ($data['branch_id'] ?? null) : $user?->branch_id;
+
+        return $this->success(
+            'Operations dashboard snapshot',
+            $this->callCenterService->getOperationsSnapshot($branchId, $user?->id),
+        );
+    }
+
+    /**
      * GET /api/call-center/customers/analytics
      */
     public function analytics(): JsonResponse

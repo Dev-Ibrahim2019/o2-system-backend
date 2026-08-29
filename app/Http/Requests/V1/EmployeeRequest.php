@@ -33,6 +33,8 @@ class EmployeeRequest extends FormRequest
             'salary'        => ['nullable', 'numeric', 'min:0'],
 
             'role'          => ['required', 'string'],
+            'operational_role' => ['nullable', 'in:call_center_agent,assembler,delivery_driver,manager,cashier,other'],
+            'vehicle_type'  => ['nullable', 'in:bicycle,electric_bike,motorcycle,external'],
             'status'        => ['required', 'in:ACTIVE,ON_LEAVE,TERMINATED,SUSPENDED,RESIGNED'],
             'employeeId'    => ['nullable', 'string', Rule::unique('employees', 'employeeId')->ignore($id)],
             'username'      => ['nullable', 'string', Rule::unique('employees', 'username')->ignore($id)],

@@ -31,6 +31,8 @@ class EmployeeResource extends JsonResource
             'salary'        => $this->salary,
 
             'role'          => $this->role,
+            'operational_role' => $this->operational_role,
+            'vehicle_type'  => $this->vehicle_type,
             'status'        => $this->status,
             'username'      => $this->username,
             'permissions'   => $this->permissions ?? [],

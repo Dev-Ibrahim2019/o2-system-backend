@@ -42,6 +42,11 @@ class CallCenterService
                 $order->order_type,
                 (int) $order->tickets_count,
             );
+            // "بلا فرع" محسوبة هنا (وليست في classifyActiveOrder المشترك) لتفادي كسر
+            // المستدعين الآخرين لهذه الدالة الذين لا يمرّرون فرعاً أصلاً ولا يعنيهم الأمر
+            if ($scopes !== [] && ! $order->branch_id) {
+                $scopes[] = 'no_branch';
+            }
 
             return [
                 'id' => $order->id,
@@ -63,6 +68,9 @@ class CallCenterService
             'awaiting_payment' => $rows->filter(fn ($row) => in_array('awaiting_payment', $row['scopes'], true))->values(),
             'kitchen_active' => $rows->filter(fn ($row) => in_array('kitchen_active', $row['scopes'], true))->values(),
             'delivery_active' => $rows->filter(fn ($row) => in_array('delivery_active', $row['scopes'], true))->values(),
+            // طلبات بلا فرع (حالات قديمة/طارئة — إنشاء الطلب صار يمنع هذا الآن) تبقى ظاهرة
+            // في نطاقها الطبيعي (awaiting_payment مثلاً) وتُضاف هنا أيضاً كتبويب مخصص واضح
+            'no_branch' => $rows->filter(fn ($row) => in_array('no_branch', $row['scopes'], true))->values(),
         ];
     }
 
@@ -490,6 +498,142 @@ class CallCenterService
             'period' => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
             'missed_calls_total' => $missedCallsTotal,
             'agents' => $agents,
+        ];
+    }
+
+    /**
+     * لقطة شاملة لـ "لوحة العمليات" — كل الأرقام محسوبة من orders + call_tickets
+     * الحقيقية (نفس المصادر المستخدمة في بقية الوحدة)، بدون بيانات وهمية.
+     */
+    public function getOperationsSnapshot(?int $branchId = null, ?int $agentId = null): array
+    {
+        $todayStart = now()->startOfDay();
+        $todayEnd = now()->endOfDay();
+        $yesterdayStart = now()->copy()->subDay()->startOfDay();
+        $yesterdayEnd = now()->copy()->subDay()->endOfDay();
+
+        // مُقيَّد بـ source='call_center' ليطابق تماماً نفس مجموعة الطلبات التي تعرضها
+        // "الطلبات النشطة" — قبل هذا كانت اللوحة تحسب كل طلبات المطعم (POS + كول سنتر)
+        // بينما تلك الصفحة تعرض طلبات الكول سنتر فقط، فيظهر هنا رقم لا يقابله شيء هناك.
+        $ordersTodayQuery = fn () => Order::where('orders.source', 'call_center')
+            ->whereBetween('orders.created_at', [$todayStart, $todayEnd])
+            ->when($branchId, fn (Builder $q) => $q->where('branch_id', $branchId));
+
+        $ordersTodayCount = (clone $ordersTodayQuery())->count();
+        $salesToday = (float) (clone $ordersTodayQuery())->where('status', '!=', 'cancelled')->sum('total');
+
+        $ordersYesterdayQuery = fn () => Order::where('orders.source', 'call_center')
+            ->whereBetween('orders.created_at', [$yesterdayStart, $yesterdayEnd])
+            ->when($branchId, fn (Builder $q) => $q->where('branch_id', $branchId));
+        $ordersYesterdayCount = (clone $ordersYesterdayQuery())->count();
+        $salesYesterday = (float) (clone $ordersYesterdayQuery())->where('status', '!=', 'cancelled')->sum('total');
+
+        $statusCounts = (clone $ordersTodayQuery())
+            ->select('status', DB::raw('COUNT(*) as c'))
+            ->groupBy('status')
+            ->pluck('c', 'status');
+        $completed = (int) ($statusCounts['paid'] ?? 0);
+        $cancelled = (int) ($statusCounts['cancelled'] ?? 0);
+        $pendingBranch = (int) (($statusCounts['pending'] ?? 0) + ($statusCounts['pending_confirmation'] ?? 0));
+        $preparing = max(0, $ordersTodayCount - $completed - $cancelled - $pendingBranch);
+
+        $callsQuery = fn () => CallTicket::whereBetween('started_at', [$todayStart, $todayEnd])
+            ->when($branchId, fn (Builder $q) => $q->where('branch_id', $branchId));
+        $callsTotal = (clone $callsQuery())->count();
+        $callsCompleted = (clone $callsQuery())->where('status', 'completed')->count();
+        $callsMissed = (clone $callsQuery())->where('status', 'missed')->count();
+        $callsConverted = (clone $callsQuery())->whereNotNull('linked_order_id')->count();
+        $conversionRate = $callsTotal > 0 ? round(($callsConverted / $callsTotal) * 100, 1) : 0.0;
+
+        $lastCall = (clone $callsQuery())->with('customer:id,name')->orderByDesc('started_at')->first();
+
+        $ordersHourly = (clone $ordersTodayQuery())
+            ->selectRaw('HOUR(orders.created_at) as hour, COUNT(*) as c')
+            ->groupBy('hour')->pluck('c', 'hour');
+        $callsHourly = (clone $callsQuery())
+            ->selectRaw('HOUR(started_at) as hour, COUNT(*) as c')
+            ->groupBy('hour')->pluck('c', 'hour');
+        $currentHour = (int) now()->hour;
+        $activeHours = collect($ordersHourly->keys())->merge($callsHourly->keys())->map(fn ($h) => (int) $h);
+        $startHour = $activeHours->isNotEmpty() ? min($activeHours->min(), $currentHour) : $currentHour;
+        $hourly = [];
+        for ($h = $startHour; $h <= $currentHour; $h++) {
+            $hourly[] = ['hour' => $h, 'orders' => (int) ($ordersHourly[$h] ?? 0), 'calls' => (int) ($callsHourly[$h] ?? 0)];
+        }
+
+        $topItems = OrderItem::join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->where('orders.source', 'call_center')
+            ->whereBetween('orders.created_at', [$todayStart, $todayEnd])
+            ->when($branchId, fn (Builder $q) => $q->where('orders.branch_id', $branchId))
+            ->where('orders.status', '!=', 'cancelled')
+            ->select('order_items.item_name_ar', 'order_items.item_name', DB::raw('SUM(order_items.quantity) as qty'))
+            ->groupBy('order_items.item_name_ar', 'order_items.item_name')
+            ->orderByDesc('qty')
+            ->limit(5)
+            ->get()
+            ->map(fn ($r) => ['name' => $r->item_name_ar ?: $r->item_name, 'quantity' => (int) $r->qty])
+            ->all();
+
+        $branchDistribution = [];
+        if (! $branchId) {
+            $branchDistribution = Order::where('orders.source', 'call_center')
+                ->whereBetween('orders.created_at', [$todayStart, $todayEnd])
+                ->join('branches', 'branches.id', '=', 'orders.branch_id')
+                ->select('branches.id', 'branches.name', DB::raw('COUNT(*) as c'))
+                ->groupBy('branches.id', 'branches.name')
+                ->orderByDesc('c')
+                ->get()
+                ->map(fn ($r) => ['branch_id' => (int) $r->id, 'branch_name' => $r->name, 'orders_count' => (int) $r->c])
+                ->all();
+        }
+
+        $myPerformance = null;
+        if ($agentId) {
+            $myOrdersQuery = fn () => (clone $ordersTodayQuery())->where('call_center_agent_id', $agentId);
+            $myOrders = (clone $myOrdersQuery())->count();
+            $mySales = (float) (clone $myOrdersQuery())->where('status', '!=', 'cancelled')->sum('total');
+            $myCallsQuery = fn () => CallTicket::whereBetween('started_at', [$todayStart, $todayEnd])->where('agent_id', $agentId);
+            $myPerformance = [
+                'orders' => $myOrders,
+                'sales' => round($mySales, 2),
+                'calls_total' => (clone $myCallsQuery())->count(),
+                'calls_completed' => (clone $myCallsQuery())->where('status', 'completed')->count(),
+            ];
+        }
+
+        return [
+            'today' => [
+                'orders_count' => $ordersTodayCount,
+                'sales_total' => round($salesToday, 2),
+                'avg_order_value' => $ordersTodayCount > 0 ? round($salesToday / $ordersTodayCount, 2) : 0.0,
+                'calls_total' => $callsTotal,
+                'calls_completed' => $callsCompleted,
+                'calls_missed' => $callsMissed,
+                'conversion_rate' => $conversionRate,
+            ],
+            'yesterday' => [
+                'orders_count' => $ordersYesterdayCount,
+                'sales_total' => round($salesYesterday, 2),
+            ],
+            'order_status_breakdown' => [
+                'completed' => $completed,
+                'preparing' => $preparing,
+                'cancelled' => $cancelled,
+                'pending_branch' => $pendingBranch,
+            ],
+            'hourly' => $hourly,
+            'top_items' => $topItems,
+            'branch_distribution' => $branchDistribution,
+            'last_call' => $lastCall ? [
+                'id' => $lastCall->id,
+                'customer_name' => $lastCall->customer?->name,
+                'phone' => $lastCall->incoming_phone,
+                'started_at' => optional($lastCall->started_at)->toIso8601String(),
+                'duration_seconds' => $lastCall->duration_seconds,
+                'status' => $lastCall->status,
+                'linked_order_id' => $lastCall->linked_order_id,
+            ] : null,
+            'my_performance' => $myPerformance,
         ];
     }
 
