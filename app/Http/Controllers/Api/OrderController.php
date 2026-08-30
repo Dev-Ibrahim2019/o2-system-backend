@@ -975,7 +975,9 @@ class OrderController extends ApiController
             $mode = 'all';
         }
 
-        PrintInvoiceJob::dispatch(
+        // dispatchAfterResponse: تنفّذ بنفس عملية PHP بعد إرسال الرد للمتصفّح،
+        // بدون الاعتماد على queue worker خارجي (كان لازم يضل شغّال وإلا ما بتطبع).
+        PrintInvoiceJob::dispatchAfterResponse(
             $order,
             $printerId ? (int) $printerId : null,
             auth()->id(),
@@ -991,7 +993,7 @@ class OrderController extends ApiController
      */
     public function printTickets(Order $order): JsonResponse
     {
-        PrintTicketsJob::dispatch($order);
+        PrintTicketsJob::dispatchAfterResponse($order);
 
         return $this->success('تم إرسال أوامر طباعة تذاكر الأقسام');
     }
@@ -1013,7 +1015,7 @@ class OrderController extends ApiController
         $deviceId   = request('device_id');   // int | null
         $userId     = auth()->id();
 
-        PrintOrderJob::dispatch(
+        PrintOrderJob::dispatchAfterResponse(
             $order,
             $userId,
             $deviceType,
@@ -1067,7 +1069,7 @@ class OrderController extends ApiController
             // فتُنفَّذ بالخلفية عبر Queue Job بدل حجز الـ request عليها.
             // وقت ضغط "تنفيذ وطباعة" = وقت إغلاق الفاتورة الفوري — يُطبع على التيكيت
             // (نلتقطه هون لأن التيكيت يُرسم بالخلفية وقد يتأخر ثوانٍ عن هذه اللحظة).
-            \App\Jobs\DirectPrintJob::dispatch(
+            \App\Jobs\DirectPrintJob::dispatchAfterResponse(
                 $order->id,
                 $cashierDeviceId,
                 auth()->id(),
