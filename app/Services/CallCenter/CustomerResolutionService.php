@@ -36,7 +36,7 @@ class CustomerResolutionService
         }
 
         $candidates = $query->get([
-            'id', 'name', 'phone', 'mobile', 'code', 'status', 'category',
+            'id', 'name', 'phone', 'mobile', 'code', 'status', 'engagement_status',
             'city', 'address', 'branch_id', 'loyalty_points',
         ]);
 

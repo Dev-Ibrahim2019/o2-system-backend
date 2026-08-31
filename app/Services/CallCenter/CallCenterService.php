@@ -14,8 +14,11 @@ use App\Models\User;
 use App\Services\CustomerIdentityService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Schema;
+use InvalidArgumentException;
 
 class CallCenterService
 {
@@ -98,7 +101,7 @@ class CallCenterService
                 ->orWhere('name', 'like', "%{$query}%")
                 ->orWhere('code', 'like', "%{$query}%");
         })
-            ->select('id', 'name', 'phone', 'mobile', 'code', 'status', 'category', 'city', 'address', 'branch_id', 'loyalty_points')
+            ->select('id', 'name', 'phone', 'mobile', 'code', 'status', 'engagement_status', 'city', 'address', 'branch_id', 'loyalty_points')
             ->with('branch:id,name')
             ->limit($limit)
             ->get()
@@ -127,7 +130,7 @@ class CallCenterService
                 'email' => $data['email'] ?? null,
                 'address' => $data['address'] ?? null,
                 'city' => $data['city'] ?? null,
-                'category' => $data['category'] ?? null,
+                'engagement_status' => $data['engagement_status'] ?? null,
                 'notes' => $data['notes'] ?? null,
                 'branch_id' => $data['branch_id'] ?? null,
                 'status' => 'active',
@@ -136,7 +139,7 @@ class CallCenterService
             // Create initial address if provided
             if (!empty($data['address']) || !empty($data['city'])) {
                 $customer->addresses()->create([
-                    'label' => $data['address_label'] ?? '┘à┘╪▓┘',
+                    'label' => $data['address_label'] ?? 'المنزل',
                     'city' => $data['city'] ?? null,
                     'area' => $data['area'] ?? null,
                     'district' => $data['district'] ?? null,
@@ -489,9 +492,18 @@ class CallCenterService
     /**
      * Get all complaints (for complaints management page)
      */
-    public function getAllComplaints(array $filters, int $perPage = 20): array
+    /**
+     * $viewer is required, not optional, and not defaulted to null.
+     *
+     * This method returned every complaint in the system including sensitive
+     * ones, to anyone who could reach the route — the confidentiality rule
+     * simply was not applied here. Making the viewer an explicit argument is
+     * what stops that from recurring: there is no way to call this without
+     * saying who is asking, so there is no way to skip the check.
+     */
+    public function getAllComplaints(array $filters, int $perPage, ?User $viewer): array
     {
-        $query = CustomerComplaint::with([
+        $query = CustomerComplaint::visibleTo($viewer)->with([
             'customer:id,name,phone',
             'order:id,order_number',
             'assignedTo:id,name',
@@ -533,9 +545,20 @@ class CallCenterService
 
     /**
      * Create a complaint
+     *
+     * $channel is a required argument rather than a key of $data, and rather
+     * than a defaulted parameter. $data is request input, so reading the
+     * channel from it would let the client name its own origin; a default
+     * would let a future caller forget to say where it came from and still
+     * produce a row that looks correct. Required and explicit means the
+     * channel can only ever be stated by the entry point that owns it.
      */
-    public function createComplaint(array $data, int $userId): CustomerComplaint
+    public function createComplaint(array $data, int $userId, string $channel): CustomerComplaint
     {
+        if (! in_array($channel, CustomerComplaint::CHANNELS, true)) {
+            throw new InvalidArgumentException("Unknown complaint channel [{$channel}].");
+        }
+
         $complaint = CustomerComplaint::create([
             'customer_id' => $data['customer_id'],
             'order_id' => $data['order_id'] ?? null,
@@ -543,7 +566,6 @@ class CallCenterService
             'assigned_to' => $data['assigned_to'] ?? null,
             'created_by' => $userId,
             'title' => $data['title'],
-            'subject' => $data['title'],
             'description' => $data['description'] ?? '',
             'type' => $data['type'] ?? 'other',
             'priority' => $data['priority'] ?? 'normal',
@@ -552,9 +574,14 @@ class CallCenterService
             'is_sensitive' => $data['is_sensitive'] ?? false,
             'show_alert' => true,
             'branch_id' => $data['branch_id'] ?? null,
+            'channel' => $channel,
+            // Optional analytical tag. Read from $data rather than passed as
+            // an argument like $channel, because unlike the channel it is a
+            // genuine caller choice, not a fact about the entry point.
+            'department' => $data['department'] ?? null,
         ]);
 
-        $this->addFollowup($complaint->id, $userId, 'created', '╪ز┘à ╪ح┘╪┤╪د╪ة ╪د┘╪┤┘â┘ê┘ë', 'system');
+        $this->addFollowup($complaint->id, $userId, 'created', 'تم إنشاء الشكوى', 'system');
 
         return $complaint;
     }
@@ -566,6 +593,24 @@ class CallCenterService
     {
         $complaint = CustomerComplaint::findOrFail($complaintId);
         $oldStatus = $complaint->status;
+
+        // Enforced here rather than in each controller: this is the single
+        // path that writes a complaint's status, so the lifecycle cannot be
+        // bypassed by adding another caller. A no-op restatement of the
+        // current status is allowed — it lets a caller send the full object
+        // back without tripping the guard.
+        if ($oldStatus !== $newStatus && ! CustomerComplaint::canTransition($oldStatus, $newStatus)) {
+            $label = fn (string $status) => CustomerComplaint::STATUS_LABELS[$status] ?? $status;
+
+            throw ValidationException::withMessages([
+                'status' => sprintf(
+                    'لا يمكن نقل الشكوى من "%s" إلى "%s" مباشرة.',
+                    $label($oldStatus),
+                    $label($newStatus),
+                ),
+            ]);
+        }
+
         $complaint->status = $newStatus;
 
         if ($newStatus === CustomerComplaint::STATUS_RESOLVED) {
@@ -586,7 +631,7 @@ class CallCenterService
 
         $complaint->save();
 
-        $this->addFollowup($complaintId, $userId, 'status_changed', $notes ?? "╪ز╪║┘è┘è╪▒ ╪د┘╪ص╪د┘╪ر ┘à┘ {$oldStatus} ╪ح┘┘ë {$newStatus}", 'system', $oldStatus, $newStatus);
+        $this->addFollowup($complaintId, $userId, 'status_changed', $notes ?? "تغيير الحالة من {$oldStatus} إلى {$newStatus}", 'system', $oldStatus, $newStatus);
 
         return $complaint;
     }
@@ -641,8 +686,8 @@ class CallCenterService
                 'type' => 'open_complaint',
                 'severity' => $complaint->priority === 'critical' ? 'critical' : ($complaint->priority === 'high' ? 'warning' : 'info'),
                 'message' => $orderRef
-                    ? "┘╪»┘ë ┘ç╪░╪د ╪د┘╪╣┘à┘è┘ ╪┤┘â┘ê┘ë ┘à┘╪ز┘ê╪ص╪ر ┘à┘╪░ {$days} ┘è┘ê┘à ╪ذ╪«╪╡┘ê╪╡ {$complaint->title} (╪د┘╪╖┘╪ذ {$orderRef})"
-                    : "┘╪»┘ë ┘ç╪░╪د ╪د┘╪╣┘à┘è┘ ╪┤┘â┘ê┘ë ┘à┘╪ز┘ê╪ص╪ر ┘à┘╪░ {$days} ┘è┘ê┘à: {$complaint->title}",
+                    ? "لدى هذا العميل شكوى مفتوحة منذ {$days} يوم بخصوص {$complaint->title} (الطلب {$orderRef})"
+                    : "لدى هذا العميل شكوى مفتوحة منذ {$days} يوم: {$complaint->title}",
                 'complaint_id' => $complaint->id,
                 'created_at' => $complaint->created_at,
             ];
@@ -658,7 +703,7 @@ class CallCenterService
             $alerts[] = [
                 'type' => 'recent_sensitive',
                 'severity' => 'info',
-                'message' => "┘ç╪░╪د ╪د┘╪╣┘à┘è┘ ┘ê╪د╪ش┘ç ┘à╪┤┘â┘╪ر ╪ص╪│╪د╪│╪ر ╪ز┘à ╪ص┘┘ç╪د ┘à╪ج╪«╪▒╪د┘ï. ┘è┘╪▒╪ش┘ë ╪ح╪╣╪╖╪د╪ة ╪د┘ç╪ز┘à╪د┘à ╪ح╪╢╪د┘┘è.",
+                'message' => "هذا العميل واجه مشكلة حساسة تم حلها مؤخراً. يُرجى إعطاؤه اهتماماً إضافياً.",
                 'complaint_id' => $complaint->id,
                 'created_at' => $complaint->resolved_at,
             ];
@@ -702,7 +747,11 @@ class CallCenterService
 
     public function getCustomerOccasions(int $customerId): array
     {
-        return CustomerOccasion::where('customer_id', $customerId)
+        // Owner is polymorphic now; a bare customer_id column no longer
+        // exists. Kept taking an int id rather than a model so every existing
+        // caller keeps working unchanged.
+        return CustomerOccasion::where('occasionable_type', Customer::class)
+            ->where('occasionable_id', $customerId)
             ->where('is_active', true)
             ->orderBy('date')
             ->orderByDesc('created_at')
@@ -710,10 +759,17 @@ class CallCenterService
             ->toArray();
     }
 
-    public function createOccasion(int $customerId, array $data, ?int $userId = null): CustomerOccasion
+    /**
+     * Creates an occasion for any owner.
+     *
+     * $owner is a Customer or a CustomerGroup. The customer-only signature it
+     * replaced took an int; callers that still have only an id resolve the
+     * model first, which is also what makes the ownership guard on the CRM
+     * routes possible.
+     */
+    public function createOccasion(Model $owner, array $data, ?int $userId = null): CustomerOccasion
     {
-        return CustomerOccasion::create(array_merge($data, [
-            'customer_id' => $customerId,
+        return $owner->occasions()->create(array_merge($data, [
             'created_by' => $userId,
         ]));
     }
@@ -735,39 +791,70 @@ class CallCenterService
      */
     public function getOccasionsByRange(string $range, ?int $customerId = null): array
     {
-        $now = now();
-        $query = CustomerOccasion::where('is_active', true)
-            ->with('customer:id,name,phone,mobile')
-            ->orderBy('date');
+        $today = now()->startOfDay();
 
-        if ($customerId) {
-            $query->where('customer_id', $customerId);
+        // Every range is answered from CustomerOccasion::nextOccurrence(), the
+        // one place that knows how an annual occasion rolls forward.
+        //
+        // This used to be two different comparisons: today/tomorrow matched on
+        // whereMonth+whereDay (which worked, by ignoring the year), while
+        // week/month/upcoming/past compared the stored date literally — so a
+        // birthday saved as 1993-05-05 never appeared in any of them, despite
+        // repeats_annually being set. That flag was read nowhere at all.
+        //
+        // The filtering happens in PHP because the next occurrence is derived,
+        // not stored; the DB cannot express it without a generated column.
+        // Bounded by the same is_active index the query already uses.
+        // occasionable, not customer: the owner may be a CustomerGroup since
+        // the polymorphic migration. Column selection is dropped because a
+        // morphTo spans two tables with different columns.
+        $occasions = CustomerOccasion::where('is_active', true)
+            ->with('occasionable')
+            ->when($customerId, fn ($q) => $q
+                ->where('occasionable_type', Customer::class)
+                ->where('occasionable_id', $customerId))
+            ->get();
+
+        $windows = [
+            'today' => [$today, $today],
+            'tomorrow' => [$today->copy()->addDay(), $today->copy()->addDay()],
+            'week' => [$today, $today->copy()->endOfWeek()],
+            'month' => [$today, $today->copy()->endOfMonth()],
+            'upcoming' => [$today, null],
+        ];
+
+        if ($range === 'past') {
+            // The only range that looks backwards, so it reads the stored date
+            // rather than the next occurrence — "past" means the original
+            // event already happened, which for an annual occasion is always
+            // true and is exactly what a caller asking for history wants.
+            return $occasions
+                ->filter(fn (CustomerOccasion $o) => $o->date && $o->date->lt($today))
+                ->sortByDesc('date')
+                ->take(50)
+                ->values()
+                ->toArray();
         }
 
-        $occasions = match ($range) {
-            'today' => $query->whereMonth('date', $now->month)
-                ->whereDay('date', $now->day)
-                ->get(),
-            'tomorrow' => $query->whereMonth('date', $now->copy()->addDay()->month)
-                ->whereDay('date', $now->copy()->addDay()->day)
-                ->get(),
-            'week' => $query->whereBetween('date', [$now->copy()->startOfWeek(), $now->copy()->endOfWeek()])
-                ->get()
-                ->filter(fn($o) => $o->date->between($now->copy()->startOfWeek(), $now->copy()->endOfWeek()))
-                ->values(),
-            'month' => $query->whereMonth('date', $now->month)
-                ->whereYear('date', $now->year)
-                ->get(),
-            'upcoming' => $query->where('date', '>=', $now)
-                ->limit(50)
-                ->get(),
-            'past' => $query->where('date', '<', $now)
-                ->limit(50)
-                ->get(),
-            default => $query->limit(50)->get(),
-        };
+        [$from, $until] = $windows[$range] ?? $windows['upcoming'];
 
-        return $occasions->toArray();
+        return $occasions
+            ->map(fn (CustomerOccasion $o) => ['occasion' => $o, 'at' => $o->nextOccurrence($today)])
+            ->filter(fn (array $row) => $row['at'] !== null
+                && $row['at']->gte($from)
+                && ($until === null || $row['at']->lte($until)))
+            ->sortBy(fn (array $row) => $row['at'])
+            ->take(50)
+            ->map(function (array $row) {
+                // The resolved date rides alongside the record so a caller can
+                // show "when it next falls" without repeating the arithmetic.
+                $data = $row['occasion']->toArray();
+                $data['next_occurrence'] = $row['at']->toDateString();
+
+                return $data;
+            })
+            ->values()
+            ->toArray();
     }
 
     // ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤ظ¤

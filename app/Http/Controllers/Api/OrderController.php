@@ -48,7 +48,7 @@ class OrderController extends ApiController
     // not a new mechanism.
     private const IDEMPOTENCY_SCOPE = 'pos-order-create';
 
-    public function store(StoreOrderRequest $request): JsonResponse
+    public function store(StoreOrderRequest $request, \App\Services\Pos\PosCustomerLinkService $linker, \App\Services\Crm\IdentityConflictService $conflicts): JsonResponse
     {
         $data = $request->validated();
 
@@ -67,12 +67,25 @@ class OrderController extends ApiController
             }
         }
 
+        $authUser = auth()->user();
+        $branchId = $authUser->branch_id ?? $data['branch_id'] ?? \App\Models\Branch::value('id');
+
+        // Resolve the typed name/phone into a real customer BEFORE opening the
+        // order transaction. Deliberate: identity work must never be able to
+        // roll back, slow down, or fail an order. The service is fail-open and
+        // never throws — worst case it returns null and the order is a walk-in,
+        // exactly as it behaved before this change.
+        $link = $linker->resolve(
+            customerId: $data['customer_id'] ?? null,
+            name: $data['customer_name'] ?? null,
+            phone: $data['customer_phone'] ?? null,
+            branchId: $branchId,
+        );
+        $data['customer_id'] = $link->customerId;
+
         DB::beginTransaction();
         try {
-            $authUser = auth()->user();
             $customer = isset($data['customer_id']) ? Customer::find($data['customer_id']) : null;
-
-            $branchId = $authUser->branch_id ?? $data['branch_id'] ?? \App\Models\Branch::value('id');
 
             // التأكد من وجود shift مفتوح للفرع (إنشاء تلقائي إذا لم يوجد)
             $shift = Shift::getOrCreateToday($branchId, $authUser->id);
@@ -98,6 +111,12 @@ class OrderController extends ApiController
                 'status' => 'pending',
                 'table_number' => $data['table_number'] ?? null,
                 'customer_name' => $customer?->name ?? ($data['customer_name'] ?? null),
+                // Keeps the typed name when it lost to the stored one — the
+                // only record that this order was placed under a different
+                // name, and what candidateOrders() matches on.
+                'incoming_customer_name' => ($customer && $link->conflictCandidate)
+                    ? $conflicts->incomingNameFor($customer, $link->conflictCandidate['name'])
+                    : null,
                 'customer_phone' => $customer?->phone ?? $customer?->mobile ?? ($data['customer_phone'] ?? null),
                 'customer_id' => $data['customer_id'] ?? null,
                 'employee_id' => $data['employee_id'] ?? null,
@@ -116,6 +135,19 @@ class OrderController extends ApiController
                 'engine_discount_amount' => 0,
                 'total' => 0,
             ]);
+
+            // Ticket raised here, not inside the linker: it must point at the
+            // order that caused it, and that id only exists now. afterCommit
+            // is owned by queueIfConflicting().
+            if ($link->conflictCandidate) {
+                $conflicts->queueIfConflicting(
+                    customer: $link->conflictCandidate['customer'],
+                    incomingName: $link->conflictCandidate['name'],
+                    incomingPhone: $link->conflictCandidate['phone'],
+                    channel: 'pos_instant',
+                    orderId: $order->id,
+                );
+            }
 
             // إذا تم تحديد طاولة، قم بتسكينها (OCCUPIED — مشغولة بدون طلب)
             if ($order->dining_table_id) {
@@ -142,11 +174,11 @@ class OrderController extends ApiController
 
             DB::commit();
 
-            $response = $this->success(
+            $response = $this->withLinkStatus($this->success(
                 'تم إنشاء الطلب',
                 new OrderResource($order->load(['items.department', 'cashier'])),
                 201
-            );
+            ), $link->status);
 
             if ($idempotencyKey) {
                 \App\Models\IdempotencyRecord::updateOrCreate(
@@ -175,6 +207,21 @@ class OrderController extends ApiController
         }
     }
 
+    /**
+     * Surfaces the identity-resolution outcome alongside the order payload.
+     *
+     * Response-only and derived per request — nothing is stored, so no
+     * migration and no new column. No client reads it yet; it exists so the
+     * outcome is machine-readable for the first time.
+     */
+    private function withLinkStatus(JsonResponse $response, string $status): JsonResponse
+    {
+        $payload = $response->getData(true);
+        $payload['customer_link_status'] = $status;
+
+        return $response->setData($payload);
+    }
+
     public function show(Order $order): JsonResponse
     {
         return $this->success(
@@ -201,15 +248,59 @@ class OrderController extends ApiController
         ]);
     }
 
-    public function update(UpdateOrderRequest $request, Order $order): JsonResponse
-    {
+    public function update(
+        UpdateOrderRequest $request,
+        Order $order,
+        \App\Services\Pos\PosCustomerLinkService $linker,
+        \App\Services\Crm\IdentityConflictService $conflicts,
+    ): JsonResponse {
         if (in_array($order->status, ['paid', 'cancelled'], true)) {
             return $this->error('لا يمكن تعديل طلب مغلق أو ملغى.', 422);
         }
 
+        // A deferred/held order reaches this method when the cashier resumes
+        // it (useCart.ts takes the update() branch whenever an order already
+        // exists), so the name/phone typed at that point never passed through
+        // store() and had no identity resolution at all.
+        //
+        // Only when the order is still unlinked: an order already tied to a
+        // customer is never re-resolved or re-pointed here.
+        $validated = $request->safe()->all();
+        $link = $order->customer_id !== null
+            ? \App\Services\Pos\PosCustomerLink::linked((int) $order->customer_id)
+            : $linker->resolve(
+                customerId: $validated['customer_id'] ?? null,
+                name: $validated['customer_name'] ?? $order->customer_name,
+                phone: $validated['customer_phone'] ?? $order->customer_phone,
+                branchId: $order->branch_id,
+            );
+
         DB::beginTransaction();
         try {
             $order->update($request->safe()->except('items'));
+
+            // Applied after the mass update so it wins over a null
+            // customer_id that the payload may carry.
+            if ($link->customerId !== null && $order->customer_id === null) {
+                $order->update(['customer_id' => $link->customerId]);
+            }
+
+            if ($link->conflictCandidate) {
+                $order->update([
+                    'incoming_customer_name' => $conflicts->incomingNameFor(
+                        $link->conflictCandidate['customer'],
+                        $link->conflictCandidate['name'],
+                    ),
+                ]);
+
+                $conflicts->queueIfConflicting(
+                    customer: $link->conflictCandidate['customer'],
+                    incomingName: $link->conflictCandidate['name'],
+                    incomingPhone: $link->conflictCandidate['phone'],
+                    channel: 'pos_instant',
+                    orderId: $order->id,
+                );
+            }
 
             // مزامنة الأصناف إذا تم إرسالها
             if ($request->has('items')) {
@@ -265,10 +356,10 @@ class OrderController extends ApiController
 
             DB::commit();
 
-            return $this->success(
+            return $this->withLinkStatus($this->success(
                 'تم تحديث الطلب',
                 new OrderResource($order->fresh()->load(['items.department', 'cashier']))
-            );
+            ), $link->status);
         } catch (\InvalidArgumentException $e) {
             DB::rollBack();
             return $this->error($e->getMessage(), 422);

@@ -6,9 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\CustomerComplaint;
+use App\Models\CustomerGroup;
+use Illuminate\Database\Eloquent\Model;
 use App\Models\CustomerNote;
 use App\Models\CustomerOccasion;
 use App\Models\Order;
+use App\Models\OrderFeedback;
 use App\Services\Accounting\CustomerAccountingService;
 use App\Services\CallCenter\CallCenterService;
 use App\Services\Crm\CrmCustomerAccessService;
@@ -17,6 +20,8 @@ use App\Services\Crm\Customer360QueryService;
 use App\Services\CustomerIdentityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CrmController extends Controller
 {
@@ -50,6 +55,12 @@ class CrmController extends Controller
     private const NOTE_TYPE_VALUES = ['general', 'delivery', 'warning', 'preference', 'service', 'sensitive'];
     private const NOTE_IMPORTANCE_VALUES = ['low', 'normal', 'high', 'urgent'];
 
+    /** Mirrors the customer_occasions enums (2027_01_18_000001). */
+    private const OCCASION_TYPE_VALUES = [
+        'birthday', 'anniversary', 'graduation', 'company_founding', 'contract_renewal', 'other',
+    ];
+    private const CONTACT_METHOD_VALUES = ['call', 'sms', 'email', 'whatsapp'];
+
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -63,7 +74,10 @@ class CrmController extends Controller
             'address'        => ['nullable', 'string', 'max:500'],
             'city'           => ['nullable', 'string', 'max:100'],
             'country'        => ['nullable', 'string', 'max:100'],
-            'category'       => ['nullable', 'string', 'in:retail,wholesale,corporate,government,service'],
+            // Business classification moved to customer_groups.group_type; a customer
+            // now carries only its engagement tag plus an optional group.
+            'engagement_status' => ['nullable', 'string', 'in:regular,important,vip,new,inactive,follow_up,complaints'],
+            'group_id'       => ['nullable', 'integer', 'exists:customer_groups,id'],
             'source'         => ['nullable', 'string', 'in:' . implode(',', self::CUSTOMER_SOURCE_VALUES)],
             'status'         => ['nullable', 'string', 'in:active,inactive,blocked'],
             'notes'          => ['nullable', 'string', 'max:1000'],
@@ -81,6 +95,16 @@ class CrmController extends Controller
             'work_address.apartment' => ['nullable', 'string', 'max:20'],
             'work_address.phone' => ['nullable', 'string', 'max:30'],
         ]);
+
+        // Write scope must match the read scope. CrmCustomerAccessService only
+        // shows a branch-scoped user customers whose branch_id equals their own,
+        // so a customer created with a null (or foreign) branch_id would be
+        // invisible — and 403 — to the very user who just created it. Mirrors
+        // how CallCenterController derives its branch: the request's branch_id
+        // is honoured for global users only.
+        $data['branch_id'] = $this->access->isGlobal($request->user())
+            ? ($data['branch_id'] ?? null)
+            : $request->user()->branch_id;
 
         $birthDate = $data['birth_date'] ?? null;
         $workAddress = $data['work_address'] ?? null;
@@ -125,7 +149,10 @@ class CrmController extends Controller
             'address'        => ['nullable', 'string', 'max:500'],
             'city'           => ['nullable', 'string', 'max:100'],
             'country'        => ['nullable', 'string', 'max:100'],
-            'category'       => ['nullable', 'string', 'in:retail,wholesale,corporate,government,service'],
+            // Business classification moved to customer_groups.group_type; a customer
+            // now carries only its engagement tag plus an optional group.
+            'engagement_status' => ['nullable', 'string', 'in:regular,important,vip,new,inactive,follow_up,complaints'],
+            'group_id'       => ['nullable', 'integer', 'exists:customer_groups,id'],
             'source'         => ['nullable', 'string', 'in:' . implode(',', self::CUSTOMER_SOURCE_VALUES)],
             'status'         => ['nullable', 'string', 'in:active,inactive,blocked'],
             'notes'          => ['nullable', 'string', 'max:1000'],
@@ -147,6 +174,12 @@ class CrmController extends Controller
         // birth_date/work_address are always present as keys when the form
         // submits them (even as null, to signal "remove") — but must not be
         // treated as Customer columns.
+        // Same write-scope rule as store(): a branch-scoped user must not be
+        // able to move a customer into a branch they cannot read back.
+        $data['branch_id'] = $this->access->isGlobal($request->user())
+            ? ($data['branch_id'] ?? null)
+            : $request->user()->branch_id;
+
         $hasBirthDateKey = $request->has('birth_date');
         $hasWorkAddressKey = $request->has('work_address');
         $birthDate = $data['birth_date'] ?? null;
@@ -248,7 +281,10 @@ class CrmController extends Controller
         // visible; only the numbers behind it grow as real occasions get
         // recorded. Never fabricates a percentage for a type that isn't there.
         $occasionCounts = CustomerOccasion::query()
-            ->whereIn('customer_id', $customerIds)
+            // Customer-owned only: the dashboard counts what belongs to the
+            // customers in scope, not group-level occasions.
+            ->where('occasionable_type', Customer::class)
+            ->whereIn('occasionable_id', $customerIds)
             ->where('is_active', true)
             ->selectRaw('occasion_type, count(*) as total')
             ->groupBy('occasion_type')
@@ -288,18 +324,19 @@ class CrmController extends Controller
             ->with('branch:id,name')
             ->latest()
             ->limit(5)
-            ->get(['id', 'code', 'name', 'phone', 'mobile', 'email', 'category', 'status', 'loyalty_points', 'branch_id', 'created_at']);
+            ->get(['id', 'code', 'name', 'phone', 'mobile', 'email', 'engagement_status', 'status', 'loyalty_points', 'branch_id', 'created_at']);
 
         // Each recent-customer row shows their nearest/most recent occasion
         // (birthday, anniversary, ...) — real per-customer data, not their
         // business category, matching what the dashboard table is meant to show.
         $latestOccasionByCustomer = CustomerOccasion::query()
-            ->whereIn('customer_id', $recentCustomers->pluck('id'))
+            ->where('occasionable_type', Customer::class)
+            ->whereIn('occasionable_id', $recentCustomers->pluck('id'))
             ->where('is_active', true)
             ->orderByDesc('date')
-            ->get(['customer_id', 'occasion_type', 'date'])
-            ->unique('customer_id')
-            ->keyBy('customer_id');
+            ->get(['occasionable_id', 'occasion_type', 'date'])
+            ->unique('occasionable_id')
+            ->keyBy('occasionable_id');
         $recentCustomers = $recentCustomers->map(function ($customer) use ($latestOccasionByCustomer) {
             $occasion = $latestOccasionByCustomer->get($customer->id);
             $customer->setAttribute('occasion_type', $occasion?->occasion_type);
@@ -348,14 +385,29 @@ class CrmController extends Controller
         $filters = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', 'in:active,inactive,blocked'],
-            'category' => ['nullable', 'string', 'max:50'],
+            'engagement_status' => ['nullable', 'string', 'max:50'],
             'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
             'source' => ['nullable', 'string', 'in:' . implode(',', self::CUSTOMER_SOURCE_VALUES)],
             'gender' => ['nullable', 'string', 'in:' . implode(',', self::GENDER_VALUES)],
+            // Directory filters from the approved mockup — answered from the
+            // existing customer_complaints / customer_occasions tables.
+            'has_complaints' => ['nullable', 'boolean'],
+            'has_occasion' => ['nullable', 'boolean'],
+            'occasion_type' => ['nullable', 'string', 'in:' . implode(',', array_keys(self::OCCASION_LABELS))],
             'sort' => ['nullable', 'string'],
             'direction' => ['nullable', 'in:asc,desc'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
+
+        // "absent" and "explicitly false" mean different things to the query
+        // (no filter vs. only-customers-without), so normalise to true/false/null
+        // instead of letting an omitted key read as false.
+        foreach (['has_complaints', 'has_occasion'] as $flag) {
+            $filters[$flag] = $request->exists($flag) && $request->input($flag) !== ''
+                ? $request->boolean($flag)
+                : null;
+        }
+
         $page = $this->profiles->directory($request->user(), $filters);
         $canFinancial = $request->user()->can('crm.view-customer-financial');
         $page->getCollection()->transform(function (Customer $customer) use ($canFinancial) {
@@ -366,7 +418,7 @@ class CrmController extends Controller
                 'title' => $customer->title,
                 'gender' => $customer->gender,
                 'status' => $customer->status,
-                'category' => $customer->category,
+                'engagement_status' => $customer->engagement_status,
                 'phone' => $customer->phone,
                 'mobile' => $customer->mobile,
                 'primary_phone' => $customer->primaryPhone?->phone ?? $customer->phone ?? $customer->mobile,
@@ -380,6 +432,7 @@ class CrmController extends Controller
                 'loyalty_points' => $customer->loyalty_points,
                 'last_order_at' => $customer->orders_max_created_at,
                 'created_at' => $customer->created_at?->toIso8601String(),
+                'next_occasion' => $this->withOccasionLabel($this->profiles->nextOccasion($customer)),
             ];
             if ($canFinancial) {
                 $item['balance'] = $this->accounting->getBalance($customer);
@@ -388,6 +441,23 @@ class CrmController extends Controller
         });
 
         return response()->json(['data' => $page]);
+    }
+
+    /**
+     * Adds the Arabic label for an occasion type to the payload
+     * Customer360QueryService::nextOccasion() returns, reusing the same
+     * OCCASION_LABELS map the dashboard's occasion distribution already uses
+     * so a type is never labelled two different ways.
+     */
+    private function withOccasionLabel(?array $occasion): ?array
+    {
+        if ($occasion === null) {
+            return null;
+        }
+
+        return $occasion + [
+            'label' => self::OCCASION_LABELS[$occasion['type']] ?? $occasion['title'] ?? $occasion['type'],
+        ];
     }
 
     public function show(Request $request, Customer $customer): JsonResponse
@@ -400,10 +470,58 @@ class CrmController extends Controller
         return $this->show($request, $customer);
     }
 
+    /**
+     * The customer's orders, shaped for the mockup's "طلبات العميل" table.
+     *
+     * Two columns the mockup shows are added here as derived, read-only
+     * fields — both from tables that already exist, neither stored on the
+     * order itself:
+     *  - `rating`: the mean of order_feedback's three 1–5 scores
+     *    (food_quality / service_quality / delivery_speed), null when the
+     *    order was never rated. Averaged rather than picking one dimension
+     *    because the mockup shows a single star rating per order.
+     *  - `has_complaint`: whether any customer_complaint points at this order.
+     *
+     * The mockup's "طريقة الدفع" column (نقدي / بطاقة / تحويل بنكي) is NOT
+     * added: an order's method lives in two unreconciled places — POS settles
+     * through invoices→payments while Call Center writes payment_confirmations
+     * (the same split CrmOrdersQueryService::applyPaymentFilter() documents).
+     * Picking one silently would mislabel every order settled by the other, so
+     * `payment_status`, which IS on the order, is returned instead and the
+     * column decision is left open.
+     */
     public function orders(Request $request, Customer $customer): JsonResponse
     {
         $this->access->authorize($request->user(), $customer);
-        return response()->json(['data' => $customer->orders()->with('branch:id,name')->latest()->paginate(15)]);
+
+        // Both are correlated sub-selects rather than withCount()/withAvg():
+        // Order has no `complaints` relation (customer_complaints.order_id is
+        // a plain FK nothing had needed to traverse yet), and adding one just
+        // to read a count would mean editing the Order model for a CRM-only
+        // display concern. CustomerComplaint's SoftDeletes scope still applies
+        // because the sub-select is built from the model, not a raw table.
+        $page = $customer->orders()
+            ->with('branch:id,name')
+            ->select('orders.*')
+            ->addSelect([
+                'rating' => OrderFeedback::query()
+                    ->selectRaw('ROUND((food_quality + service_quality + delivery_speed) / 3, 1)')
+                    ->whereColumn('order_feedback.order_id', 'orders.id')
+                    ->limit(1),
+                'complaints_count' => CustomerComplaint::query()
+                    ->selectRaw('COUNT(*)')
+                    ->whereColumn('customer_complaints.order_id', 'orders.id'),
+            ])
+            ->latest()
+            ->paginate(15);
+
+        $page->getCollection()->transform(function (Order $order) {
+            $order->setAttribute('rating', $order->rating === null ? null : (float) $order->rating);
+            $order->setAttribute('has_complaint', (int) $order->complaints_count > 0);
+            return $order;
+        });
+
+        return response()->json(['data' => $page]);
     }
 
     /**
@@ -517,6 +635,146 @@ class CrmController extends Controller
         return response()->json(['data' => $query->paginate(15)]);
     }
 
+    /**
+     * POST /api/crm/customers/{customer}/complaints
+     *
+     * CRM's own entry point onto the complaint logic that already exists in
+     * CallCenterService — reused, not reimplemented, so both channels share
+     * one lifecycle, one followup trail and one set of defaults. The only
+     * difference is the permission that guards the door.
+     */
+    public function createComplaint(Request $request, Customer $customer): JsonResponse
+    {
+        $this->access->authorize($request->user(), $customer);
+
+        $data = $request->validate([
+            'title'        => ['required', 'string', 'max:255'],
+            'description'  => ['nullable', 'string'],
+            'order_id'     => ['nullable', 'integer', 'exists:orders,id'],
+            'invoice_id'   => ['nullable', 'integer', 'exists:invoices,id'],
+            'assigned_to'  => ['nullable', 'integer', 'exists:employees,id'],
+            'type'         => ['nullable', 'string', 'max:50'],
+            'priority'     => ['nullable', 'in:low,normal,high,critical'],
+            'severity'     => ['nullable', 'in:info,warning,critical'],
+            'is_sensitive' => ['nullable', 'boolean'],
+            // No permission gate: a department tag is a reporting dimension,
+            // not confidential data. Whoever may file the complaint may say
+            // which department it concerns.
+            'department'   => ['nullable', Rule::in(CustomerComplaint::DEPARTMENTS)],
+        ]);
+
+        // Same gate the notes endpoints use: a sensitive record is only
+        // creatable by someone allowed to see sensitive records.
+        if ($request->boolean('is_sensitive')) {
+            abort_unless($request->user()->can('crm.view-sensitive-notes'), 403, 'لا تملك صلاحية إنشاء شكوى حساسة.');
+        }
+
+        $complaint = $this->callCenter->createComplaint(
+            [...$data, 'customer_id' => $customer->id],
+            $request->user()->id,
+            // Stated by the route, not the payload — $data above never
+            // accepts a channel, so this is the only thing that can set it.
+            CustomerComplaint::CHANNEL_CRM,
+        );
+
+        return response()->json([
+            'data' => $complaint->load(['customer:id,name,phone', 'order:id,order_number']),
+        ], 201);
+    }
+
+    /**
+     * PUT /api/crm/complaints/{complaint}
+     *
+     * Status changes go through CallCenterService::updateComplaintStatus(),
+     * which owns the lifecycle guard — an invalid transition is rejected here
+     * exactly as it is on the Call Center path.
+     */
+    public function updateComplaint(Request $request, CustomerComplaint $complaint): JsonResponse
+    {
+        $this->access->authorize($request->user(), $complaint->customer);
+
+        if ($complaint->is_sensitive) {
+            abort_unless($request->user()->can('crm.view-sensitive-notes'), 403, 'لا تملك صلاحية تعديل شكوى حساسة.');
+        }
+
+        $data = $request->validate([
+            'status'            => ['nullable', 'in:new,open,in_progress,waiting_customer,resolved,closed,cancelled'],
+            'assigned_to'       => ['nullable', 'integer', 'exists:employees,id'],
+            'priority'          => ['nullable', 'in:low,normal,high,critical'],
+            'title'             => ['nullable', 'string', 'max:255'],
+            'description'       => ['nullable', 'string'],
+            'resolution_notes'  => ['nullable', 'string'],
+            'resolution_result' => ['nullable', 'string', 'max:50'],
+            'type'              => ['nullable', 'string', 'max:50'],
+            // 'sometimes' rather than 'nullable': the column is NOT NULL, so
+            // an explicit null must be rejected as invalid, not written.
+            'is_sensitive'      => ['sometimes', 'boolean'],
+            // Nullable here, unlike is_sensitive: the column is nullable, so
+            // an explicit null is the legitimate way to clear a mistaken tag.
+            'department'        => ['nullable', Rule::in(CustomerComplaint::DEPARTMENTS)],
+        ]);
+
+        // Same rule the notes path enforces, in both directions: classifying a
+        // complaint as sensitive and declassifying one both need the clearance.
+        // The check above already covers a complaint that is sensitive today;
+        // this covers one that is about to become sensitive. Until now the
+        // field was simply absent from the validator, so a request asking to
+        // reclassify returned 200 and changed nothing — a silent no-op is the
+        // worst of the three possible answers.
+        if (array_key_exists('is_sensitive', $data)) {
+            abort_unless(
+                $request->user()->can('crm.view-sensitive-notes'),
+                403,
+                'لا تملك صلاحية تغيير تصنيف حساسية الشكوى.',
+            );
+        }
+
+        // Resolving is the one transition that must carry an explanation:
+        // "resolved" is a claim that something was done about the complaint,
+        // and a resolved ticket with no record of what was done is worthless
+        // the moment the customer calls back. Closing, cancelling and
+        // reopening are deliberately exempt — they are administrative moves,
+        // not claims.
+        if (($data['status'] ?? null) === CustomerComplaint::STATUS_RESOLVED
+            && trim((string) ($data['resolution_notes'] ?? $complaint->resolution_notes ?? '')) === ''
+        ) {
+            throw ValidationException::withMessages([
+                'resolution_notes' => 'يجب تسجيل الحل قبل تحويل الشكوى إلى "محلولة".',
+            ]);
+        }
+
+        if (isset($data['status'])) {
+            $resolutionNotes = $data['resolution_notes'] ?? null;
+
+            $complaint = $this->callCenter->updateComplaintStatus(
+                $complaint->id,
+                $data['status'],
+                $request->user()->id,
+                $resolutionNotes,
+            );
+
+            unset($data['status']);
+
+            // updateComplaintStatus() only writes the note into the followup
+            // trail; it never touches the column. Left as it was, a
+            // resolution sent alongside a status change was recorded in the
+            // history and silently lost from the field meant to hold it.
+            if ($resolutionNotes !== null) {
+                $data['resolution_notes'] = $resolutionNotes;
+            } else {
+                unset($data['resolution_notes']);
+            }
+        }
+
+        if ($data !== []) {
+            $complaint->update($data);
+        }
+
+        return response()->json([
+            'data' => $complaint->fresh()->load(['customer:id,name,phone', 'followups']),
+        ]);
+    }
+
     public function notes(Request $request, Customer $customer): JsonResponse
     {
         $this->access->authorize($request->user(), $customer);
@@ -611,6 +869,164 @@ class CrmController extends Controller
     {
         $this->access->authorize($request->user(), $customer);
         return response()->json(['data' => $customer->occasions()->where('is_active', true)->orderBy('date')->get()]);
+    }
+
+
+    /**
+     * Refuses an occasion that is not owned by the model in the URL.
+     *
+     * A 404, not a 403: the two are indistinguishable to a caller probing ids,
+     * which is the same non-disclosure rule the complaint endpoints follow.
+     * Owner type is compared as well as id — without it, group 5's occasion
+     * would be editable through customer 5's route.
+     */
+    private function assertOccasionBelongsTo(CustomerOccasion $occasion, Model $owner): void
+    {
+        abort_unless(
+            $occasion->occasionable_type === $owner->getMorphClass()
+                && (int) $occasion->occasionable_id === (int) $owner->getKey(),
+            404,
+            'المناسبة غير موجودة.'
+        );
+    }
+
+    /**
+     * GET /api/crm/groups/{group}/occasions
+     *
+     * Group occasions are the group's own dates — a founding anniversary, a
+     * contract renewal — not the personal occasions of its members.
+     *
+     * No branch scoping: customer_groups carries no branch_id, so there is no
+     * branch to scope by. Access rests on the crm.occasions.* permissions
+     * alone, which is the same treatment CustomerGroupController@index gives
+     * the group list itself.
+     */
+    public function groupOccasions(Request $request, CustomerGroup $group): JsonResponse
+    {
+        return response()->json([
+            'data' => $group->occasions()->where('is_active', true)->orderBy('date')->get(),
+        ]);
+    }
+
+    /** POST /api/crm/groups/{group}/occasions */
+    public function createGroupOccasion(Request $request, CustomerGroup $group): JsonResponse
+    {
+        $data = $request->validate($this->occasionRules(required: true));
+
+        $occasion = $this->callCenter->createOccasion($group, $data, $request->user()->id);
+
+        return response()->json(['data' => $occasion], 201);
+    }
+
+    /** PUT /api/crm/groups/{group}/occasions/{occasion} */
+    public function updateGroupOccasion(Request $request, CustomerGroup $group, CustomerOccasion $occasion): JsonResponse
+    {
+        $this->assertOccasionBelongsTo($occasion, $group);
+
+        $data = $request->validate($this->occasionRules(required: false));
+
+        return response()->json(['data' => $this->callCenter->updateOccasion($occasion->id, $data)]);
+    }
+
+    /** DELETE /api/crm/groups/{group}/occasions/{occasion} */
+    public function deleteGroupOccasion(Request $request, CustomerGroup $group, CustomerOccasion $occasion): JsonResponse
+    {
+        $this->assertOccasionBelongsTo($occasion, $group);
+
+        $this->callCenter->deleteOccasion($occasion->id);
+
+        return response()->json(['data' => ['deleted' => true]]);
+    }
+
+    /**
+     * One rule set for both owner types — the fields do not differ, only
+     * whether they are mandatory (create) or optional (update).
+     */
+    private function occasionRules(bool $required): array
+    {
+        $presence = $required ? 'required' : 'nullable';
+
+        return [
+            'occasion_type' => [$presence, Rule::in(self::OCCASION_TYPE_VALUES)],
+            'title' => [$presence, 'string', 'max:255'],
+            'date' => [$presence, 'date'],
+            'repeats_annually' => ['nullable', 'boolean'],
+            'notes' => ['nullable', 'string'],
+            'preferred_contact_method' => ['nullable', Rule::in(self::CONTACT_METHOD_VALUES)],
+            'is_active' => ['nullable', 'boolean'],
+        ];
+    }
+
+    /**
+     * POST /api/crm/customers/{customer}/occasions
+     *
+     * CRM's own door onto CallCenterService::createOccasion(). Until now the
+     * only create path sat behind the Call Center role group, so a crm-manager
+     * got a 403 on the one route that could add an occasion.
+     *
+     * The two enum columns are validated here as well as in the database:
+     * Rule::in gives a 422 naming the field, where a bare DB rejection would
+     * surface as a 500.
+     */
+    public function createOccasion(Request $request, Customer $customer): JsonResponse
+    {
+        $this->access->authorize($request->user(), $customer);
+
+        $data = $request->validate([
+            'occasion_type' => ['required', Rule::in(self::OCCASION_TYPE_VALUES)],
+            'title' => ['required', 'string', 'max:255'],
+            'date' => ['required', 'date'],
+            'repeats_annually' => ['nullable', 'boolean'],
+            'notes' => ['nullable', 'string'],
+            'preferred_contact_method' => ['nullable', Rule::in(self::CONTACT_METHOD_VALUES)],
+            'is_active' => ['nullable', 'boolean'],
+        ]);
+
+        $occasion = $this->callCenter->createOccasion($customer, $data, $request->user()->id);
+
+        return response()->json(['data' => $occasion], 201);
+    }
+
+    /**
+     * PUT /api/crm/customers/{customer}/occasions/{occasion}
+     *
+     * The occasion is addressed under its customer so the branch check has
+     * something to run against, and asserted to belong to it — otherwise the
+     * customer in the URL would be decorative and any occasion id would be
+     * editable by anyone who can reach one customer.
+     */
+    public function updateOccasion(Request $request, Customer $customer, CustomerOccasion $occasion): JsonResponse
+    {
+        $this->access->authorize($request->user(), $customer);
+        $this->assertOccasionBelongsTo($occasion, $customer);
+
+        $data = $request->validate([
+            'occasion_type' => ['nullable', Rule::in(self::OCCASION_TYPE_VALUES)],
+            'title' => ['nullable', 'string', 'max:255'],
+            'date' => ['nullable', 'date'],
+            'repeats_annually' => ['nullable', 'boolean'],
+            'notes' => ['nullable', 'string'],
+            'preferred_contact_method' => ['nullable', Rule::in(self::CONTACT_METHOD_VALUES)],
+            'is_active' => ['nullable', 'boolean'],
+        ]);
+
+        return response()->json(['data' => $this->callCenter->updateOccasion($occasion->id, $data)]);
+    }
+
+    /**
+     * DELETE /api/crm/customers/{customer}/occasions/{occasion}
+     *
+     * Soft delete, as the model defines — a mistyped occasion goes away
+     * without the row being destroyed.
+     */
+    public function deleteOccasion(Request $request, Customer $customer, CustomerOccasion $occasion): JsonResponse
+    {
+        $this->access->authorize($request->user(), $customer);
+        $this->assertOccasionBelongsTo($occasion, $customer);
+
+        $this->callCenter->deleteOccasion($occasion->id);
+
+        return response()->json(['data' => ['deleted' => true]]);
     }
 
     public function financial(Request $request, Customer $customer): JsonResponse

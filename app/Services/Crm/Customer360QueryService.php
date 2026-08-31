@@ -13,6 +13,7 @@ class Customer360QueryService
     public function __construct(
         private readonly CrmCustomerAccessService $access,
         private readonly CustomerAccountingService $accounting,
+        private readonly \App\Services\Customers\CustomerFinancialProfileService $financialProfiles,
     ) {}
 
     // Maps a public "sort" filter value to the actual query-selectable
@@ -29,6 +30,18 @@ class Customer360QueryService
         'last_order_at' => 'orders_max_created_at',
     ];
 
+    /**
+     * The four statuses that mean "still open" for a complaint. Extracted so
+     * the count aggregate and the has_complaints filter below can never drift
+     * apart (they used to repeat the same list).
+     */
+    private const OPEN_COMPLAINT_STATUSES = [
+        CustomerComplaint::STATUS_NEW,
+        CustomerComplaint::STATUS_OPEN,
+        CustomerComplaint::STATUS_IN_PROGRESS,
+        CustomerComplaint::STATUS_WAITING_CUSTOMER,
+    ];
+
     public function directory(User $user, array $filters): LengthAwarePaginator
     {
         $sortKey = array_key_exists($filters['sort'] ?? null, self::SORT_COLUMNS) ? $filters['sort'] : 'created_at';
@@ -37,31 +50,72 @@ class Customer360QueryService
         $search = trim((string) ($filters['search'] ?? ''));
 
         return $this->access->visibleCustomers($user)
-            ->with(['branch:id,name', 'primaryPhone:id,customer_id,phone,normalized_phone'])
+            ->with([
+                'branch:id,name',
+                'primaryPhone:id,customer_id,phone,normalized_phone',
+                // Feeds the directory's "مناسبة قادمة" column. Loaded rather
+                // than computed in SQL because "next" depends on
+                // repeats_annually (an annual occasion rolls to next year),
+                // which is display logic, not a stored fact — same reasoning
+                // CrmOrdersQueryService::delayed() documents for elapsed time.
+                'occasions' => fn ($q) => $q
+                    ->where('is_active', true)
+                    // occasionable_* must be selected or the morph relation
+                    // cannot be resolved from the loaded rows.
+                    ->select('id', 'occasionable_type', 'occasionable_id', 'occasion_type', 'title', 'date', 'repeats_annually'),
+            ])
             ->withCount([
                 'orders',
-                'complaints as open_complaints_count' => fn ($q) => $q->whereIn('status', [
-                    CustomerComplaint::STATUS_NEW,
-                    CustomerComplaint::STATUS_OPEN,
-                    CustomerComplaint::STATUS_IN_PROGRESS,
-                    CustomerComplaint::STATUS_WAITING_CUSTOMER,
-                ]),
+                'complaints as open_complaints_count' => fn ($q) => $q->whereIn('status', self::OPEN_COMPLAINT_STATUSES),
             ])
             ->withMax('orders', 'created_at')
             ->withSum('orders', 'total')
+            // Mockup filters "لديه مشكلة" / "لديه مناسبة" / "مناسبة" — all
+            // answered from customer_complaints and customer_occasions, which
+            // already exist. No new column, no new table.
+            ->when(
+                array_key_exists('has_complaints', $filters) && $filters['has_complaints'] !== null,
+                fn ($q) => $filters['has_complaints']
+                    ? $q->whereHas('complaints', fn ($c) => $c->whereIn('status', self::OPEN_COMPLAINT_STATUSES))
+                    : $q->whereDoesntHave('complaints', fn ($c) => $c->whereIn('status', self::OPEN_COMPLAINT_STATUSES))
+            )
+            ->when(
+                array_key_exists('has_occasion', $filters) && $filters['has_occasion'] !== null,
+                fn ($q) => $filters['has_occasion']
+                    ? $q->whereHas('occasions', fn ($o) => $o->where('is_active', true))
+                    : $q->whereDoesntHave('occasions', fn ($o) => $o->where('is_active', true))
+            )
+            ->when(
+                $filters['occasion_type'] ?? null,
+                fn ($q, $type) => $q->whereHas('occasions', fn ($o) => $o->where('is_active', true)->where('occasion_type', $type))
+            )
             ->when($search !== '', function ($query) use ($search) {
-                $digits = preg_replace('/\D+/', '', $search);
+                // The stored-phones clause is added only when the term
+                // actually contains digits.
+                //
+                // It used to be unconditional: for a name search preg_replace
+                // leaves $digits empty, ltrim('', '0') is still empty, and the
+                // pattern collapses to LIKE '%%' — which every phone row
+                // matches. That OR branch then dragged in every customer who
+                // has a phone on file, so searching a name (or any text at
+                // all, including nonsense) returned the entire directory
+                // instead of filtering it.
+                $digits = ltrim((string) preg_replace('/\D+/', '', $search), '0');
+
                 $query->where(function ($q) use ($search, $digits) {
                     $q->where('name', 'like', "%{$search}%")
                         ->orWhere('code', 'like', "%{$search}%")
                         ->orWhere('phone', 'like', "%{$search}%")
-                        ->orWhere('mobile', 'like', "%{$search}%")
-                        ->orWhereHas('phones', fn ($phones) => $phones
-                            ->where('normalized_phone', 'like', '%'.ltrim($digits, '0').'%'));
+                        ->orWhere('mobile', 'like', "%{$search}%");
+
+                    if ($digits !== '') {
+                        $q->orWhereHas('phones', fn ($phones) => $phones
+                            ->where('normalized_phone', 'like', "%{$digits}%"));
+                    }
                 });
             })
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
-            ->when($filters['category'] ?? null, fn ($q, $category) => $q->where('category', $category))
+            ->when($filters['engagement_status'] ?? null, fn ($q, $tag) => $q->where('engagement_status', $tag))
             ->when($filters['source'] ?? null, fn ($q, $source) => $q->where('source', $source))
             ->when($filters['gender'] ?? null, fn ($q, $gender) => $q->where('gender', $gender))
             ->when(
@@ -72,11 +126,66 @@ class Customer360QueryService
             ->paginate(min(max((int) ($filters['per_page'] ?? 20), 1), 100));
     }
 
+    /**
+     * The customer's nearest upcoming occasion, or null when they have none
+     * still ahead of them. Reads only the `occasions` relation loaded by
+     * directory() above, so it costs no extra query per row.
+     *
+     * An occasion with repeats_annually rolls forward to its next anniversary;
+     * a one-off occasion whose date has already passed is not "upcoming" and
+     * is skipped rather than reported as overdue.
+     */
+    public function nextOccasion(Customer $customer): ?array
+    {
+        if (! $customer->relationLoaded('occasions')) {
+            return null;
+        }
+
+        $today = now()->startOfDay();
+        $best = null;
+
+        foreach ($customer->occasions as $occasion) {
+            if (! $occasion->date) {
+                continue;
+            }
+
+            // Delegates to the model's nextOccurrence(), the one place that
+            // knows how an annual occasion rolls forward. This method used to
+            // carry its own copy of that arithmetic while
+            // CallCenterService::getOccasionsByRange() carried a different
+            // one — which is how the two came to disagree.
+            $next = $occasion->nextOccurrence($today);
+
+            if ($next === null) {
+                continue;
+            }
+
+            if ($best === null || $next->lt($best['at'])) {
+                $best = ['at' => $next, 'occasion' => $occasion];
+            }
+        }
+
+        if ($best === null) {
+            return null;
+        }
+
+        return [
+            'type' => $best['occasion']->occasion_type,
+            'title' => $best['occasion']->title,
+            'date' => $best['at']->toDateString(),
+            'days_until' => (int) $today->diffInDays($best['at'], false),
+        ];
+    }
+
     public function profile(User $user, Customer $customer): array
     {
         $this->access->authorize($user, $customer);
         $customer->load([
             'branch:id,name',
+            // The customer form's group picker reads identity.group_id, but
+            // profile() never returned it — so editing a customer always
+            // showed "no group" no matter what customers.group_id held.
+            'group:id,name,group_type',
             'phones:id,customer_id,phone,normalized_phone,type,is_primary,is_verified',
             'address',
             // Birthday is modeled as a CustomerOccasion (occasion_type='birthday'),
@@ -106,7 +215,9 @@ class Customer360QueryService
                 'gender' => $customer->gender,
                 'code' => $customer->code,
                 'status' => $customer->status,
-                'category' => $customer->category,
+                'engagement_status' => $customer->engagement_status,
+                'group_id' => $customer->group_id,
+                'group' => $customer->group,
                 'primary_phone' => $customer->primaryPhone?->phone ?? $customer->phone ?? $customer->mobile,
                 'phones' => $customer->phones,
                 'email' => $customer->email,
@@ -154,12 +265,19 @@ class Customer360QueryService
         $balance = $this->accounting->getBalance($customer);
         $aging = $this->accounting->getAging($customer);
 
+        // Loaded through the gate, which re-checks the permission the
+        // abort_unless() above already enforced — belt and braces, and it is
+        // what makes this a read of customer_financial_profiles rather than of
+        // columns that no longer exist on `customers`.
+        $profile = $this->financialProfiles->getOrFail($user, $customer);
+        $creditLimit = (float) $profile->credit_limit;
+
         return [
             'balance' => $balance,
-            'credit_limit' => (float) $customer->credit_limit,
-            'available_credit' => max(0, (float) $customer->credit_limit - $balance),
-            'payment_terms' => $customer->payment_terms,
-            'credit_days' => $customer->credit_days,
+            'credit_limit' => $creditLimit,
+            'available_credit' => max(0, $creditLimit - $balance),
+            'payment_terms' => $profile->payment_terms,
+            'credit_days' => $profile->credit_days,
             'aging' => $aging,
             'legacy_source' => false,
         ];

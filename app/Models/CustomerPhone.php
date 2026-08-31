@@ -17,11 +17,16 @@ class CustomerPhone extends Model
         'type',
         'is_primary',
         'is_verified',
+        // Set only by an identity-conflict resolution; exempts the row from
+        // the exclusive_phone unique index. See the
+        // allow_shared_phone_numbers_on_customer_phones migration.
+        'is_shared',
     ];
 
     protected $casts = [
         'is_primary' => 'boolean',
         'is_verified' => 'boolean',
+        'is_shared' => 'boolean',
     ];
 
     public function customer(): BelongsTo

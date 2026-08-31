@@ -3,6 +3,7 @@
 namespace App\Services\CallCenter;
 
 use App\Models\{CallTicket, Customer, CustomerAddress, Item, Order, OrderItem, User};
+use App\Services\Crm\IdentityConflictService;
 use App\Services\CustomerIdentityService;
 use App\Services\Integration\IntegrationOutboxWriter;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +15,7 @@ class CallCenterOrderCreationService
         private readonly CustomerResolutionService $resolution,
         private readonly CustomerIdentityService $identity,
         private readonly IntegrationOutboxWriter $outbox,
+        private readonly IdentityConflictService $conflicts,
     ) {}
 
     public function create(array $data, User $agent): array
@@ -29,6 +31,7 @@ class CallCenterOrderCreationService
             $customer = ! empty($data['customer_id'])
                 ? Customer::lockForUpdate()->findOrFail($data['customer_id'])
                 : null;
+            $conflictCandidate = null;
 
             if (! $customer) {
                 $resolved = $this->resolution->resolve($data['customer']['phone'], true);
@@ -43,6 +46,19 @@ class CallCenterOrderCreationService
                     'branch_id' => $data['branch_id'],
                     'status' => 'active',
                 ], Customer::TYPE_OPERATIONAL);
+
+                // Matched an existing customer whose stored name differs from
+                // the one the agent just typed? The stored name still wins —
+                // the line above is untouched — but the discrepancy is no
+                // longer discarded silently. Queued here, raised after the
+                // order exists so the ticket can point at it.
+                if ($resolved['customer']) {
+                    $conflictCandidate = [
+                        'customer' => $resolved['customer'],
+                        'name' => $data['customer']['name'] ?? null,
+                        'phone' => $data['customer']['phone'],
+                    ];
+                }
             }
 
             $address = $this->resolveAddress($customer, $data['address'] ?? [], $data['order_type']);
@@ -55,6 +71,12 @@ class CallCenterOrderCreationService
                 'status' => 'pending',
                 'customer_id' => $customer->id,
                 'customer_name' => $customer->name,
+                // Preserves what the agent actually typed when it differed —
+                // the stored name still wins above, this only stops the typed
+                // one from vanishing.
+                'incoming_customer_name' => $conflictCandidate
+                    ? $this->conflicts->incomingNameFor($customer, $conflictCandidate['name'])
+                    : null,
                 'customer_phone' => $customer->phone ?: $customer->mobile,
                 'customer_address_id' => $address?->id,
                 'delivery_zone_id' => $data['delivery_zone_id'] ?? null,
@@ -88,6 +110,19 @@ class CallCenterOrderCreationService
                     'source' => $order->source,
                 ],
             );
+
+            if ($conflictCandidate) {
+                // Shared entry point — it owns the afterCommit scheduling, so
+                // this channel no longer wires it by hand. Same behaviour,
+                // one implementation for every channel.
+                $this->conflicts->queueIfConflicting(
+                    customer: $conflictCandidate['customer'],
+                    incomingName: $conflictCandidate['name'],
+                    incomingPhone: $conflictCandidate['phone'],
+                    channel: 'call_center',
+                    orderId: $order->id,
+                );
+            }
 
             $ticket?->update([
                 'branch_id' => $data['branch_id'],

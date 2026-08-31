@@ -102,6 +102,9 @@ class Order extends Model
         'customer_count',
         'seated_at',
         'customer_name',
+        // The name typed when it differed from the customer's official one.
+        // Written only on a real conflict; see IdentityConflictService.
+        'incoming_customer_name',
         'customer_phone',
         'customer_id',
         'employee_id',
@@ -138,6 +141,17 @@ class Order extends Model
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
+    }
+
+    /**
+     * The inverse of Customer::orders(), which has existed all along — this
+     * side was simply missing, so orders.customer_id had no relation to read
+     * it through. Nullable by design: a walk-in order legitimately has no
+     * customer.
+     */
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class);
     }
 
     public function cashier(): BelongsTo

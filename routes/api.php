@@ -324,30 +324,73 @@ Route::prefix("suppliers")->group(function () {
 });
 
 // â”€â”€ Customers â”€â”€
+//
+// Accounting's Customer Accounts screen lives here. Its routes used to be
+// reachable only through crm.* permissions, which the `accountant` role does
+// not hold and should not hold — granting crm.access to reach a financial
+// screen would also open complaints and sensitive notes.
+//
+// So the financial routes now accept the accounting permissions alongside the
+// CRM one. This mirrors CustomerFinancialProfileService::READ_PERMISSIONS,
+// which already treats these three as equivalent for reading financial data —
+// the route guard was simply stricter than the guard inside the controller.
+// No permission is created here; all three already exist.
 Route::middleware('auth:sanctum')->prefix("customers")->group(function () {
-    Route::get("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "index"])->middleware('permission:crm.view-customers');
+    // Reading the accounts list and a single account IS the financial screen —
+    // without these two the rest of the group is unreachable in practice.
+    // index() is scoped ->financial(), so this exposes accounting customers
+    // only, and the financial columns themselves stay gated by the service.
+    Route::get("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "index"])->middleware('permission:crm.view-customers|view-accounting|manage-accounting');
+
+    // Literal segments MUST be registered before "/{customer}", otherwise the
+    // route model binder tries to resolve a Customer named "aging-report".
+    Route::get("/aging-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "agingReport"])->middleware('permission:crm.view-customer-financial|view-accounting|manage-accounting');
+    Route::get("/collection-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "collectionReport"])->middleware('permission:crm.view-customer-financial|view-accounting|manage-accounting');
+    Route::get("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "show"])->middleware('permission:crm.view-customers|view-accounting|manage-accounting');
+
+    // Customer identity CRUD stays CRM-owned — creating or deleting a customer
+    // is not part of "viewing the financial screen".
     Route::post("/", [\App\Http\Controllers\Api\CustomerFinancialController::class, "store"])->middleware('permission:crm.create-customers');
-    Route::get("/aging-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "agingReport"])->middleware('permission:crm.view-customer-financial');
-    Route::get("/collection-report", [\App\Http\Controllers\Api\CustomerFinancialController::class, "collectionReport"])->middleware('permission:crm.view-customer-financial');
-    Route::get("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "show"])->middleware('permission:crm.view-customers');
     Route::put("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "update"])->middleware('permission:crm.edit-customers');
     Route::delete("/{customer}", [\App\Http\Controllers\Api\CustomerFinancialController::class, "destroy"])->middleware('permission:crm.delete-customers');
-    Route::post("/{customer}/invoice", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordInvoice"])->middleware('permission:crm.view-customer-financial');
-    Route::post("/{customer}/receipt", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordReceipt"])->middleware('permission:crm.view-customer-financial');
-    Route::post("/{customer}/payment", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordReceipt"])->middleware('permission:crm.view-customer-financial');
-    Route::post("/{customer}/credit-note", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordCreditNote"])->middleware('permission:crm.manage-customer-credit');
-    Route::post("/{customer}/debit-note", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordDebitNote"])->middleware('permission:crm.manage-customer-credit');
-    Route::get("/{customer}/statement", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statement"])->middleware('permission:crm.view-customer-statement');
-    Route::get("/{customer}/statement/export", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statementExport"])->middleware('permission:crm.export-customer-statement');
-    Route::get("/{customer}/statement/pdf", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statementPdf"])->middleware('permission:crm.export-customer-statement');
-    Route::get("/{customer}/aging", [\App\Http\Controllers\Api\CustomerFinancialController::class, "aging"])->middleware('permission:crm.view-customer-financial');
-    Route::get("/{customer}/analytics", [\App\Http\Controllers\Api\CustomerFinancialController::class, "analytics"])->middleware('permission:crm.view-customer-financial');
+
+    // ── Financial profile: read ──
+    Route::get("/{customer}/aging", [\App\Http\Controllers\Api\CustomerFinancialController::class, "aging"])->middleware('permission:crm.view-customer-financial|view-accounting|manage-accounting');
+    Route::get("/{customer}/analytics", [\App\Http\Controllers\Api\CustomerFinancialController::class, "analytics"])->middleware('permission:crm.view-customer-financial|view-accounting|manage-accounting');
+    Route::get("/{customer}/statement", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statement"])->middleware('permission:crm.view-customer-statement|view-accounting|manage-accounting');
+    Route::get("/{customer}/statement/export", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statementExport"])->middleware('permission:crm.export-customer-statement|view-accounting|manage-accounting');
+    Route::get("/{customer}/statement/pdf", [\App\Http\Controllers\Api\CustomerFinancialController::class, "statementPdf"])->middleware('permission:crm.export-customer-statement|view-accounting|manage-accounting');
+
+    // ── Financial profile: ledger writes ──
+    // manage-accounting only, NOT view-accounting: posting an invoice, receipt
+    // or credit note moves money. Read access to the accounting module must
+    // not carry the right to write entries.
+    Route::post("/{customer}/invoice", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordInvoice"])->middleware('permission:crm.view-customer-financial|manage-accounting');
+    Route::post("/{customer}/receipt", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordReceipt"])->middleware('permission:crm.view-customer-financial|manage-accounting');
+    Route::post("/{customer}/payment", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordReceipt"])->middleware('permission:crm.view-customer-financial|manage-accounting');
+    Route::post("/{customer}/credit-note", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordCreditNote"])->middleware('permission:crm.manage-customer-credit|manage-accounting');
+    Route::post("/{customer}/debit-note", [\App\Http\Controllers\Api\CustomerFinancialController::class, "recordDebitNote"])->middleware('permission:crm.manage-customer-credit|manage-accounting');
 });
 
 // CRM Admin read API. Legacy customer and call-center contracts remain unchanged.
 Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->group(function () {
     $crm = \App\Http\Controllers\Api\Crm\CrmController::class;
 
+    // Read-only: the customer form needs to offer existing groups. Group
+    // management is a separate screen that does not exist yet.
+    // Customer groups. The list keeps accepting crm.view-customers so the
+    // customer form's picker — which has always read it under that permission
+    // — is unaffected; crm.groups.view is the new, purpose-built alternative.
+    $groups = \App\Http\Controllers\Api\Crm\CustomerGroupController::class;
+    Route::get('customer-groups', [$groups, 'index'])->middleware('permission:crm.view-customers|crm.groups.view');
+    Route::get('customer-groups/{group}', [$groups, 'show'])->middleware('permission:crm.view-customers|crm.groups.view');
+    Route::post('customer-groups', [$groups, 'store'])->middleware('permission:crm.groups.create');
+    Route::put('customer-groups/{group}', [$groups, 'update'])->middleware('permission:crm.groups.update');
+    Route::delete('customer-groups/{group}', [$groups, 'destroy'])->middleware('permission:crm.groups.delete');
+    // Membership is customers.group_id — no pivot, one source.
+    Route::get('customer-groups/{group}/customers', [$groups, 'customers'])->middleware('permission:crm.view-customers|crm.groups.view');
+    Route::post('customer-groups/{group}/customers', [$groups, 'addCustomer'])->middleware('permission:crm.groups.update');
+    Route::delete('customer-groups/{group}/customers/{customer}', [$groups, 'removeCustomer'])->middleware('permission:crm.groups.update');
     Route::get('dashboard', [$crm, 'dashboard'])->middleware('permission:crm.dashboard.view');
     Route::get('customers', [$crm, 'index'])->middleware('permission:crm.view-customers');
     Route::post('customers', [$crm, 'store'])->middleware('permission:crm.create-customers');
@@ -368,14 +411,51 @@ Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->gro
     Route::put('customers/{customer}/orders/{order}/feedback', [\App\Http\Controllers\Api\OrderFeedbackController::class, 'store'])->middleware('permission:crm.customer-orders.view');
     Route::get('customers/{customer}/addresses', [$crm, 'addresses'])->middleware('permission:crm.customer-addresses.view');
     Route::get('customers/{customer}/complaints', [$crm, 'complaints'])->middleware('permission:crm.complaints.view');
+    // CRM's own write path onto the same complaint lifecycle the Call Center
+    // uses. No delete: a complaint is closed or cancelled, never erased.
+    Route::post('customers/{customer}/complaints', [$crm, 'createComplaint'])->middleware('permission:crm.complaints.create');
+    Route::put('complaints/{complaint}', [$crm, 'updateComplaint'])->middleware('permission:crm.complaints.update');
+    // Cross-customer complaint reads. `summary` is declared before the
+    // `{complaint}` wildcard on purpose — below it, the wildcard swallows the
+    // literal and "summary" is looked up as a complaint id.
+    Route::get('complaints', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'index'])->middleware('permission:crm.complaints.view');
+    Route::get('complaints/summary', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'summary'])->middleware('permission:crm.complaints.view');
+    // Literal, so it must precede the {complaint} wildcard below.
+    Route::get('complaints/assignable-employees', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'assignableEmployees'])->middleware('permission:crm.complaints.update');
+    Route::get('complaints/{complaint}', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'show'])->middleware('permission:crm.complaints.view');
+    // Appending to the trail is a write on the complaint, so it rides on
+    // crm.complaints.update rather than the view permission.
+    Route::post('complaints/{complaint}/followups', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'addFollowup'])->middleware('permission:crm.complaints.update');
     Route::get('customers/{customer}/notes', [$crm, 'notes'])->middleware('permission:crm.notes.view');
     Route::post('customers/{customer}/notes', [$crm, 'createNote'])->middleware('permission:crm.notes.create');
     Route::put('customers/{customer}/notes/{note}', [$crm, 'updateNote'])->middleware('permission:crm.notes.update');
     Route::delete('customers/{customer}/notes/{note}', [$crm, 'deleteNote'])->middleware('permission:crm.notes.delete');
     Route::get('customers/{customer}/occasions', [$crm, 'occasions'])->middleware('permission:crm.occasions.view');
+    // Write paths onto the same CallCenterService methods the Call Center
+    // routes call — one piece of occasion logic, a different guard.
+    Route::post('customers/{customer}/occasions', [$crm, 'createOccasion'])->middleware('permission:crm.occasions.create');
+    Route::put('customers/{customer}/occasions/{occasion}', [$crm, 'updateOccasion'])->middleware('permission:crm.occasions.update');
+    Route::delete('customers/{customer}/occasions/{occasion}', [$crm, 'deleteOccasion'])->middleware('permission:crm.occasions.delete');
+    // Group-owned occasions — the same three permissions, no new ones. Groups
+    // carry no branch_id, so there is no branch scope to apply here.
+    Route::get('groups/{group}/occasions', [$crm, 'groupOccasions'])->middleware('permission:crm.occasions.view');
+    Route::post('groups/{group}/occasions', [$crm, 'createGroupOccasion'])->middleware('permission:crm.occasions.create');
+    Route::put('groups/{group}/occasions/{occasion}', [$crm, 'updateGroupOccasion'])->middleware('permission:crm.occasions.update');
+    Route::delete('groups/{group}/occasions/{occasion}', [$crm, 'deleteGroupOccasion'])->middleware('permission:crm.occasions.delete');
     Route::get('customers/{customer}/financial-summary', [$crm, 'financial'])->middleware('permission:crm.view-customer-financial');
     Route::get('customers/{customer}/statement', [$crm, 'statement'])->middleware('permission:crm.view-customer-statement');
     Route::get('customers/{customer}/aging', [$crm, 'aging'])->middleware('permission:crm.view-customer-financial');
+
+    // Identity-conflict tickets. Reading the queue rides on crm.view-customers
+    // (a ticket shows nothing a customer record doesn't); acting on one needs
+    // crm.manage-identity-conflicts, because resolutions rename customers and
+    // create records.
+    $conflicts = \App\Http\Controllers\Api\Crm\IdentityConflictController::class;
+    Route::get('identity-conflicts', [$conflicts, 'index'])->middleware('permission:crm.view-customers');
+    Route::get('identity-conflicts/{identityConflict}', [$conflicts, 'show'])->middleware('permission:crm.view-customers');
+    Route::post('identity-conflicts/{identityConflict}/resolve', [$conflicts, 'resolve'])->middleware('permission:crm.manage-identity-conflicts');
+    Route::post('identity-conflicts/{identityConflict}/dismiss', [$conflicts, 'dismiss'])->middleware('permission:crm.manage-identity-conflicts');
+    Route::post('identity-conflicts/{identityConflict}/reassign-orders', [$conflicts, 'reassignOrders'])->middleware('permission:crm.manage-identity-conflicts');
 });
 
 Route::post('pos/activate', [\App\Http\Controllers\Admin\PosRegisterController::class, 'activate']);

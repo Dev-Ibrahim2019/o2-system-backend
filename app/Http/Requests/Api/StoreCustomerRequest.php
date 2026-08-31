@@ -27,7 +27,12 @@ class StoreCustomerRequest extends FormRequest
             'country' => ['nullable', 'string', 'max:100'],
             'area' => ['nullable', 'string', 'max:100'],
             'tax_number' => ['nullable', 'string', 'max:100'],
-            'category' => ['nullable', Rule::in(['retail', 'wholesale', 'vip', 'corporate', 'government', 'service', 'regular', 'important', 'new', 'inactive', 'follow_up', 'complaints'])],
+            // This list used to be the union of two unrelated vocabularies —
+            // business classification and Call Center engagement tags — on one
+            // field. They are separate concerns now: the classification is a
+            // property of the group, the tag is a property of the customer.
+            'engagement_status' => ['nullable', Rule::in(['regular', 'important', 'vip', 'new', 'inactive', 'follow_up', 'complaints'])],
+            'group_id' => ['nullable', 'integer', 'exists:customer_groups,id'],
             'currency' => ['nullable', 'string', 'size:3'],
             'risk_level' => ['nullable', Rule::in(['low', 'medium', 'high', 'critical'])],
             'credit_limit' => ['nullable', 'numeric', 'min:0'],
@@ -53,9 +58,9 @@ class StoreCustomerRequest extends FormRequest
         }
 
         $data = $this->validated();
-        if (($data['category'] ?? null) === 'regular') {
-            $data['category'] = 'retail';
-        }
+        // The 'regular' => 'retail' translation that stood here is gone: it
+        // existed only to reconcile the two vocabularies that shared this
+        // field, and they no longer share it.
         if (($data['payment_terms'] ?? null) === 'due_on_receipt') {
             $data['payment_terms'] = 'immediate';
         }

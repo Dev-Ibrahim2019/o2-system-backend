@@ -38,8 +38,12 @@ class InvoiceController extends ApiController
     /**
      * إنشاء فاتورة رسمية من الطلب — بعد تقسيمه للأقسام (تذاكر) وقبل/أثناء الدفع
      */
-    public function createFromOrder(CreateInvoiceFromOrderRequest $request, Order $order): JsonResponse
-    {
+    public function createFromOrder(
+        CreateInvoiceFromOrderRequest $request,
+        Order $order,
+        \App\Services\Pos\PosCustomerLinkService $linker,
+        \App\Services\Crm\IdentityConflictService $conflicts,
+    ): JsonResponse {
         if (in_array($order->status, ['cancelled', 'paid'], true)) {
             return $this->error('لا يمكن إنشاء فاتورة لهذا الطلب.', 422);
         }
@@ -113,12 +117,45 @@ class InvoiceController extends ApiController
         $posRegister = $deviceUuid ? PosRegister::where('device_uuid', $deviceUuid)->first() : null;
         $user = $request->user();
 
+        // Prefer what is already decided — an explicit customer_id on the
+        // request, otherwise the order's own link. Resolution only runs when
+        // neither exists, so an already-linked order is never re-resolved.
+        $customerId = $data['customer_id'] ?? $order->customer_id;
+
+        if ($customerId === null) {
+            $link = $linker->resolve(
+                customerId: null,
+                name: $order->customer_name,
+                phone: $order->customer_phone,
+                branchId: $order->branch_id,
+            );
+            $customerId = $link->customerId;
+
+            // Carry a newly resolved identity back to the order too, so the
+            // order and its invoice cannot disagree about who the customer is.
+            if ($customerId !== null) {
+                $order->update(['customer_id' => $customerId]);
+            }
+
+            // The order already exists on this path, so the ticket can point
+            // at it straight away.
+            if ($link->conflictCandidate) {
+                $conflicts->queueIfConflicting(
+                    customer: $link->conflictCandidate['customer'],
+                    incomingName: $link->conflictCandidate['name'],
+                    incomingPhone: $link->conflictCandidate['phone'],
+                    channel: 'pos_instant',
+                    orderId: $order->id,
+                );
+            }
+        }
+
         DB::beginTransaction();
         try {
             $invoice = $this->invoiceFromOrderService->createFromOrder(
                 $order,
                 array_merge($data, [
-                    'customer_id'     => $data['customer_id'] ?? null,
+                    'customer_id'     => $customerId,
                     'notes'           => $data['notes'] ?? $order->note,
 
                     // معلومات نقطة البيع POS

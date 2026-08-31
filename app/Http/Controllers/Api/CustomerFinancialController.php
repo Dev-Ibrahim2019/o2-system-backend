@@ -11,6 +11,7 @@ use App\Models\Entry;
 use App\Services\Accounting\CustomerAccountingService;
 use App\Services\Accounting\SubledgerService;
 use App\Services\Accounting\StatementExportService;
+use App\Services\Customers\CustomerFinancialProfileService;
 use App\Services\CustomerIdentityService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -24,6 +25,7 @@ class CustomerFinancialController extends ApiController
         private readonly SubledgerService $subledgerService,
         private readonly StatementExportService $exportService,
         private readonly CustomerIdentityService $customerIdentity,
+        private readonly CustomerFinancialProfileService $profiles,
     ) {}
 
     // ──────────────────────────────────────────────────────────
@@ -49,7 +51,8 @@ class CustomerFinancialController extends ApiController
                     ->orWhere('code', 'like', "%{$search}%")
                     ->orWhere('phone', 'like', "%{$search}%")
                     ->orWhere('email', 'like', "%{$search}%")
-                    ->orWhere('tax_number', 'like', "%{$search}%");
+                    // tax_number lives on the profile table now.
+                    ->orWhereHas('financialProfile', fn ($p) => $p->where('tax_number', 'like', "%{$search}%"));
             });
         }
 
@@ -60,7 +63,7 @@ class CustomerFinancialController extends ApiController
 
         // Filter by risk level
         if ($riskLevel = $request->input('risk_level')) {
-            $query->where('risk_level', $riskLevel);
+            $query->byRiskLevel($riskLevel);
         }
 
         // Filter by branch
@@ -73,10 +76,22 @@ class CustomerFinancialController extends ApiController
             ? $request->input('sort_by')
             : 'name';
         $sortDir = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
-        $query->orderBy($sortField, $sortDir);
+
+        if ($sortField === 'risk_level') {
+            // Left join, not inner: a customer with no profile row must still
+            // appear in the list, exactly as it did when the column was on
+            // `customers` with a default.
+            $query->leftJoin('customer_financial_profiles as cfp', 'cfp.customer_id', '=', 'customers.id')
+                ->select('customers.*')
+                ->orderBy('cfp.risk_level', $sortDir);
+        } else {
+            $query->orderBy($sortField, $sortDir);
+        }
 
         $perPage = min(100, max(1, (int) $request->input('per_page', 20)));
         $customers = $query->paginate($perPage);
+
+        $this->profiles->attachTo($request->user(), $customers->getCollection());
 
         $customerIds = $customers->getCollection()->pluck('id');
         $receivableAccountId = Account::where('code', '1120')->value('id');
@@ -109,10 +124,6 @@ class CustomerFinancialController extends ApiController
      */
     public function store(StoreCustomerRequest $request): JsonResponse
     {
-        if ($request->filled('category') && $request->input('category') === 'regular') {
-            $request->merge(['category' => 'retail']);
-        }
-
         if ($request->filled('payment_terms') && $request->input('payment_terms') === 'due_on_receipt') {
             $request->merge(['payment_terms' => 'immediate']);
         }
@@ -129,7 +140,10 @@ class CustomerFinancialController extends ApiController
             'address'        => ['nullable', 'string', 'max:500'],
             'city'           => ['nullable', 'string', 'max:100'],
             'country'        => ['nullable', 'string', 'max:100'],
-            'category'       => ['nullable', 'string', 'in:retail,wholesale,corporate,government,service'],
+            // Business classification lives on customer_groups.group_type now,
+            // so an individual customer no longer carries one — it points at a
+            // group instead (or at nothing, which is the normal case).
+            'group_id'       => ['nullable', 'integer', 'exists:customer_groups,id'],
             'currency'       => ['nullable', 'string', 'max:3'],
             'status'         => ['nullable', 'string', 'in:active,inactive,blocked'],
             'risk_level'     => ['nullable', 'string', 'in:low,medium,high,critical'],
@@ -159,7 +173,9 @@ class CustomerFinancialController extends ApiController
         // allowed to create a financial customer. Not derived from client
         // input: 'customer_type' isn't in the validation rules above, so
         // it can't be overridden by the request even if the client tries.
-        $customer = $this->customerIdentity->create($data, Customer::TYPE_FINANCIAL);
+        [$identityData, $financialData] = $this->profiles->split($data);
+        $customer = $this->customerIdentity->create($identityData, Customer::TYPE_FINANCIAL);
+        $this->profiles->upsert($customer, $financialData);
 
         // Post opening balance if set
         if (($data['opening_balance'] ?? 0) > 0) {
@@ -177,6 +193,7 @@ class CustomerFinancialController extends ApiController
 
         $customer->load('branch:id,name');
         $customer->balance = $customer->balance;
+        $this->profiles->attachTo($request->user(), $customer);
 
         return $this->success('تم إنشاء العميل بنجاح', $customer, 201);
     }
@@ -184,9 +201,10 @@ class CustomerFinancialController extends ApiController
     /**
      * GET /api/customers/{customer}
      */
-    public function show(Customer $customer): JsonResponse
+    public function show(Request $request, Customer $customer): JsonResponse
     {
         $customer->load(['branch:id,name', 'salesperson:id,name']);
+        $this->profiles->attachTo($request->user(), $customer);
         $customer->balance = $customer->balance;
         $customer->available_credit = $customer->available_credit;
         $customer->is_over_limit = $customer->is_over_limit;
@@ -210,10 +228,6 @@ class CustomerFinancialController extends ApiController
      */
     public function update(UpdateCustomerRequest $request, Customer $customer): JsonResponse
     {
-        if ($request->filled('category') && $request->input('category') === 'regular') {
-            $request->merge(['category' => 'retail']);
-        }
-
         if ($request->filled('payment_terms') && $request->input('payment_terms') === 'due_on_receipt') {
             $request->merge(['payment_terms' => 'immediate']);
         }
@@ -230,7 +244,10 @@ class CustomerFinancialController extends ApiController
             'address'        => ['nullable', 'string', 'max:500'],
             'city'           => ['nullable', 'string', 'max:100'],
             'country'        => ['nullable', 'string', 'max:100'],
-            'category'       => ['nullable', 'string', 'in:retail,wholesale,corporate,government,service'],
+            // Business classification lives on customer_groups.group_type now,
+            // so an individual customer no longer carries one — it points at a
+            // group instead (or at nothing, which is the normal case).
+            'group_id'       => ['nullable', 'integer', 'exists:customer_groups,id'],
             'currency'       => ['nullable', 'string', 'max:3'],
             'status'         => ['nullable', 'string', 'in:active,inactive,blocked'],
             'risk_level'     => ['nullable', 'string', 'in:low,medium,high,critical'],
@@ -243,9 +260,13 @@ class CustomerFinancialController extends ApiController
             'salesperson_id' => ['nullable', 'integer', 'exists:employees,id'],
         ]);
 
-        $this->customerIdentity->update($customer, $data);
+        [$identityData, $financialData] = $this->profiles->split($data);
+        $this->customerIdentity->update($customer, $identityData);
+        $this->profiles->upsert($customer, $financialData);
+
         $customer->load('branch:id,name');
         $customer->balance = $customer->balance;
+        $this->profiles->attachTo($request->user(), $customer);
 
         return $this->success('تم تحديث العميل', $customer);
     }
@@ -498,7 +519,10 @@ class CustomerFinancialController extends ApiController
             'pdfStyle' => $pdfStyle,
             'companyName' => $companyName,
             'companyLocation' => $companyLocation,
-            'currency' => $customer->currency ?? "\u{0634}\u{064A}\u{0643}\u{0644}",
+            // Statement PDF: the route is gated on
+            // crm.export-customer-statement, so the caller is already
+            // permitted to see financial data.
+            'currency' => $this->profiles->getOrFail($request->user(), $customer)->currency ?? "\u{0634}\u{064A}\u{0643}\u{0644}",
             'printedBy' => $request->user()->name ?? "\u{063A}\u{064A}\u{0631}\u{0020}\u{0645}\u{0639}\u{0631}\u{0648}\u{0641}",
             'printedAt' => $printedAt,
             'erpName' => 'O2 ERP System',
@@ -687,8 +711,8 @@ class CustomerFinancialController extends ApiController
                 'aging'               => $aging,
                 'days_past_due'       => $overdueDays,
                 'monthly_collections' => $monthlyCollections,
-                'risk_level'          => $customer->risk_level,
-                'credit_limit'        => $customer->credit_limit,
+                'risk_level'          => $customer->financialProfile?->risk_level,
+                'credit_limit'        => (float) ($customer->financialProfile?->credit_limit ?? 0),
                 'credit_usage'        => $customer->credit_usage_percent,
                 'phone'               => $customer->phone,
             ];

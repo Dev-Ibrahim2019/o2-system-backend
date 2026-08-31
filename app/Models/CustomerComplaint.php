@@ -18,7 +18,6 @@ class CustomerComplaint extends Model
         'assigned_to',
         'created_by',
         'title',
-        'subject',
         'description',
         'type',
         'priority',
@@ -26,12 +25,13 @@ class CustomerComplaint extends Model
         'resolved_at',
         'closed_at',
         'resolution_notes',
-        'resolution',
         'resolution_result',
         'severity',
         'is_sensitive',
         'show_alert',
         'branch_id',
+        'channel',
+        'department',
     ];
 
     protected $casts = [
@@ -49,26 +49,110 @@ class CustomerComplaint extends Model
     const STATUS_CLOSED = 'closed';
     const STATUS_CANCELLED = 'cancelled';
 
+    /**
+     * Where the complaint was filed from.
+     *
+     * Decided by the entry point, never by the person filling the form —
+     * an agent cannot mislabel a call-centre complaint as a website one,
+     * because neither request validator accepts the field at all.
+     */
+    const CHANNEL_CALL_CENTER = 'call_center';
+    const CHANNEL_CRM = 'crm';
+    /** Reserved in the enum; no endpoint writes it yet. */
+    const CHANNEL_WEBSITE = 'website';
+
+    const CHANNELS = [
+        self::CHANNEL_CALL_CENTER,
+        self::CHANNEL_CRM,
+        self::CHANNEL_WEBSITE,
+    ];
+
+    const CHANNEL_LABELS = [
+        self::CHANNEL_CALL_CENTER => 'الكول سنتر',
+        self::CHANNEL_CRM => 'إدارة علاقات العملاء',
+        self::CHANNEL_WEBSITE => 'الموقع الإلكتروني',
+    ];
+
+    /**
+     * The operational department a complaint is about.
+     *
+     * Reporting dimension only. Unlike `channel` it is not derived from the
+     * entry point — a call-centre agent records a complaint about the kitchen
+     * — and unlike `is_sensitive` it carries no confidentiality, so anyone who
+     * may write the complaint may set it. It has nothing to do with
+     * assigned_to, which is about who works the ticket.
+     */
+    const DEPARTMENT_HOSPITALITY = 'hospitality';
+    const DEPARTMENT_POS = 'pos';
+    const DEPARTMENT_CALL_CENTER = 'call_center';
+    const DEPARTMENT_KITCHEN = 'kitchen';
+    const DEPARTMENT_DELIVERY = 'delivery';
+    const DEPARTMENT_ACCOUNTING = 'accounting';
+    const DEPARTMENT_MANAGEMENT = 'management';
+
+    const DEPARTMENTS = [
+        self::DEPARTMENT_HOSPITALITY,
+        self::DEPARTMENT_POS,
+        self::DEPARTMENT_CALL_CENTER,
+        self::DEPARTMENT_KITCHEN,
+        self::DEPARTMENT_DELIVERY,
+        self::DEPARTMENT_ACCOUNTING,
+        self::DEPARTMENT_MANAGEMENT,
+    ];
+
+    const DEPARTMENT_LABELS = [
+        self::DEPARTMENT_HOSPITALITY => 'الضيافة',
+        self::DEPARTMENT_POS => 'الكاشير الفوري',
+        self::DEPARTMENT_CALL_CENTER => 'الكول سنتر',
+        self::DEPARTMENT_KITCHEN => 'المطبخ',
+        self::DEPARTMENT_DELIVERY => 'التوصيل',
+        self::DEPARTMENT_ACCOUNTING => 'المحاسبة',
+        self::DEPARTMENT_MANAGEMENT => 'الإدارة العامة',
+    ];
+
     const PRIORITY_LOW = 'low';
     const PRIORITY_NORMAL = 'normal';
     const PRIORITY_HIGH = 'high';
     const PRIORITY_CRITICAL = 'critical';
 
+    /**
+     * Which status can follow which.
+     *
+     * Until now the only check was "is this one of the seven values", so
+     * closed → new was accepted silently. A complaint has a lifecycle; this
+     * table is it. Reopening is deliberately possible from resolved, closed
+     * and cancelled — but only to `open`, never straight back to `new`, and
+     * never sideways into the middle of a flow it never entered.
+     */
+    public const ALLOWED_TRANSITIONS = [
+        self::STATUS_NEW              => [self::STATUS_OPEN, self::STATUS_CANCELLED],
+        self::STATUS_OPEN             => [self::STATUS_IN_PROGRESS, self::STATUS_RESOLVED, self::STATUS_CANCELLED],
+        self::STATUS_IN_PROGRESS      => [self::STATUS_WAITING_CUSTOMER, self::STATUS_RESOLVED, self::STATUS_CANCELLED],
+        self::STATUS_WAITING_CUSTOMER => [self::STATUS_IN_PROGRESS, self::STATUS_RESOLVED, self::STATUS_CANCELLED],
+        self::STATUS_RESOLVED         => [self::STATUS_CLOSED, self::STATUS_OPEN],
+        self::STATUS_CLOSED           => [self::STATUS_OPEN],
+        self::STATUS_CANCELLED        => [self::STATUS_OPEN],
+    ];
+
+    /** Arabic labels for the error message a reviewer actually reads. */
+    public const STATUS_LABELS = [
+        self::STATUS_NEW => 'جديدة',
+        self::STATUS_OPEN => 'مفتوحة',
+        self::STATUS_IN_PROGRESS => 'قيد المعالجة',
+        self::STATUS_WAITING_CUSTOMER => 'بانتظار العميل',
+        self::STATUS_RESOLVED => 'تمت المعالجة',
+        self::STATUS_CLOSED => 'مغلقة',
+        self::STATUS_CANCELLED => 'ملغاة',
+    ];
+
+    public static function canTransition(string $from, string $to): bool
+    {
+        return in_array($to, self::ALLOWED_TRANSITIONS[$from] ?? [], true);
+    }
+
     const SEVERITY_INFO = 'info';
     const SEVERITY_WARNING = 'warning';
     const SEVERITY_CRITICAL = 'critical';
-
-    public function fill(array $attributes)
-    {
-        parent::fill($attributes);
-        if (empty($this->title) && !empty($this->subject)) {
-            $this->title = $this->subject;
-        }
-        if (empty($this->resolution_notes) && !empty($this->resolution)) {
-            $this->resolution_notes = $this->resolution;
-        }
-        return $this;
-    }
 
     public function customer(): BelongsTo
     {
@@ -98,6 +182,28 @@ class CustomerComplaint extends Model
     public function followups(): HasMany
     {
         return $this->hasMany(ComplaintFollowup::class, 'complaint_id');
+    }
+
+    /**
+     * Hide sensitive complaints from anyone not cleared to see them.
+     *
+     * The single source for this rule. It used to live inline in
+     * CrmController::complaints() while CallCenterService::getAllComplaints()
+     * had no equivalent at all — two endpoints over the same table with two
+     * different confidentiality standards, which is how the cross-customer
+     * index came to return sensitive rows to a branch-manager. A scope means
+     * a future third reader inherits the rule instead of re-deriving it.
+     *
+     * $user is nullable so an unauthenticated context fails closed rather
+     * than throwing: no user, no clearance.
+     */
+    public function scopeVisibleTo($query, ?User $user)
+    {
+        if (! $user?->can('crm.view-sensitive-notes')) {
+            $query->where('is_sensitive', false);
+        }
+
+        return $query;
     }
 
     public function scopeOpen($query)

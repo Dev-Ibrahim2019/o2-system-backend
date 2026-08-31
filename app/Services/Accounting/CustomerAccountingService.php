@@ -274,7 +274,12 @@ class CustomerAccountingService
             ],
         );
 
-        $customer->update(['is_opening_balance_posted' => true]);
+        // The flag moved to customer_financial_profiles along with the rest
+        // of the receivables data; posting an opening balance is by definition
+        // an accounting action, so no extra permission gate is added here.
+        app(\App\Services\Customers\CustomerFinancialProfileService::class)
+            ->ensure($customer)
+            ->update(['is_opening_balance_posted' => true]);
 
         return $transaction;
     }

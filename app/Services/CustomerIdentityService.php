@@ -132,20 +132,36 @@ class CustomerIdentityService
      * CRM and Call Center customer creation/editing — extracted from what
      * was previously inline-duplicated logic in
      * CallCenterService::createCustomer() so both domains use one path.
-     * Upserts by (customer_id, occasion_type='birthday') so editing the
+     * Upserts by (owner, occasion_type='birthday') so editing the
      * date never creates a duplicate occasion; passing null removes it.
      */
     public function syncBirthdayOccasion(Customer $customer, ?string $birthDate, ?int $createdBy = null): ?CustomerOccasion
     {
-        $existing = $customer->occasions()->where('occasion_type', 'birthday')->first();
+        // withTrashed(): clearing a birth date soft-deletes this row, and a
+        // plain first() cannot see it. Re-entering the date then created a
+        // second row instead of bringing the old one back, so every
+        // clear/re-set cycle left another dead row behind — invisible in the
+        // UI, but accumulating under the customer forever.
+        $existing = $customer->occasions()
+            ->withTrashed()
+            ->where('occasion_type', 'birthday')
+            ->first();
 
         if (! $birthDate) {
-            $existing?->delete();
+            // Already trashed is already the desired state; deleting again
+            // would only move the timestamp.
+            if ($existing && ! $existing->trashed()) {
+                $existing->delete();
+            }
 
             return null;
         }
 
         if ($existing) {
+            if ($existing->trashed()) {
+                $existing->restore();
+            }
+
             $existing->update(['date' => $birthDate, 'is_active' => true]);
 
             return $existing->fresh();

@@ -51,19 +51,19 @@ class CallCenterController extends ApiController
             'address' => 'nullable|string|max:500',
             'city' => 'nullable|string|max:100',
             'area' => 'nullable|string|max:100',
-            'category' => 'nullable|string|in:regular,important,vip,new,inactive,follow_up,complaints',
+            'engagement_status' => 'nullable|string|in:regular,important,vip,new,inactive,follow_up,complaints',
             'notes' => 'nullable|string|max:2000',
             'branch_id' => 'nullable|integer|exists:branches,id',
         ]);
 
         $phones=array_values(array_filter([$data['phone']??null,$data['mobile']??null]));
         if (Customer::query()->where(fn($q)=>$q->whereIn('phone',$phones)->orWhereIn('mobile',$phones))->exists()) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['phone'=>'â•ھâ–’â”کأ©â”کأ  â•ھط¯â”کآ„â”کأ§â•ھط¯â•ھط²â”کآپ â”کأ â•ھâ”‚â•ھط´â”کآ„ â”کآ„â•ھâ•£â”کأ â”کأ¨â”کآ„ â•ھطھâ•ھآ«â•ھâ–’.']);
+            throw \Illuminate\Validation\ValidationException::withMessages(['phone'=>'رقم الهاتف مستخدم لعميل آخر']);
         }
 
         $customer = $this->callCenterService->createCustomer($data);
 
-        return $this->success('â•ھط²â”کأ  â•ھط­â”کآ†â•ھâ”¤â•ھط¯â•ھط© â•ھط¯â”کآ„â•ھâ•£â”کأ â”کأ¨â”کآ„', $customer, 201);
+        return $this->success('تم إنشاء العميل', $customer, 201);
     }
 
     /**
@@ -78,19 +78,19 @@ class CallCenterController extends ApiController
             $request->input('limit', 20)
         );
 
-        return $this->success('â”کآ†â•ھط²â•ھط¯â•ھط®â•ھط´ â•ھط¯â”کآ„â•ھط°â•ھطµâ•ھط³', $customers);
+        return $this->success('نتائج البحث', $customers);
     }
 
     public function customerDirectory(Request $request): JsonResponse
     {
-        $data=$request->validate(['q'=>'nullable|string|max:100','category'=>'nullable|string|max:50','status'=>'nullable|in:active,inactive,blocked','city'=>'nullable|string|max:100','area'=>'nullable|string|max:100','open_complaints'=>'nullable|boolean','nearby_occasion'=>'nullable|boolean','has_financial_profile'=>'nullable|boolean','loyalty_min'=>'nullable|integer|min:0','loyalty_max'=>'nullable|integer|min:0','last_order_from'=>'nullable|date','last_order_to'=>'nullable|date','source'=>'nullable|string|max:50','branch_id'=>'nullable|integer|exists:branches,id','sort'=>'nullable|in:name,created_at,loyalty_points,last_order_at,orders_count,open_complaints_count','direction'=>'nullable|in:asc,desc','per_page'=>'nullable|integer|min:10|max:100']);
+        $data=$request->validate(['q'=>'nullable|string|max:100','engagement_status'=>'nullable|string|max:50','status'=>'nullable|in:active,inactive,blocked','city'=>'nullable|string|max:100','area'=>'nullable|string|max:100','open_complaints'=>'nullable|boolean','nearby_occasion'=>'nullable|boolean','has_financial_profile'=>'nullable|boolean','loyalty_min'=>'nullable|integer|min:0','loyalty_max'=>'nullable|integer|min:0','last_order_from'=>'nullable|date','last_order_to'=>'nullable|date','source'=>'nullable|string|max:50','branch_id'=>'nullable|integer|exists:branches,id','sort'=>'nullable|in:name,created_at,loyalty_points,last_order_at,orders_count,open_complaints_count','direction'=>'nullable|in:asc,desc','per_page'=>'nullable|integer|min:10|max:100']);
         $user=$request->user();$branch=$user?->hasRole('super-admin')?($data['branch_id']??null):$user?->branch_id;
         $q=Customer::query()->with(['branch:id,name','address'])->withCount(['orders','complaints as open_complaints_count'=>fn($x)=>$x->whereNotIn('status',['resolved','closed'])])->withMax('orders','created_at')
             ->when($data['q']??null,fn($x,$v)=>$x->where(fn($y)=>$y->where('name','like',"%$v%")->orWhere('phone','like',"%$v%")->orWhere('mobile','like',"%$v%")->orWhere('code','like',"%$v%")))
-            ->when($data['category']??null,fn($x,$v)=>$x->where('category',$v))->when($data['status']??null,fn($x,$v)=>$x->where('status',$v))->when($data['city']??null,fn($x,$v)=>$x->where(fn($y)=>$y->where('city','like',"%$v%")->orWhereHas('addresses',fn($a)=>$a->where('city','like',"%$v%"))))
+            ->when($data['engagement_status']??null,fn($x,$v)=>$x->where('engagement_status',$v))->when($data['status']??null,fn($x,$v)=>$x->where('status',$v))->when($data['city']??null,fn($x,$v)=>$x->where(fn($y)=>$y->where('city','like',"%$v%")->orWhereHas('addresses',fn($a)=>$a->where('city','like',"%$v%"))))
             ->when($data['area']??null,fn($x,$v)=>$x->whereHas('addresses',fn($a)=>$a->where('area','like',"%$v%")))->when($request->boolean('open_complaints'),fn($x)=>$x->whereHas('complaints',fn($c)=>$c->whereNotIn('status',['resolved','closed'])))
             ->when($request->boolean('nearby_occasion'),fn($x)=>$x->whereHas('occasions',fn($o)=>$o->where('is_active',true)->whereRaw("DATE_FORMAT(date, '%m-%d') between DATE_FORMAT(CURDATE(), '%m-%d') and DATE_FORMAT(DATE_ADD(CURDATE(), INTERVAL 30 DAY), '%m-%d')")))
-            ->when($request->boolean('has_financial_profile'),fn($x)=>$x->where(fn($y)=>$y->where('credit_limit','>',0)->orWhere('opening_balance','!=',0)))
+            ->when($request->boolean('has_financial_profile'),fn($x)=>$x->whereHas('financialProfile',fn($y)=>$y->where('credit_limit','>',0)->orWhere('opening_balance','!=',0)))
             ->when(isset($data['loyalty_min']),fn($x)=>$x->where('loyalty_points','>=',$data['loyalty_min']))->when(isset($data['loyalty_max']),fn($x)=>$x->where('loyalty_points','<=',$data['loyalty_max']))
             ->when($data['last_order_from']??null,fn($x,$v)=>$x->whereRaw('(select max(o.created_at) from orders o where o.customer_id = customers.id and o.deleted_at is null) >= ?',[$v.' 00:00:00']))->when($data['last_order_to']??null,fn($x,$v)=>$x->whereRaw('(select max(o.created_at) from orders o where o.customer_id = customers.id and o.deleted_at is null) <= ?',[$v.' 23:59:59']))
             ->when($data['source']??null,fn($x,$v)=>$x->whereHas('orders',fn($o)=>$o->where('source',$v)))->when($branch,fn($x,$v)=>$x->where(fn($y)=>$y->where('branch_id',$v)->orWhereHas('orders',fn($o)=>$o->where('branch_id',$v))));
@@ -105,21 +105,21 @@ class CallCenterController extends ApiController
     {
         $profile = $this->callCenterService->getCustomerProfile($customer->id);
 
-        return $this->success('â”کأ â”کآ„â”کآپ â•ھط¯â”کآ„â•ھâ•£â”کأ â”کأ¨â”کآ„', $profile);
+        return $this->success('ملف العميل', $profile);
     }
 
     /** Update the stored (manual) call-center classification. */
     public function updateCustomerClassification(Request $request, Customer $customer): JsonResponse
     {
         $data = $request->validate([
-            'category' => 'required|string|in:regular,important,vip,new,inactive,follow_up,complaints',
+            'engagement_status' => 'required|string|in:regular,important,vip,new,inactive,follow_up,complaints',
         ]);
 
-        $customer->update(['category' => $data['category']]);
+        $customer->update(['engagement_status' => $data['engagement_status']]);
 
-        return $this->success('â•ھط²â”کأ  â•ھط²â•ھطµâ•ھآ»â”کأ¨â•ھط³ â•ھط²â•ھâ•،â”کآ†â”کأ¨â”کآپ â•ھط¯â”کآ„â•ھâ•£â”کأ â”کأ¨â”کآ„', [
+        return $this->success('تم تحديث تصنيف العميل', [
             'id' => $customer->id,
-            'category' => $customer->category,
+            'engagement_status' => $customer->engagement_status,
         ]);
     }
 
@@ -140,7 +140,7 @@ class CallCenterController extends ApiController
     public function customerFullProfile(Customer $customer): JsonResponse
     {
         return $this->success(
-            'â”کأ â”کآ„â”کآپ â•ھط¯â”کآ„â•ھâ•£â”کأ â”کأ¨â”کآ„ â•ھط¯â”کآ„â”کأ¢â•ھط¯â”کأ â”کآ„',
+            'الملف الكامل للعميل',
             $this->callCenterService->getCustomerFullProfile($customer->id)
         );
     }
@@ -161,7 +161,7 @@ class CallCenterController extends ApiController
             $data['cursor'] ?? null
         );
 
-        return $this->success('â•ھâ•–â”کآ„â•ھط°â•ھط¯â•ھط² â•ھط¯â”کآ„â•ھâ•£â”کأ â”کأ¨â”کآ„', $orders);
+        return $this->success('طلبات العميل', $orders);
     }
 
     /**
@@ -171,7 +171,7 @@ class CallCenterController extends ApiController
     {
         $details = $this->callCenterService->getOrderDetails($order);
 
-        return $this->success('â•ھط²â”کآپâ•ھط¯â•ھâ•،â”کأ¨â”کآ„ â•ھط¯â”کآ„â•ھâ•–â”کآ„â•ھط°', $details);
+        return $this->success('تفاصيل الطلب', $details);
     }
 
     /**
@@ -183,7 +183,7 @@ class CallCenterController extends ApiController
 
         $favorites = $this->callCenterService->getCustomerFavorites($customer->id, $limit);
 
-        return $this->success('â•ھط¯â”کآ„â•ھط«â•ھâ•،â”کآ†â•ھط¯â”کآپ â•ھط¯â”کآ„â”کأ â”کآپâ•ھâ•¢â”کآ„â•ھط±', $favorites);
+        return $this->success('الأصناف المفضلة للعميل', $favorites);
     }
 
     /**
@@ -266,7 +266,7 @@ class CallCenterController extends ApiController
     {
         $addresses = $this->callCenterService->getCustomerAddresses($customer->id);
 
-        return $this->success('â•ھâ•£â”کآ†â•ھط¯â”کأھâ”کأ¨â”کآ† â•ھط¯â”کآ„â•ھâ•£â”کأ â”کأ¨â”کآ„', $addresses);
+        return $this->success('عناوين العميل', $addresses);
     }
 
     /**
@@ -278,7 +278,7 @@ class CallCenterController extends ApiController
 
         $complaints = $this->callCenterService->getCustomerComplaints($customer->id, $perPage);
 
-        return $this->success('â•ھâ”¤â”کأ¢â•ھط¯â”کأھâ”کأ« â•ھط¯â”کآ„â•ھâ•£â”کأ â”کأ¨â”کآ„', $complaints);
+        return $this->success('شكاوى العميل', $complaints);
     }
 
     /**
@@ -288,7 +288,7 @@ class CallCenterController extends ApiController
     {
         $alerts = $this->callCenterService->getCustomerAlerts($customer->id);
 
-        return $this->success('â•ھط²â”کآ†â•ھط°â”کأ¨â”کأ§â•ھط¯â•ھط² â•ھط¯â”کآ„â•ھâ•£â”کأ â”کأ¨â”کآ„', $alerts);
+        return $this->success('تنبيهات العميل', $alerts);
     }
 
     /**
@@ -298,7 +298,7 @@ class CallCenterController extends ApiController
     {
         $data = $this->callCenterService->getDashboardAnalytics();
 
-        return $this->success('â•ھط²â•ھطµâ”کآ„â”کأ¨â”کآ„â•ھط¯â•ھط² â•ھط¯â”کآ„â•ھâ•£â”کأ â”کآ„â•ھط¯â•ھط©', $data);
+        return $this->success('تحليلات العملاء', $data);
     }
 
     /**
@@ -318,7 +318,7 @@ class CallCenterController extends ApiController
 
         $customers = $this->callCenterService->getTopCustomers($data);
 
-        return $this->success('â•ھط«â”کآپâ•ھâ•¢â”کآ„ â•ھط¯â”کآ„â•ھâ•£â”کأ â”کآ„â•ھط¯â•ھط©', $customers);
+        return $this->success('أكثر العملاء طلباً', $customers);
     }
 
     // ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€
@@ -340,9 +340,13 @@ class CallCenterController extends ApiController
             'per_page' => 'nullable|integer|min:1|max:100',
         ]);
 
-        $complaints = $this->callCenterService->getAllComplaints($data, $data['per_page'] ?? 20);
+        $complaints = $this->callCenterService->getAllComplaints(
+            $data,
+            $data['per_page'] ?? 20,
+            $request->user(),
+        );
 
-        return $this->success('â•ھط¯â”کآ„â•ھâ”¤â”کأ¢â•ھط¯â”کأھâ”کأ«', $complaints);
+        return $this->success('الشكاوى', $complaints);
     }
 
     /**
@@ -363,9 +367,13 @@ class CallCenterController extends ApiController
             'is_sensitive' => 'nullable|boolean',
         ]);
 
-        $complaint = $this->callCenterService->createComplaint($data, $request->user()->id);
+        $complaint = $this->callCenterService->createComplaint(
+            $data,
+            $request->user()->id,
+            CustomerComplaint::CHANNEL_CALL_CENTER,
+        );
 
-        return $this->success('â•ھط²â”کأ  â•ھط­â”کآ†â•ھâ”¤â•ھط¯â•ھط© â•ھط¯â”کآ„â•ھâ”¤â”کأ¢â”کأھâ”کأ«', $complaint->load(['customer:id,name,phone', 'order:id,order_number']), 201);
+        return $this->success('تم إنشاء الشكوى', $complaint->load(['customer:id,name,phone', 'order:id,order_number']), 201);
     }
 
     /**
@@ -375,7 +383,7 @@ class CallCenterController extends ApiController
     {
         $complaint->load(['customer:id,name,phone', 'order:id,order_number', 'invoice:id,number', 'assignedTo:id,name', 'createdBy:id,name']);
 
-        return $this->success('â•ھط²â”کآپâ•ھط¯â•ھâ•،â”کأ¨â”کآ„ â•ھط¯â”کآ„â•ھâ”¤â”کأ¢â”کأھâ”کأ«', $complaint);
+        return $this->success('تفاصيل الشكوى', $complaint);
     }
 
     /**
@@ -412,7 +420,7 @@ class CallCenterController extends ApiController
 
         $complaint->refresh()->load(['customer:id,name,phone', 'order:id,order_number']);
 
-        return $this->success('â•ھط²â”کأ  â•ھط²â•ھطµâ•ھآ»â”کأ¨â•ھط³ â•ھط¯â”کآ„â•ھâ”¤â”کأ¢â”کأھâ”کأ«', $complaint);
+        return $this->success('تم تحديث الشكوى', $complaint);
     }
 
     /**
@@ -436,7 +444,7 @@ class CallCenterController extends ApiController
 
         $followup->load('user:id,name');
 
-        return $this->success('â•ھط²â”کأ  â•ھط­â•ھâ•¢â•ھط¯â”کآپâ•ھط± â”کأ â•ھط²â•ھط¯â•ھط°â•ھâ•£â•ھط±', $followup, 201);
+        return $this->success('تمت إضافة المتابعة', $followup, 201);
     }
 
     /**
@@ -446,7 +454,7 @@ class CallCenterController extends ApiController
     {
         $timeline = $this->callCenterService->getComplaintTimeline($complaint->id);
 
-        return $this->success('â•ھط¯â”کآ„â•ھط´â•ھآ»â”کأھâ”کآ„ â•ھط¯â”کآ„â•ھâ–“â”کأ â”کآ†â”کأ¨ â”کآ„â”کآ„â•ھâ”¤â”کأ¢â”کأھâ”کأ«', $timeline);
+        return $this->success('السجل الزمني للشكوى', $timeline);
     }
 
     // ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€
@@ -478,7 +486,7 @@ class CallCenterController extends ApiController
 
         $address = $this->callCenterService->createAddress($customer->id, $data);
 
-        return $this->success('â•ھط²â”کأ  â•ھط­â•ھâ•¢â•ھط¯â”کآپâ•ھط± â•ھط¯â”کآ„â•ھâ•£â”کآ†â”کأھâ•ھط¯â”کآ†', $address, 201);
+        return $this->success('تمت إضافة العنوان', $address, 201);
     }
 
     /**
@@ -507,7 +515,7 @@ class CallCenterController extends ApiController
 
         $updated = $this->callCenterService->updateAddress($address->id, $data, $address->customer_id);
 
-        return $this->success('â•ھط²â”کأ  â•ھط²â•ھطµâ•ھآ»â”کأ¨â•ھط³ â•ھط¯â”کآ„â•ھâ•£â”کآ†â”کأھâ•ھط¯â”کآ†', $updated);
+        return $this->success('تم تحديث العنوان', $updated);
     }
 
     /**
@@ -517,7 +525,7 @@ class CallCenterController extends ApiController
     {
         $this->callCenterService->markAddressUsed($address->id);
 
-        return $this->success('â•ھط²â”کأ  â•ھط²â•ھطµâ•ھآ»â”کأ¨â•ھط³ â•ھطھâ•ھآ«â•ھâ–’ â•ھط¯â•ھâ”‚â•ھط²â•ھآ«â•ھآ»â•ھط¯â”کأ ');
+        return $this->success('تم تسجيل استخدام العنوان');
     }
 
     // ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€
@@ -531,7 +539,7 @@ class CallCenterController extends ApiController
     {
         $occasions = $this->callCenterService->getCustomerOccasions($customer->id);
 
-        return $this->success('â”کأ â”کآ†â•ھط¯â•ھâ”‚â•ھط°â•ھط¯â•ھط² â•ھط¯â”کآ„â•ھâ•£â”کأ â”کأ¨â”کآ„', $occasions);
+        return $this->success('مناسبات العميل', $occasions);
     }
 
     /**
@@ -549,9 +557,9 @@ class CallCenterController extends ApiController
             'is_active' => 'nullable|boolean',
         ]);
 
-        $occasion = $this->callCenterService->createOccasion($customer->id, $data, $request->user()->id);
+        $occasion = $this->callCenterService->createOccasion($customer, $data, $request->user()->id);
 
-        return $this->success('â•ھط²â”کأ  â•ھط­â•ھâ•¢â•ھط¯â”کآپâ•ھط± â•ھط¯â”کآ„â”کأ â”کآ†â•ھط¯â•ھâ”‚â•ھط°â•ھط±', $occasion, 201);
+        return $this->success('تمت إضافة المناسبة', $occasion, 201);
     }
 
     /**
@@ -571,7 +579,7 @@ class CallCenterController extends ApiController
 
         $updated = $this->callCenterService->updateOccasion($occasion->id, $data);
 
-        return $this->success('â•ھط²â”کأ  â•ھط²â•ھطµâ•ھآ»â”کأ¨â•ھط³ â•ھط¯â”کآ„â”کأ â”کآ†â•ھط¯â•ھâ”‚â•ھط°â•ھط±', $updated);
+        return $this->success('تم تحديث المناسبة', $updated);
     }
 
     /**
@@ -581,7 +589,7 @@ class CallCenterController extends ApiController
     {
         $this->callCenterService->deleteOccasion($occasion->id);
 
-        return $this->success('â•ھط²â”کأ  â•ھطµâ•ھâ–‘â”کآپ â•ھط¯â”کآ„â”کأ â”کآ†â•ھط¯â•ھâ”‚â•ھط°â•ھط±');
+        return $this->success('تم حذف المناسبة');
     }
 
     /**
@@ -599,7 +607,7 @@ class CallCenterController extends ApiController
             $data['customer_id'] ?? null
         );
 
-        return $this->success('â•ھط¯â”کآ„â”کأ â”کآ†â•ھط¯â•ھâ”‚â•ھط°â•ھط¯â•ھط²', $occasions);
+        return $this->success('المناسبات ضمن النطاق', $occasions);
     }
 
     // ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€
@@ -616,7 +624,7 @@ class CallCenterController extends ApiController
             $request->user()?->can('crm.view-sensitive-notes') ?? false,
         );
 
-        return $this->success('â”کأ â”کآ„â•ھط¯â•ھطµâ•ھâ••â•ھط¯â•ھط² â•ھط¯â”کآ„â•ھâ•£â”کأ â”کأ¨â”کآ„', $notes);
+        return $this->success('ملاحظات العميل', $notes);
     }
 
     /**
@@ -634,7 +642,7 @@ class CallCenterController extends ApiController
 
         $note = $this->callCenterService->createNote($customer->id, $data, $request->user()->id);
 
-        return $this->success('â•ھط²â”کأ  â•ھط­â•ھâ•¢â•ھط¯â”کآپâ•ھط± â•ھط¯â”کآ„â”کأ â”کآ„â•ھط¯â•ھطµâ•ھâ••â•ھط±', $note, 201);
+        return $this->success('تمت إضافة الملاحظة', $note, 201);
     }
 
     /**
@@ -647,7 +655,7 @@ class CallCenterController extends ApiController
             $request->user()?->can('crm.view-sensitive-notes') ?? false,
         );
 
-        return $this->success('â•ھط¯â”کآ„â”کأ â”کآ„â•ھط¯â•ھطµâ•ھâ••â•ھط¯â•ھط² â•ھط¯â”کآ„â”کأ â”کأ§â”کأ â•ھط±', $notes);
+        return $this->success('الملاحظات المهمة للعميل', $notes);
     }
 
     // ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€ط¸آ¤آ€
@@ -666,7 +674,7 @@ class CallCenterController extends ApiController
             'phone' => 'nullable|string|max:30',
             'mobile' => 'nullable|string|max:30',
             'email' => 'nullable|email|max:255',
-            'category' => 'nullable|string|max:50',
+            'engagement_status' => 'nullable|string|max:50',
             'notes' => 'nullable|string',
             'birth_date' => 'nullable|date',
             'address_label' => 'nullable|string|max:50',
@@ -686,7 +694,7 @@ class CallCenterController extends ApiController
         $data['created_by'] = $request->user()->id ?? null;
         $customer = $this->callCenterService->createCustomer($data);
 
-        return $this->success('â•ھط²â”کأ  â•ھط­â”کآ†â•ھâ”¤â•ھط¯â•ھط© â•ھط¯â”کآ„â•ھâ•£â”کأ â”کأ¨â”کآ„', $customer->load('addresses'), 201);
+        return $this->success('تم إنشاء العميل', $customer->load('addresses'), 201);
     }
 
     public function activate(Request $request): JsonResponse

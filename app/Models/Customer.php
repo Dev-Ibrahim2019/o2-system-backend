@@ -8,6 +8,7 @@ use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\App;
@@ -55,7 +56,6 @@ class Customer extends Model
         'title',
         'gender',
         'code',
-        'tax_number',
         'phone',
         'mobile',
         'email',
@@ -63,28 +63,36 @@ class Customer extends Model
         'address',
         'city',
         'country',
-        'category',
+        'engagement_status',
+        'group_id',
         'source',
-        'currency',
         'status',
         'customer_type',
-        'risk_level',
-        'credit_limit',
-        'payment_terms',
-        'credit_days',
-        'opening_balance',
-        'is_opening_balance_posted',
         'notes',
         'gps_link',
         'branch_id',
         'salesperson_id',
     ];
 
-    protected $casts = [
-        'credit_limit'              => 'decimal:3',
-        'opening_balance'           => 'decimal:3',
-        'is_opening_balance_posted' => 'boolean',
-        'credit_days'               => 'integer',
+    protected $casts = [];
+
+    /**
+     * Defence in depth only.
+     *
+     * The eight financial fields no longer exist on this table, so nothing can
+     * populate them — but if a future join or select aliases one back onto a
+     * Customer instance, it still must not serialise into an API response.
+     * The real guarantee is the schema; this is the backstop.
+     */
+    protected $hidden = [
+        'tax_number',
+        'currency',
+        'risk_level',
+        'credit_limit',
+        'payment_terms',
+        'credit_days',
+        'opening_balance',
+        'is_opening_balance_posted',
     ];
 
     public function branch(): BelongsTo
@@ -95,6 +103,29 @@ class Customer extends Model
     public function salesperson(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'salesperson_id');
+    }
+
+    /**
+     * Receivables data — never eager-loaded anywhere, by design.
+     *
+     * Read it through CustomerFinancialProfileService so the permission is
+     * enforced; a bare ->financialProfile() skips that check.
+     */
+    /**
+     * The company/family/agency this customer belongs to, if any.
+     *
+     * NULL for an individual — the normal case, not a missing value.
+     * The group carries the business classification (group_type); the customer
+     * carries only its engagement_status.
+     */
+    public function group(): BelongsTo
+    {
+        return $this->belongsTo(CustomerGroup::class, 'group_id');
+    }
+
+    public function financialProfile(): HasOne
+    {
+        return $this->hasOne(CustomerFinancialProfile::class);
     }
 
     public function phones(): HasMany
@@ -125,9 +156,16 @@ class Customer extends Model
         return $this->hasMany(CustomerNote::class);
     }
 
-    public function occasions(): HasMany
+    /**
+     * Occasions owned by this customer.
+     *
+     * morphMany since the polymorphic migration — customer_occasions is now
+     * shared with CustomerGroup. Note it does not cascade on delete the way
+     * the old customer_id foreign key did.
+     */
+    public function occasions(): MorphMany
     {
-        return $this->hasMany(CustomerOccasion::class);
+        return $this->morphMany(CustomerOccasion::class, 'occasionable');
     }
 
     public function complaints(): HasMany
@@ -167,11 +205,24 @@ class Customer extends Model
     }
 
     /**
+     * Credit limit, read from the financial profile.
+     *
+     * Callers that already hold the profile should use it directly; this
+     * exists so the three derived accessors below keep working unchanged for
+     * the Accounting screens that rely on them. Returns 0 when a customer has
+     * no profile row — the same answer the old default column gave.
+     */
+    public function creditLimit(): float
+    {
+        return (float) ($this->financialProfile?->credit_limit ?? 0);
+    }
+
+    /**
      * Available credit = credit_limit - current_balance
      */
     public function getAvailableCreditAttribute(): float
     {
-        return max(0, (float) $this->credit_limit - $this->balance);
+        return max(0, $this->creditLimit() - $this->balance);
     }
 
     /**
@@ -179,7 +230,9 @@ class Customer extends Model
      */
     public function getIsOverLimitAttribute(): bool
     {
-        return $this->credit_limit > 0 && $this->balance > $this->credit_limit;
+        $limit = $this->creditLimit();
+
+        return $limit > 0 && $this->balance > $limit;
     }
 
     /**
@@ -187,8 +240,9 @@ class Customer extends Model
      */
     public function getCreditUsagePercentAttribute(): float
     {
-        if ($this->credit_limit <= 0) return 0;
-        return min(100, round(($this->balance / $this->credit_limit) * 100, 1));
+        $limit = $this->creditLimit();
+        if ($limit <= 0) return 0;
+        return min(100, round(($this->balance / $limit) * 100, 1));
     }
 
     public function scopeActive($query)
@@ -198,7 +252,7 @@ class Customer extends Model
 
     public function scopeByRiskLevel($query, string $level)
     {
-        return $query->where('risk_level', $level);
+        return $query->whereHas('financialProfile', fn ($q) => $q->where('risk_level', $level));
     }
 
     /**
