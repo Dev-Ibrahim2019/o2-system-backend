@@ -35,9 +35,22 @@ class OrderResource extends JsonResource
             'employee_id'      => $this->employee_id,
             'supplier_id'      => $this->supplier_id,
 
+            'customer_address_id'       => $this->customer_address_id,
+            'delivery_zone_id'          => $this->delivery_zone_id,
+            'delivery_fee'              => (float) ($this->delivery_fee ?? 0),
+            'delivery_address_snapshot' => $this->delivery_address_snapshot,
+            'delivery_notes'            => $this->delivery_notes,
+            'tax_rate'                  => (float) ($this->tax_rate ?? 0),
+            'tax_amount'                => (float) ($this->tax_amount ?? 0),
+            'scheduled_at'              => $this->scheduled_at?->toIso8601String(),
+
             'items'   => OrderItemResource::collection($this->whenLoaded('items')),
             'invoice' => $this->whenLoaded('invoice', fn () => new InvoiceResource($this->invoice)),
             'tickets' => ProductionTicketResource::collection($this->whenLoaded('tickets')),
+            'branch'  => $this->whenLoaded('branch', fn() => $this->branch ? [
+                'id'   => $this->branch->id,
+                'name' => $this->branch->name,
+            ] : null),
             'cashier' => $this->whenLoaded('cashier', fn() => [
                 'id'   => $this->cashier->id,
                 'name' => $this->cashier->name,

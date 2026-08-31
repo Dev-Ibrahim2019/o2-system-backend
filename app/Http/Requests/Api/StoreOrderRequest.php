@@ -45,6 +45,8 @@ class StoreOrderRequest extends FormRequest
             'delivery_address_snapshot' => 'nullable|array',
             'delivery_notes' => 'nullable|string|max:4000',
             'call_notes' => 'nullable|string|max:4000',
+            'tax_rate' => 'nullable|numeric|min:0|max:100',
+            'scheduled_at' => 'nullable|date|after_or_equal:now',
 
             // اختياري: إرسال الأصناف مع إنشاء الطلب (نفس تنسيق الواجهة القديمة)
             'items' => 'sometimes|array|min:1',
@@ -111,6 +113,8 @@ class StoreOrderRequest extends FormRequest
             'delivery_address_snapshot' => $this->input('delivery_address_snapshot'),
             'delivery_notes' => $this->input('delivery_notes'),
             'call_notes' => $this->input('call_notes'),
+            'tax_rate' => $this->input('tax_rate'),
+            'scheduled_at' => $this->input('scheduled_at'),
         ];
 
         if ($this->has('items')) {

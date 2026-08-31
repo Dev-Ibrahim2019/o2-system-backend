@@ -55,12 +55,19 @@ class OrderPricingService
         $manualDiscount = max(0, round($manualDiscount, 3));
         $engineDiscountTotal = round($engineDiscountTotal, 3);
         $grossSubtotal = round($grossSubtotal, 3);
-        $netTotal = max(0, round($grossSubtotal - $engineDiscountTotal - $manualDiscount, 3));
+        $taxableBase = max(0, round($grossSubtotal - $engineDiscountTotal - $manualDiscount, 3));
+
+        $taxRate = (float) ($order->tax_rate ?? 0);
+        $taxAmount = $taxRate > 0 ? round($taxableBase * $taxRate / 100, 3) : 0.0;
+        $deliveryFee = round((float) ($order->delivery_fee ?? 0), 3);
+
+        $netTotal = round($taxableBase + $taxAmount + $deliveryFee, 3);
 
         return [
             'subtotal' => $grossSubtotal,
             'engine_discount_amount' => $engineDiscountTotal,
             'discount_amount' => $manualDiscount,
+            'tax_amount' => $taxAmount,
             'total' => $netTotal,
         ];
     }

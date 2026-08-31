@@ -112,6 +112,9 @@ class OrderController extends ApiController
                 'discount_type' => $data['discount_type'] ?? 'amount',
                 'discount_amount' => 0,
                 'engine_discount_amount' => 0,
+                'tax_rate' => $data['tax_rate'] ?? 0,
+                'tax_amount' => 0,
+                'scheduled_at' => $data['scheduled_at'] ?? null,
                 'total' => 0,
             ]);
 
@@ -164,6 +167,7 @@ class OrderController extends ApiController
                 'tickets.ticketItems.orderItem',
                 'tickets.department',
                 'cashier',
+                'branch',
                 'invoice.items',
                 'invoice.payments',
             ]))

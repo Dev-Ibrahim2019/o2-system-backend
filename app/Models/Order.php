@@ -55,6 +55,9 @@ class Order extends Model
         'discount_type',
         'discount_amount',
         'engine_discount_amount',
+        'tax_rate',
+        'tax_amount',
+        'scheduled_at',
         'total',
     ];
 
@@ -63,6 +66,9 @@ class Order extends Model
         'discount_value' => 'decimal:3',
         'discount_amount' => 'decimal:3',
         'engine_discount_amount' => 'decimal:3',
+        'tax_rate' => 'decimal:2',
+        'tax_amount' => 'decimal:3',
+        'scheduled_at' => 'datetime',
         'total' => 'decimal:3',
         'seated_at' => 'datetime',
         'customer_count' => 'integer',
