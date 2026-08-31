@@ -46,7 +46,22 @@ Route::prefix('customer')->group(function () {
 Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);
-    Route::get('/auth/me', fn(Request $r) => response()->json(['user' => $r->user()]));
+    // Returns roles and permissions alongside the user, in the same shape as
+    // POST /login. It used to return the bare user, so the client had nothing
+    // but the copy written into localStorage at login — and any permission
+    // granted afterwards stayed invisible until the user logged out and back
+    // in. Re-reading them here is what makes a page refresh enough.
+    Route::get('/auth/me', fn (Request $r) => response()->json([
+        'user' => [
+            'id' => $r->user()->id,
+            'name' => $r->user()->name,
+            'username' => $r->user()->username,
+            'email' => $r->user()->email,
+            'branch_id' => $r->user()->branch_id,
+        ],
+        'roles' => $r->user()->getRoleNames()->toArray(),
+        'permissions' => $r->user()->getAllPermissions()->pluck('name')->toArray(),
+    ]));
     // Payment methods are shared reference data used by both POS and Call Center.
     // Reading them only requires authentication; mutations remain POS-network protected.
     Route::get('payment-methods', [\App\Http\Controllers\Api\PaymentMethodController::class, 'index'])
