@@ -276,7 +276,7 @@ class CallCenterController extends ApiController
     {
         $perPage = $request->input('per_page', 20);
 
-        $complaints = $this->callCenterService->getCustomerComplaints($customer->id, $perPage);
+        $complaints = $this->callCenterService->getCustomerComplaints($customer->id, $perPage, $request->user());
 
         return $this->success('شكاوى العميل', $complaints);
     }
@@ -284,9 +284,9 @@ class CallCenterController extends ApiController
     /**
      * GET /api/call-center/customers/{customer}/alerts
      */
-    public function customerAlerts(Customer $customer): JsonResponse
+    public function customerAlerts(Request $request, Customer $customer): JsonResponse
     {
-        $alerts = $this->callCenterService->getCustomerAlerts($customer->id);
+        $alerts = $this->callCenterService->getCustomerAlerts($customer->id, $request->user());
 
         return $this->success('تنبيهات العميل', $alerts);
     }
@@ -379,11 +379,19 @@ class CallCenterController extends ApiController
     /**
      * GET /api/call-center/complaints/{complaint}
      */
-    public function showComplaint(CustomerComplaint $complaint): JsonResponse
+    public function showComplaint(Request $request, CustomerComplaint $complaint): JsonResponse
     {
-        $complaint->load(['customer:id,name,phone', 'order:id,order_number', 'invoice:id,number', 'assignedTo:id,name', 'createdBy:id,name']);
+        // Resolved through the scope rather than checked afterwards: a
+        // sensitive complaint comes back as a plain 404, the same answer an
+        // unknown id gets, so the response cannot confirm it exists.
+        $found = CustomerComplaint::visibleTo($request->user())
+            ->whereKey($complaint->getKey())
+            ->with(['customer:id,name,phone', 'order:id,order_number', 'invoice:id,number', 'assignedTo:id,name', 'createdBy:id,name'])
+            ->first();
 
-        return $this->success('تفاصيل الشكوى', $complaint);
+        abort_if($found === null, 404, 'الشكوى غير موجودة.');
+
+        return $this->success('تفاصيل الشكوى', $found);
     }
 
     /**
@@ -450,9 +458,9 @@ class CallCenterController extends ApiController
     /**
      * GET /api/call-center/complaints/{complaint}/timeline
      */
-    public function complaintTimeline(CustomerComplaint $complaint): JsonResponse
+    public function complaintTimeline(Request $request, CustomerComplaint $complaint): JsonResponse
     {
-        $timeline = $this->callCenterService->getComplaintTimeline($complaint->id);
+        $timeline = $this->callCenterService->getComplaintTimeline($complaint->id, $request->user());
 
         return $this->success('السجل الزمني للشكوى', $timeline);
     }

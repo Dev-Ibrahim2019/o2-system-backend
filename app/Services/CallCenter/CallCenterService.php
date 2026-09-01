@@ -372,9 +372,15 @@ class CallCenterService
     /**
      * Get customer complaints with pagination
      */
-    public function getCustomerComplaints(int $customerId, int $perPage = 20): array
+    /**
+     * $viewer required for the same reason as everywhere else on this class:
+     * the list returns whole complaint records, sensitive ones included, and
+     * nothing here filtered them.
+     */
+    public function getCustomerComplaints(int $customerId, int $perPage, ?User $viewer): array
     {
-        $complaints = CustomerComplaint::where('customer_id', $customerId)
+        $complaints = CustomerComplaint::visibleTo($viewer)
+            ->where('customer_id', $customerId)
             ->with(['assignedTo:id,name', 'createdBy:id,name'])
             ->orderByDesc('created_at')
             ->paginate($perPage);
@@ -655,9 +661,15 @@ class CallCenterService
     /**
      * Get complaint timeline
      */
-    public function getComplaintTimeline(int $complaintId): array
+    /**
+     * A sensitive complaint is not merely hidden from the timeline — it is
+     * reported as absent. Answering "exists but withheld" would confirm the
+     * record to someone who may not know it exists, which is the same
+     * non-disclosure rule Crm\ComplaintController::show() follows.
+     */
+    public function getComplaintTimeline(int $complaintId, ?User $viewer): array
     {
-        $complaint = CustomerComplaint::with(['customer:id,name,phone', 'order:id,order_number', 'assignedTo:id,name', 'followups.user:id,name'])->findOrFail($complaintId);
+        $complaint = CustomerComplaint::visibleTo($viewer)->with(['customer:id,name,phone', 'order:id,order_number', 'assignedTo:id,name', 'followups.user:id,name'])->findOrFail($complaintId);
 
         return [
             'complaint' => $complaint->toArray(),
@@ -668,18 +680,28 @@ class CallCenterService
     /**
      * Get customer alerts (open complaints, recent sensitive resolved)
      */
-    public function getCustomerAlerts(int $customerId): array
+    /**
+     * $viewer is required, not optional, for the same reason it is on
+     * getAllComplaints(): both queries below read complaint content, and one
+     * of them reads sensitive complaints by definition. Neither applied the
+     * confidentiality rule, so this endpoint handed a branch-manager the title
+     * of an open sensitive complaint and an explicit "this customer had a
+     * sensitive issue" notice. Making the viewer an argument is what stops a
+     * future caller from skipping the check.
+     */
+    public function getCustomerAlerts(int $customerId, ?User $viewer): array
     {
         $alerts = [];
 
-        $openComplaints = CustomerComplaint::where('customer_id', $customerId)
+        $openComplaints = CustomerComplaint::visibleTo($viewer)
+            ->where('customer_id', $customerId)
             ->where('show_alert', true)
             ->whereIn('status', [CustomerComplaint::STATUS_NEW, CustomerComplaint::STATUS_OPEN, CustomerComplaint::STATUS_IN_PROGRESS])
             ->with('order:id,order_number')
             ->get();
 
         foreach ($openComplaints as $complaint) {
-            $days = $complaint->created_at->diffInDays(now());
+            $days = (int) floor($complaint->created_at->diffInDays(now()));
             $orderRef = $complaint->order ? $complaint->order->order_number : null;
 
             $alerts[] = [
@@ -693,7 +715,11 @@ class CallCenterService
             ];
         }
 
-        $recentSensitive = CustomerComplaint::where('customer_id', $customerId)
+        // visibleTo() reduces this to nothing for a viewer without clearance,
+        // which is the intended answer: the whole block is about sensitive
+        // complaints, so someone who may not see them gets no alert at all.
+        $recentSensitive = CustomerComplaint::visibleTo($viewer)
+            ->where('customer_id', $customerId)
             ->where('is_sensitive', true)
             ->where('status', CustomerComplaint::STATUS_RESOLVED)
             ->where('resolved_at', '>=', now()->subDays(3))
