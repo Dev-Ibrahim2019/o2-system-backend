@@ -58,6 +58,7 @@ class Order extends Model
         'tax_rate',
         'tax_amount',
         'scheduled_at',
+        'payments',
         'total',
     ];
 
@@ -69,6 +70,7 @@ class Order extends Model
         'tax_rate' => 'decimal:2',
         'tax_amount' => 'decimal:3',
         'scheduled_at' => 'datetime',
+        'payments' => 'array',
         'total' => 'decimal:3',
         'seated_at' => 'datetime',
         'customer_count' => 'integer',

@@ -47,6 +47,9 @@ class StoreOrderRequest extends FormRequest
             'call_notes' => 'nullable|string|max:4000',
             'tax_rate' => 'nullable|numeric|min:0|max:100',
             'scheduled_at' => 'nullable|date|after_or_equal:now',
+            'payments' => 'nullable|array|max:2',
+            'payments.*.method' => 'required_with:payments|in:cash,card,wallet',
+            'payments.*.amount' => 'required_with:payments|numeric|min:0',
 
             // اختياري: إرسال الأصناف مع إنشاء الطلب (نفس تنسيق الواجهة القديمة)
             'items' => 'sometimes|array|min:1',

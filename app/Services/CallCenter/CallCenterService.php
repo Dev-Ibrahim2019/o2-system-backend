@@ -59,6 +59,8 @@ class CallCenterService
                 'total' => (float) $order->total,
                 'branch' => $order->branch,
                 'created_at' => $order->created_at,
+                'scheduled_at' => $order->scheduled_at,
+                'payments' => $order->payments,
                 'scopes' => $scopes,
             ];
         })->filter(fn (array $row) => $row['scopes'] !== [])->values();
@@ -369,6 +371,36 @@ class CallCenterService
             ->toArray();
 
         return $favorites;
+    }
+
+    /**
+     * الأصناف الأكثر طلبًا عمومًا (كل العملاء) — fallback لما ما يكون في مفضّلات لعميل محدد.
+     * بدون نافذة زمنية (all-time)، بنفس نمط getCustomerFavorites، عشان يبقى مفيد حتى بنظام حديث الاستخدام.
+     */
+    public function getTopSellingItems(?int $branchId = null, int $limit = 12): array
+    {
+        return OrderItem::select(
+                'item_id',
+                'item_name',
+                'item_name_ar',
+                DB::raw('SUM(quantity) as quantity_sum')
+            )
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->whereNull('orders.deleted_at')
+            ->where('orders.status', '!=', 'cancelled')
+            ->when($branchId, fn (Builder $q) => $q->where('orders.branch_id', $branchId))
+            ->whereNotNull('item_id')
+            ->groupBy('item_id', 'item_name', 'item_name_ar')
+            ->orderByDesc('quantity_sum')
+            ->limit($limit)
+            ->get()
+            ->map(fn ($r) => [
+                'item_id' => (int) $r->item_id,
+                'name' => $r->item_name,
+                'name_ar' => $r->item_name_ar,
+                'quantity' => (float) $r->quantity_sum,
+            ])
+            ->all();
     }
 
     /**

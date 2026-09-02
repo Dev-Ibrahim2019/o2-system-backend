@@ -93,7 +93,7 @@ class OrderController extends ApiController
                 'call_center_agent_id' => $data['call_center_agent_id'] ?? null,
                 'order_type' => $data['order_type'],
                 'source' => $data['source'] ?? 'pos',
-                'status' => 'pending',
+                'status' => ! empty($data['scheduled_at']) ? 'scheduled' : 'pending',
                 'table_number' => $data['table_number'] ?? null,
                 'customer_name' => $customer?->name ?? ($data['customer_name'] ?? null),
                 'customer_phone' => $customer?->phone ?? $customer?->mobile ?? ($data['customer_phone'] ?? null),
@@ -115,6 +115,7 @@ class OrderController extends ApiController
                 'tax_rate' => $data['tax_rate'] ?? 0,
                 'tax_amount' => 0,
                 'scheduled_at' => $data['scheduled_at'] ?? null,
+                'payments' => $data['payments'] ?? null,
                 'total' => 0,
             ]);
 

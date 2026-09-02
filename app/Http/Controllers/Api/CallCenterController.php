@@ -165,6 +165,22 @@ class CallCenterController extends ApiController
     /**
      * GET /api/call-center/customers/{customer}/favorites
      */
+    /**
+     * GET /api/call-center/menu/top-items — الأصناف الأكثر طلبًا عمومًا (all-time)، fallback لما
+     * ما يكون عند العميل مفضّلات خاصة به بعد.
+     */
+    public function topSellingItems(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:50'],
+        ]);
+
+        $items = $this->callCenterService->getTopSellingItems($data['branch_id'] ?? null, $data['limit'] ?? 12);
+
+        return $this->success('الأصناف الأكثر طلبًا', $items);
+    }
+
     public function customerFavorites(Request $request, Customer $customer): JsonResponse
     {
         $limit = $request->input('limit', 20);

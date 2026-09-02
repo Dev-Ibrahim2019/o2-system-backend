@@ -474,6 +474,7 @@ Route::middleware(['auth:sanctum', 'role_or_permission:call-center|super-admin|a
     Route::get('customers/resolve-by-phone', \App\Http\Controllers\Api\CustomerResolutionController::class);
     Route::post('orders', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'store']);
     Route::get('active-orders', [CallCenterController::class, 'activeOrders']);
+    Route::get('menu/top-items', [CallCenterController::class, 'topSellingItems']);
     Route::get('customers/search', [CallCenterController::class, 'searchCustomers']);
     Route::get('customers/directory', [CallCenterController::class, 'customerDirectory']);
     Route::post('customers', [CallCenterController::class, 'storeCustomer']);
