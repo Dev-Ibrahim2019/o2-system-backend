@@ -457,6 +457,18 @@ Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->gro
     Route::post('groups/{group}/occasions', [$crm, 'createGroupOccasion'])->middleware('permission:crm.occasions.create');
     Route::put('groups/{group}/occasions/{occasion}', [$crm, 'updateGroupOccasion'])->middleware('permission:crm.occasions.update');
     Route::delete('groups/{group}/occasions/{occasion}', [$crm, 'deleteGroupOccasion'])->middleware('permission:crm.occasions.delete');
+    // Occasion reads addressed by occasion id, spanning both owner types.
+    // `summary` is literal so it must precede the {occasion} wildcard, exactly
+    // as complaints/summary precedes {complaint} above.
+    $occasions = \App\Http\Controllers\Api\Crm\OccasionController::class;
+    Route::get('occasions', [$occasions, 'index'])->middleware('permission:crm.occasions.view');
+    Route::get('occasions/summary', [$occasions, 'summary'])->middleware('permission:crm.occasions.view');
+    Route::get('occasions/{occasion}', [$occasions, 'show'])->middleware('permission:crm.occasions.view');
+    // Writing the diary is a write on the occasion, so it rides on
+    // crm.occasions.update — no new permission. A reader with only
+    // crm.occasions.view keeps reading the log through show() above.
+    Route::post('occasions/{occasion}/followups', [$occasions, 'addFollowup'])->middleware('permission:crm.occasions.update');
+
     Route::get('customers/{customer}/financial-summary', [$crm, 'financial'])->middleware('permission:crm.view-customer-financial');
     Route::get('customers/{customer}/statement', [$crm, 'statement'])->middleware('permission:crm.view-customer-statement');
     Route::get('customers/{customer}/aging', [$crm, 'aging'])->middleware('permission:crm.view-customer-financial');

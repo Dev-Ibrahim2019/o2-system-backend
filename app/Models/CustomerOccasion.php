@@ -5,6 +5,7 @@ namespace App\Models;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -90,8 +91,34 @@ class CustomerOccasion extends Model
         return $this->morphTo();
     }
 
-    public function createdBy(): BelongsTo
+    /**
+     * Named creator(), not createdBy().
+     *
+     * Laravel serializes a loaded relation under the snake_case of its
+     * method name, so createdBy() would write an object over the
+     * created_by integer column in the JSON — the same collision that
+     * made a complaint's assigned_to read as an object once assignedTo
+     * was eager-loaded. Under creator the id column survives intact.
+     */
+    public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * The yearly diary: what was actually done for this occasion, newest first.
+     *
+     * Ordered on the relation rather than at every call site — the reverse
+     * chronology is the whole point of the log, and a caller that eager-loads
+     * it gets the same order as one that reads it lazily.
+     */
+    public function followups(): HasMany
+    {
+        // id breaks the tie: created_at has second resolution, so two
+        // lines written in the same second would otherwise come back in
+        // an order the database picked.
+        return $this->hasMany(OccasionFollowup::class, 'occasion_id')
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
     }
 }
