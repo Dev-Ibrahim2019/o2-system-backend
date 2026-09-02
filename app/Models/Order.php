@@ -136,6 +136,12 @@ class Order extends Model
         'delivery_fee' => 'decimal:3',
         'delivery_address_snapshot' => 'array',
         'kitchen_released_at' => 'datetime',
+        // Cast, but deliberately not fillable: paid_at is written only by
+        // OrderPaymentService::markPaid(), which assigns it directly. Adding
+        // it to $fillable would put it inside the reach of
+        // OrderController@update's mass assignment, which is how 'paid'
+        // became a fourth, unguarded payment path in the first place.
+        'paid_at' => 'datetime',
     ];
 
     public function branch(): BelongsTo

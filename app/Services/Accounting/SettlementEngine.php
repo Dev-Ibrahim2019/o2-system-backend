@@ -11,6 +11,7 @@ use App\Services\AccountingService;
 use App\Services\CallCenter\CustomerResolutionService;
 use App\Services\CustomerIdentityService;
 use App\Services\Invoice\InvoiceFromOrderService;
+use App\Services\Order\OrderPaymentService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -25,6 +26,7 @@ class SettlementEngine
         private readonly AccountingService $accountingService,
         private readonly CustomerResolutionService $customerResolution,
         private readonly CustomerIdentityService $customerIdentity,
+        private readonly OrderPaymentService $orderPayments,
     ) {}
 
     /**
@@ -105,7 +107,15 @@ class SettlementEngine
                 'payment_method' => PaymentMethod::find($payments[0]['payment_method_id'])?->type,
             ]);
 
-            $order->update(['status' => 'paid']);
+            // Settlement runs after the food is served, so 'paid' really is
+            // this order's terminal lifecycle state — hence CLOSES_LIFECYCLE.
+            // The direct write also left payment_status and paid_at untouched;
+            // markPaid() writes all three and fires OrderPaid once.
+            $this->orderPayments->markPaid($order, [
+                OrderPaymentService::CLOSES_LIFECYCLE => true,
+                'channel' => 'settlement',
+                'invoice_id' => $invoice->id,
+            ]);
 
             $transaction = $this->accountingService->createJournalEntryForInvoice($invoice->fresh());
 

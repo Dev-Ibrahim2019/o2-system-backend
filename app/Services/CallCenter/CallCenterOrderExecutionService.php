@@ -26,6 +26,7 @@ class CallCenterOrderExecutionService
         private readonly InvoicePaymentService $invoicePayments,
         private readonly OrderConfirmationService $orderConfirmation,
         private readonly SubledgerService $subledgers,
+        private readonly \App\Services\Order\OrderPaymentService $orderPayments,
     ) {}
 
     public function saveOrderAwaitingBankConfirmation(Order $order, array $paymentMethodData): Order
@@ -199,10 +200,28 @@ class CallCenterOrderExecutionService
 
         $order->update([
             'payment_policy' => $policy,
-            'payment_status' => $fullyPaid ? Order::PAYMENT_STATUS_PAID : Order::PAYMENT_STATUS_PROCESSING,
             'kitchen_release_status' => Order::KITCHEN_RELEASE_STATUS_HELD,
             'status' => 'pending',
         ]);
+
+        // Only the fully-paid case goes through markPaid(); a partial payment
+        // is not a payment moment and must not fire OrderPaid.
+        //
+        // CLOSES_LIFECYCLE is deliberately NOT set. Here payment comes before
+        // preparation: full payment is what releases the order to the kitchen,
+        // and releasePhase() moves status to 'confirmed' a moment later.
+        // Writing 'paid' would erase where the order actually is and be
+        // overwritten immediately. status stays the fulfilment state; the
+        // financial state lives in payment_status and paid_at, which markPaid()
+        // now sets here exactly as it does for POS.
+        if ($fullyPaid) {
+            $this->orderPayments->markPaid($order, [
+                'channel' => 'call_center',
+                'invoice_id' => $invoice->id,
+            ]);
+        } else {
+            $order->update(['payment_status' => Order::PAYMENT_STATUS_PROCESSING]);
+        }
     }
 
     private function releaseIfFullyPaid(Order $order, int $executedBy): Order

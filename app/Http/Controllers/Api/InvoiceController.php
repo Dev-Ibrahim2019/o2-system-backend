@@ -22,6 +22,7 @@ use App\Models\Transaction;
 use App\Services\AccountingService;
 use App\Services\Invoice\InvoiceFromOrderService;
 use App\Services\Invoice\InvoicePaymentService;
+use App\Services\Order\OrderPaymentService;
 use App\Services\Order\OrderConfirmationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,6 +34,7 @@ class InvoiceController extends ApiController
         private readonly InvoiceFromOrderService $invoiceFromOrderService,
         private readonly InvoicePaymentService $invoicePaymentService,
         private readonly OrderConfirmationService $orderConfirmationService,
+        private readonly OrderPaymentService $orderPayments,
     ) {}
 
     /**
@@ -233,7 +235,24 @@ class InvoiceController extends ApiController
             $journalEntry = $result['transaction'];
 
             if ($invoice->status === 'paid' && $invoice->order_id) {
-                $invoice->order()->update(['status' => 'paid']);
+                // The model is loaded, not updated through the relation.
+                // $invoice->order()->update(...) issues a bare UPDATE that
+                // never instantiates an Order, so nothing observing the model
+                // — and nothing downstream of payment — could ever fire from
+                // here. It also wrote status alone, leaving payment_status
+                // and paid_at behind.
+                $paidOrder = $invoice->order()->first();
+
+                if ($paidOrder) {
+                    // Same reasoning as SettlementEngine: this path settles an
+                    // invoice for an already-served order, so 'paid' is the
+                    // terminal lifecycle state.
+                    $this->orderPayments->markPaid($paidOrder, [
+                        OrderPaymentService::CLOSES_LIFECYCLE => true,
+                        'channel' => 'invoice_payment',
+                        'invoice_id' => $invoice->id,
+                    ]);
+                }
             }
 
             DB::commit();

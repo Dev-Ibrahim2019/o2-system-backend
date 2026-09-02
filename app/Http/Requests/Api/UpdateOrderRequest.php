@@ -15,7 +15,12 @@ class UpdateOrderRequest extends FormRequest
     {
         return [
             'order_type' => 'sometimes|in:dine_in,takeaway,delivery',
-            'status' => 'sometimes|in:pending,confirmed,in_progress,ready,served,paid,cancelled,pending_payment',
+            // 'paid' is intentionally absent. OrderController@update mass-assigns
+            // whatever validates here, so allowing it let any caller PUT an order
+            // to paid with no invoice, no payment record, no payment_status and no
+            // paid_at — a fourth payment path that bypassed settlement entirely.
+            // Marking an order paid goes through OrderPaymentService::markPaid().
+            'status' => 'sometimes|in:pending,confirmed,in_progress,ready,served,cancelled,pending_payment',
             'table_number' => 'nullable|string|max:50',
             'payment_method' => 'nullable|string|max:50',
             'customer_name' => 'nullable|string|max:255',
