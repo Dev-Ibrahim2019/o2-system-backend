@@ -469,6 +469,29 @@ Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->gro
     // crm.occasions.view keeps reading the log through show() above.
     Route::post('occasions/{occasion}/followups', [$occasions, 'addFollowup'])->middleware('permission:crm.occasions.update');
 
+    // ── Loyalty ──
+    // Literal routes first: /loyalty/rules and /loyalty/transactions must
+    // precede any {id}-style wildcard on the same segment, same discipline
+    // as complaints/summary and occasions/summary above.
+    $loyaltyRules = \App\Http\Controllers\Api\Crm\LoyaltyRuleController::class;
+    Route::get('loyalty/rules', [$loyaltyRules, 'index'])->middleware('permission:crm.loyalty.view');
+    Route::post('loyalty/rules', [$loyaltyRules, 'store'])->middleware('permission:crm.loyalty.manage');
+    Route::put('loyalty/rules/{rule}', [$loyaltyRules, 'update'])->middleware('permission:crm.loyalty.manage');
+    Route::delete('loyalty/rules/{rule}', [$loyaltyRules, 'destroy'])->middleware('permission:crm.loyalty.manage');
+    Route::get('loyalty/rules/{rule}/exclusions', [$loyaltyRules, 'exclusions'])->middleware('permission:crm.loyalty.view');
+    Route::post('loyalty/rules/{rule}/exclusions', [$loyaltyRules, 'addExclusion'])->middleware('permission:crm.loyalty.manage');
+    Route::delete('loyalty/rules/{rule}/exclusions/{customer}', [$loyaltyRules, 'removeExclusion'])->middleware('permission:crm.loyalty.manage');
+
+    $loyalty = \App\Http\Controllers\Api\Crm\LoyaltyController::class;
+    Route::get('loyalty/transactions', [$loyalty, 'transactions'])->middleware('permission:crm.loyalty.view');
+    Route::get('loyalty/summary', [$loyalty, 'summary'])->middleware('permission:crm.loyalty.view');
+    Route::post('loyalty/adjustments', [$loyalty, 'adjust'])->middleware('permission:crm.loyalty.manage');
+
+    Route::get('customers/{customer}/loyalty/summary', [$loyalty, 'customerSummary'])->middleware('permission:crm.loyalty.view');
+    Route::get('customers/{customer}/loyalty/transactions', [$loyalty, 'customerTransactions'])->middleware('permission:crm.loyalty.view');
+    Route::get('groups/{group}/loyalty/summary', [$loyalty, 'groupSummary'])->middleware('permission:crm.loyalty.view');
+    Route::get('groups/{group}/loyalty/transactions', [$loyalty, 'groupTransactions'])->middleware('permission:crm.loyalty.view');
+
     Route::get('customers/{customer}/financial-summary', [$crm, 'financial'])->middleware('permission:crm.view-customer-financial');
     Route::get('customers/{customer}/statement', [$crm, 'statement'])->middleware('permission:crm.view-customer-statement');
     Route::get('customers/{customer}/aging', [$crm, 'aging'])->middleware('permission:crm.view-customer-financial');
