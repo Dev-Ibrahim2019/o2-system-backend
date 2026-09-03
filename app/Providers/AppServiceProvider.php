@@ -12,6 +12,9 @@ use App\Services\Printing\Renderers\ReceiptImageBuilder;
 use App\Services\PrintRoutingService;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Event;
+use App\Events\OrderPaid;
+use App\Listeners\GrantLoyaltyPoints;
 use App\Policies\CallCenterPaymentPolicy;
 
 class AppServiceProvider extends ServiceProvider
@@ -36,5 +39,10 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::define('execute-call-center-payment', [CallCenterPaymentPolicy::class, 'execute']);
+
+        // Registered explicitly rather than relied on for auto-discovery —
+        // the project's other cross-cutting hooks (Supplier::observe in
+        // AccountingServiceProvider) are wired the same explicit way.
+        Event::listen(OrderPaid::class, GrantLoyaltyPoints::class);
     }
 }
