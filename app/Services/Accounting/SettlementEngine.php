@@ -83,9 +83,20 @@ class SettlementEngine
                 ]);
             }
 
+            // ملخّص طريقة الدفع: 'mixed' لو أكثر من طريقة، وإلا الطريقة الوحيدة
+            $methodTypes = collect($payments)
+                ->map(fn ($row) => PaymentMethod::find($row['payment_method_id'])?->type)
+                ->filter()
+                ->unique()
+                ->values();
+            $summaryMethod = $methodTypes->count() > 1 ? 'mixed' : $methodTypes->first();
+            $enumSafe = in_array($summaryMethod, ['cash', 'card', 'bank', 'wallet', 'account', 'mixed'], true)
+                ? $summaryMethod
+                : 'account';
+
             $invoice->update([
                 'status' => 'paid',
-                'payment_method' => PaymentMethod::find($payments[0]['payment_method_id'])?->type,
+                'payment_method' => $enumSafe,
             ]);
 
             $order->update([

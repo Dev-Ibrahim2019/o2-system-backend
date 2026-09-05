@@ -18,6 +18,7 @@ class OrderResource extends JsonResource
             'cashier_id'       => $this->cashier_id,
             'call_center_agent_id' => $this->call_center_agent_id,
             'order_type'       => $this->order_type,
+            'is_fawri'         => (bool) $this->is_fawri,
             'source'           => $this->source,
             'status'           => $this->status,
             'table_number'     => $this->table_number,

@@ -39,6 +39,40 @@ class Payment extends Model
         return $this->belongsTo(Invoice::class);
     }
 
+    public function paymentMethod(): BelongsTo
+    {
+        return $this->belongsTo(PaymentMethod::class);
+    }
+
+    /** يحوّل نوع طريقة الدفع (cash/card/…) لـ id من جدول payment_methods */
+    public static function resolveMethodId(?string $type): ?int
+    {
+        if (! $type) {
+            return null;
+        }
+
+        return PaymentMethod::where('type', $type)->value('id');
+    }
+
+    /**
+     * ملخّص طرق الدفع لفاتورة: 'mixed' لو دُفعت بأكثر من طريقة،
+     * وإلا الطريقة الوحيدة المستخدمة (أو null لو ما في دفعات).
+     */
+    public static function summaryMethodForInvoice(int $invoiceId): ?string
+    {
+        $methods = static::query()
+            ->where('invoice_id', $invoiceId)
+            ->whereNotNull('method')
+            ->distinct()
+            ->pluck('method');
+
+        if ($methods->isEmpty()) {
+            return null;
+        }
+
+        return $methods->count() > 1 ? 'mixed' : (string) $methods->first();
+    }
+
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);

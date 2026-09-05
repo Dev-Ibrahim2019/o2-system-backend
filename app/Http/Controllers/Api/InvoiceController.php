@@ -198,8 +198,11 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
                 'invoice_id' => $invoice->id,
                 'number' => Payment::generateNumber(),
                 'method' => $data['method'],
-                'payment_method_id' => $data['payment_method_id'] ?? null,
+                // نربط الدفعة بسجل طريقة الدفع (FK) — نحلّه من النوع لو الفرونت ما بعتو
+                'payment_method_id' => $data['payment_method_id']
+                    ?? Payment::resolveMethodId($data['method']),
                 'amount' => $amount,
+                'reference_number' => $data['reference_number'] ?? null,
                 'paid_at' => now(),
                 'notes' => $data['notes'] ?? null,
                 'branch_id' => $data['branch_id'] ?? $invoice->branch_id,
@@ -214,9 +217,15 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
             $journalEntry = null;
 
             if ($newPaid >= (float) $invoice->total - 0.001) {
+                // 'mixed' لو الفاتورة اندفعت بأكثر من طريقة، وإلا الطريقة الوحيدة
+                $summaryMethod = Payment::summaryMethodForInvoice($invoice->id) ?? $data['method'];
+                $enumSafe = in_array($summaryMethod, ['cash', 'card', 'bank', 'wallet', 'account', 'mixed'], true)
+                    ? $summaryMethod
+                    : 'account';
+
                 $invoice->update([
                     'status' => 'paid',
-                    'payment_method' => $data['method'],
+                    'payment_method' => $enumSafe,
                     // ── معلومات إغلاق الفاتورة ──
                     'closed_by' => $request->user()?->id,
                     'closed_at' => now(),
@@ -237,8 +246,8 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
             return $this->success(
                 'تم تسجيل الدفعة',
                 [
-                    'payment' => new PaymentResource($payment),
-                    'invoice' => new InvoiceResource($invoice->fresh()->load(['items.discountDetail', 'payments', 'order'])),
+                    'payment' => new PaymentResource($payment->load('paymentMethod')),
+                    'invoice' => new InvoiceResource($invoice->fresh()->load(['items.discountDetail', 'payments.paymentMethod', 'order'])),
                     'journal_entry' => $journalEntry,
                 ],
                 201

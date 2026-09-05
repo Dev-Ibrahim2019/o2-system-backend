@@ -39,7 +39,7 @@ class OrderController extends ApiController
 
         $eager = $isActiveOnly
             ? ['items.department', 'tickets.department', 'cashier']
-            : ['items.department', 'tickets.department', 'cashier', 'invoice.payments'];
+            : ['items.department', 'tickets.department', 'cashier', 'invoice.payments.paymentMethod'];
 
         $orders = Order::with($eager)
             ->when($request->branch_id, fn($q) => $q->where('branch_id', $request->branch_id))
@@ -87,6 +87,7 @@ class OrderController extends ApiController
                 'shift_id' => $shift->id,
                 'opened_by' => $authUser->id,
                 'order_type' => $data['order_type'],
+                'is_fawri' => $data['is_fawri'] ?? false,
                 'status' => 'pending',
                 'table_number' => $data['table_number'] ?? null,
                 'customer_name' => $data['customer_name'] ?? null,
@@ -161,7 +162,7 @@ class OrderController extends ApiController
                 'tickets.department',
                 'cashier',
                 'invoice.items',
-                'invoice.payments',
+                'invoice.payments.paymentMethod',
             ]))
         );
     }
@@ -593,7 +594,7 @@ class OrderController extends ApiController
 
             return $this->success(
                 'تم عكس/إلغاء البيع بنجاح',
-                new OrderResource($order->fresh(['items', 'invoice.payments']))
+                new OrderResource($order->fresh(['items', 'invoice.payments.paymentMethod']))
             );
         } catch (\Throwable $e) {
             \Log::error('فشل Void للطلب #' . $order->id, [

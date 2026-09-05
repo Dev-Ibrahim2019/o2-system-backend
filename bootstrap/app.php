@@ -17,6 +17,12 @@ return Application::configure(basePath: dirname(__DIR__))
             'api/*',
         ]);
 
+        // تسجيل نشاط عام: كل طلب API يغيّر شي (POST/PUT/PATCH/DELETE) —
+        // مين عمله، IP تاعو، ومتى — بجدول activity_logs.
+        $middleware->api(append: [
+            \App\Http\Middleware\LogActivity::class,
+        ]);
+
         // ── تسجيل middleware aliases ──
         $middleware->alias([
             'role'       => \Spatie\Permission\Middleware\RoleMiddleware::class,

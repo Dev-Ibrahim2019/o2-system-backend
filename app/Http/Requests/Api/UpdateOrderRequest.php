@@ -15,6 +15,7 @@ class UpdateOrderRequest extends FormRequest
     {
         return [
             'order_type' => 'sometimes|in:dine_in,takeaway,delivery',
+            'is_fawri' => 'sometimes|boolean',
             'status' => 'sometimes|in:pending,confirmed,in_progress,ready,served,paid,cancelled,pending_payment',
             'table_number' => 'nullable|string|max:50',
             'payment_method' => 'nullable|string|max:50',

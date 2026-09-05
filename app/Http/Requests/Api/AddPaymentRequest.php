@@ -19,6 +19,7 @@ class AddPaymentRequest extends FormRequest
             'notes' => 'nullable|string',
             'branch_id' => 'nullable|exists:branches,id',
             'payment_method_id' => 'nullable|exists:payment_methods,id',
+            'reference_number' => 'nullable|string|max:255',
             'entity_type' => 'nullable|string|in:customer,employee,supplier',
             'entity_id' => 'nullable|integer|min:1',
             'subledger_type' => 'nullable|string|in:customer,employee,supplier',

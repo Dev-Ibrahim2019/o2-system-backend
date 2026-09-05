@@ -101,10 +101,12 @@ class InvoiceDetailsController extends ApiController
      */
     public function payments(Invoice $invoice): JsonResponse
     {
-        $payments = $invoice->payments()->with(['user', 'branch'])->get()->map(fn($p) => [
+        $payments = $invoice->payments()->with(['user', 'branch', 'paymentMethod'])->get()->map(fn($p) => [
             'id'               => $p->id,
             'number'           => $p->number,
             'method'           => $p->method,
+            'payment_method_id' => $p->payment_method_id,
+            'method_name'      => $p->relationLoaded('paymentMethod') && $p->paymentMethod ? $p->paymentMethod->name : null,
             'amount'           => (float) $p->amount,
             'reference_number' => $p->reference_number,
             'paid_at'          => $p->paid_at?->toIso8601String(),

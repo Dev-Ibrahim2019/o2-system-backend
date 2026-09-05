@@ -25,6 +25,7 @@ class StoreOrderRequest extends FormRequest
             'dining_table_id' => 'nullable|integer|exists:dining_tables,id',
             'call_center_agent_id' => 'nullable|exists:users,id',
             'order_type' => 'required|in:dine_in,takeaway,delivery',
+            'is_fawri' => 'nullable|boolean',
             'source' => 'nullable|string|max:50',
             'table_number' => 'nullable|string|max:50',
             'customer_name' => 'nullable|string|max:255',
@@ -104,6 +105,10 @@ class StoreOrderRequest extends FormRequest
             'cashier_id' => $this->input('cashier_id') ?? $this->input('cashierId'),
             'call_center_agent_id' => $this->input('call_center_agent_id') ?? $this->input('callCenterAgentId'),
             'order_type' => $orderType,
+            'is_fawri' => filter_var(
+                $this->input('is_fawri') ?? $this->input('isFawri') ?? false,
+                FILTER_VALIDATE_BOOLEAN
+            ),
             'dining_table_id' => $this->input('dining_table_id') ?? $this->input('diningTableId'),
             'source' => $this->input('source', 'pos'),
             'table_number' => $this->input('table_number') ?? $this->input('tableNumber'),

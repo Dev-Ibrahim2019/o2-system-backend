@@ -48,6 +48,7 @@ class Order extends Model
         'printed_at',
         'call_center_agent_id',
         'order_type',
+        'is_fawri',
         'source',
         'status',
         'table_number',
@@ -103,6 +104,7 @@ class Order extends Model
     ];
 
     protected $casts = [
+        'is_fawri' => 'boolean',
         'subtotal' => 'decimal:3',
         'discount_value' => 'decimal:3',
         'discount_amount' => 'decimal:3',
