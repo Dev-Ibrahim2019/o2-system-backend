@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\DiningTable;
 use App\Models\DiningZone;
 use App\Models\Order;
+use App\Models\Shift;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -323,7 +324,11 @@ class TableOperationsController extends Controller
         $fromTable = DiningTable::findOrFail($request->from_table_id);
         $toTable = DiningTable::findOrFail($request->to_table_id);
 
-        if (!$fromTable->current_order_id) {
+        // نتحقق من وجود طلب نشط فعليًا (زي merge()/free()) — مش بس إنه
+        // current_order_id مش null. current_order_id ممكن يضل "عالق" (stale) لو
+        // انقفل/انلغى الطلب من مكان تاني بدون ما يترّجع الفحص هون، وبالحالة هاي
+        // كان الكود القديم بينقل مرجع طلب وهمي للطاولة الهدف بدل ما يرفض العملية.
+        if (!$this->tableHasActiveOrders($fromTable)) {
             return response()->json([
                 'success' => false,
                 'message' => 'الطاولة المصدر لا تحتوي على طلب نشط!'
@@ -337,26 +342,39 @@ class TableOperationsController extends Controller
             ], 422);
         }
 
-        DB::transaction(function () use ($fromTable, $toTable) {
-            // ننقل كل الطلبات النشطة عالطاولة (مش بس current_order_id) — ممكن يكون
-            // فيها أكثر من جولة مفتوحة (نفس المنطق المستخدم بـ merge()).
-            $activeOrders = Order::withoutGlobalScope(\App\Models\Scopes\BranchScope::class)
-                ->where(function ($q) use ($fromTable) {
-                    $q->where('dining_table_id', $fromTable->id)
-                      ->orWhere('table_number', $fromTable->table_number);
-                })
-                ->whereIn('status', ['pending', 'pending_confirmation', 'confirmed', 'in_progress', 'ready'])
-                ->get();
+        try {
+            DB::transaction(function () use ($fromTable, $toTable) {
+                // ننقل كل الطلبات النشطة عالطاولة (مش بس current_order_id) — ممكن يكون
+                // فيها أكثر من جولة مفتوحة (نفس المنطق المستخدم بـ merge()).
+                $activeOrders = Order::withoutGlobalScope(\App\Models\Scopes\BranchScope::class)
+                    ->where(function ($q) use ($fromTable) {
+                        $q->where('dining_table_id', $fromTable->id)
+                          ->orWhere('table_number', $fromTable->table_number);
+                    })
+                    ->whereIn('status', ['pending', 'pending_confirmation', 'confirmed', 'in_progress', 'ready'])
+                    ->get();
 
-            $lastOrderId = $fromTable->current_order_id;
-            foreach ($activeOrders as $order) {
-                $order->update(['dining_table_id' => $toTable->id, 'table_number' => $toTable->table_number]);
-                $lastOrderId = $order->id;
-            }
+                if ($activeOrders->isEmpty()) {
+                    // فحصنا فوق أكّد وجود طلب نشط — لو صار سباق (race) وانلغى/انقفل
+                    // بين الفحص وهون، منوقف العملية بدل ما نحط مرجع وهمي عالطاولة الهدف.
+                    throw new \RuntimeException('لم يعد هناك طلب نشط على الطاولة المصدر.');
+                }
 
-            $fromTable->setAvailable();
-            $toTable->setOccupied($lastOrderId);
-        });
+                $lastOrderId = null;
+                foreach ($activeOrders as $order) {
+                    $order->update(['dining_table_id' => $toTable->id, 'table_number' => $toTable->table_number]);
+                    $lastOrderId = $order->id;
+                }
+
+                $fromTable->setAvailable();
+                $toTable->setOccupied($lastOrderId);
+            });
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
 
         return response()->json([
             'success' => true,
@@ -567,112 +585,120 @@ class TableOperationsController extends Controller
                 ], 422);
             }
 
-            // إذا كان في طلب واحد بس، نأجّله عادي
-            if ($orders->count() === 1) {
-                $order = $orders->first();
-                $deferredTableNote = $order->table_number ? "[Table: {$order->table_number}]" : "";
-                $existingNote = $order->note ?? "";
-                $newNote = $deferredTableNote . ($existingNote && $deferredTableNote ? " | " . $existingNote : ($existingNote ?: $deferredTableNote));
+            return DB::transaction(function () use ($request, $table, $orders) {
+                // إذا كان في طلب واحد بس، نأجّله عادي
+                if ($orders->count() === 1) {
+                    $order = $orders->first();
+                    $deferredTableNote = $order->table_number ? "[Table: {$order->table_number}]" : "";
+                    $existingNote = $order->note ?? "";
+                    $newNote = $deferredTableNote . ($existingNote && $deferredTableNote ? " | " . $existingNote : ($existingNote ?: $deferredTableNote));
 
-                $order->update([
+                    $order->update([
+                        'status' => 'pending_payment',
+                        'dining_table_id' => null,
+                        'table_number' => null,
+                        'note' => $newNote,
+                    ]);
+
+                    $table->setAvailable();
+
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'تم تأجيل الطلب بنجاح',
+                        'data' => ['order_id' => $order->id]
+                    ]);
+                }
+
+                // دمج جميع الطلبات في طلب واحد
+                $totalSubtotal = 0;
+                $allItems = [];
+                $tableNumbers = [];
+                $notes = [];
+                $customerName = null;
+                $customerPhone = null;
+                $firstOrder = $orders->first();
+
+                foreach ($orders as $order) {
+                    $totalSubtotal += (float) ($order->subtotal ?? 0);
+
+                    if ($order->customer_name && !$customerName) {
+                        $customerName = $order->customer_name;
+                    }
+                    if ($order->customer_phone && !$customerPhone) {
+                        $customerPhone = $order->customer_phone;
+                    }
+
+                    if ($order->table_number && !in_array($order->table_number, $tableNumbers)) {
+                        $tableNumbers[] = $order->table_number;
+                    }
+
+                    if ($order->note && strpos($order->note, '[Table:') === false) {
+                        $notes[] = $order->note;
+                    }
+
+                    foreach ($order->items as $item) {
+                        $allItems[] = $item;
+                    }
+                }
+
+                // shift/opened_by صحيحين — بدونهم الطلب المدمج بيطلع بلا يومية، وهيك
+                // تسوية الكاش بـ ShiftController::close() ما بتحسب دفعته، وفحص
+                // السنة المالية المغلقة بينتخطى له بالكامل.
+                $shift = Shift::getOrCreateToday((int) $table->branch_id, (int) $request->user()->id);
+
+                // ما بننقل الخصم اليدوي من الطلبات الأصلية — كل طلب ممكن يكون خصمه
+                // نسبة (percent) أو مبلغ (amount)، وجمعهم كأرقام خام (زي ما كان قبل)
+                // بيطلع رقم غلط رياضيًا. نخلي الطلب المدمج بلا خصم، والكاشير بيقدر
+                // يطبّق خصم جديد وقت إغلاق الفاتورة إذا حاب.
+                $mergedOrder = Order::create([
+                    'order_number' => Order::generateOrderNumber(),
                     'status' => 'pending_payment',
-                    'dining_table_id' => null,
-                    'table_number' => null,
-                    'note' => $newNote,
+                    'order_type' => $firstOrder->order_type,
+                    'branch_id' => $table->branch_id,
+                    'shift_id' => $shift->id,
+                    'opened_by' => $request->user()->id,
+                    'subtotal' => $totalSubtotal,
+                    'total' => $totalSubtotal,
+                    'discount_value' => 0,
+                    'discount_type' => 'amount',
+                    'customer_name' => $customerName,
+                    'customer_phone' => $customerPhone,
+                    'note' => '[Table: ' . implode(', ', $tableNumbers) . ']' . ($notes ? ' | ' . implode(' | ', $notes) : ''),
                 ]);
 
+                // نسخ العناصر إلى الطلب المدمج
+                foreach ($allItems as $item) {
+                    $item->update([
+                        'order_id' => $mergedOrder->id,
+                    ]);
+                }
+
+                // إعادة حساب الإجماليات من الأصناف الفعلية (المصدر الوحيد المعتمد
+                // بباقي النظام) بدل الجمع اليدوي — يضمن رقم صحيح ويطبّق خصومات
+                // المحرك الحالية على الأصناف المنقولة.
+                $mergedOrder->recalculateTotals();
+
+                // إلغاء الطلبات القديمة
+                foreach ($orders as $order) {
+                    $order->update([
+                        'status' => 'cancelled',
+                        'note' => '[MERGED_TO: ' . $mergedOrder->order_number . ']',
+                    ]);
+                }
+
+                // تحرير الطاولة
                 $table->setAvailable();
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'تم تأجيل الطلب بنجاح',
-                    'data' => ['order_id' => $order->id]
+                    'message' => 'تم تأجيل ' . $orders->count() . ' طلبات كفاتورة واحدة',
+                    'data' => [
+                        'order_id' => $mergedOrder->id,
+                        'orders_merged' => $orders->count(),
+                    ]
                 ]);
-            }
-
-            // دمج جميع الطلبات في طلب واحد
-            DB::beginTransaction();
-
-            // حساب الإجماليات
-            $totalSubtotal = 0;
-            $totalDiscount = 0;
-            $allItems = [];
-            $tableNumbers = [];
-            $notes = [];
-            $customerName = null;
-            $customerPhone = null;
-            $firstOrder = $orders->first();
-
-            foreach ($orders as $order) {
-                $totalSubtotal += $order->subtotal ?? 0;
-                $totalDiscount += $order->discount_value ?? 0;
-
-                if ($order->customer_name && !$customerName) {
-                    $customerName = $order->customer_name;
-                }
-                if ($order->customer_phone && !$customerPhone) {
-                    $customerPhone = $order->customer_phone;
-                }
-
-                if ($order->table_number && !in_array($order->table_number, $tableNumbers)) {
-                    $tableNumbers[] = $order->table_number;
-                }
-
-                if ($order->note && strpos($order->note, '[Table:') === false) {
-                    $notes[] = $order->note;
-                }
-
-                foreach ($order->items as $item) {
-                    $allItems[] = $item;
-                }
-            }
-
-            // إنشاء طلب جديد مدمج
-            $mergedOrder = Order::create([
-                'order_number' => 'DEF-' . strtoupper(uniqid()),
-                'status' => 'pending_payment',
-                'order_type' => $firstOrder->order_type,
-                'subtotal' => $totalSubtotal,
-                'total' => $totalSubtotal - $totalDiscount,
-                'discount_value' => $totalDiscount,
-                'discount_type' => $firstOrder->discount_type,
-                'customer_name' => $customerName,
-                'customer_phone' => $customerPhone,
-                'branch_id' => $table->branch_id,
-                'user_id' => $request->user()->id,
-                'note' => '[Table: ' . implode(', ', $tableNumbers) . ']' . ($notes ? ' | ' . implode(' | ', $notes) : ''),
-            ]);
-
-            // نسخ العناصر إلى الطلب المدمج
-            foreach ($allItems as $item) {
-                $item->update([
-                    'order_id' => $mergedOrder->id,
-                ]);
-            }
-
-            // إلغاء الطلبات القديمة
-            foreach ($orders as $order) {
-                $order->update([
-                    'status' => 'cancelled',
-                    'note' => '[MERGED_TO: ' . $mergedOrder->order_number . ']',
-                ]);
-            }
-
-            // تحرير الطاولة
-            $table->setAvailable();
-
-            DB::commit();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'تم تأجيل ' . $orders->count() . ' طلبات كفاتورة واحدة',
-                'data' => [
-                    'order_id' => $mergedOrder->id,
-                    'orders_merged' => $orders->count(),
-                ]
-            ]);
+            });
         } catch (\Throwable $e) {
-            DB::rollBack();
             return response()->json([
                 'success' => false,
                 'message' => 'فشل تأجيل الطلبات: ' . $e->getMessage()
