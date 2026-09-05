@@ -270,14 +270,16 @@ class LoyaltyEngine
      */
     private function baseRule(): LoyaltyRule
     {
+        // Narrowed to active global rows in SQL (cheap, and the table is
+        // small), then judged by LoyaltyRule::isBaseRule() — the single
+        // definition also used by LoyaltyRuleController's guards and the
+        // `is_base_rule` API field. No second copy of the five-condition
+        // shape check lives here anymore.
         $candidates = LoyaltyRule::query()
             ->where('scope_type', 'global')
-            ->whereNull('min_order_value')
-            ->whereNull('ends_at')
             ->where('is_active', true)
-            ->whereNotNull('points_per_amount')
-            ->whereNotNull('per_amount')
-            ->get();
+            ->get()
+            ->filter(fn (LoyaltyRule $r) => $r->isBaseRule());
 
         if ($candidates->isEmpty()) {
             throw new RuntimeException('لا توجد قاعدة ولاء أساسية عامة نشطة ودائمة — لا يمكن حساب النقاط بلا سعر أساسي.');

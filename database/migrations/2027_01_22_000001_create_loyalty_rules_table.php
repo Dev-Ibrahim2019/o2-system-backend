@@ -8,8 +8,10 @@ use Illuminate\Support\Facades\Schema;
  * Loyalty pricing lives in rows, not code, so a manager can add a "double
  * points on desserts this week" rule without a deploy. There is exactly one
  * permanent kind of row here — the base rate — and every other row is a
- * multiplier layered on top of it; see LoyaltyRule::BASE_RULE_NAME for how
- * that single row is found and protected.
+ * multiplier layered on top of it; see LoyaltyRule::isBaseRule() /
+ * ::isBaseRuleShape() / ::isBaseRuleData() for the single, shared definition
+ * of that row, used identically by LoyaltyEngine, LoyaltyRuleController's
+ * guards, and the `is_base_rule` field every API response carries.
  */
 return new class extends Migration
 {

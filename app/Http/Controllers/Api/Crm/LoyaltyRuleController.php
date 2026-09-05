@@ -107,6 +107,18 @@ class LoyaltyRuleController extends Controller
      */
     public function addExclusion(Request $request, LoyaltyRule $rule): JsonResponse
     {
+        // Excluding a customer from the base rule does not "just remove the
+        // discount" the way excluding them from a category rule does — the
+        // base rule is the only source of the rate every other rule
+        // multiplies. Removing it from a customer's candidate list zeroes
+        // their earning, silently, on any item no other rule happens to
+        // match. There is no legitimate business reason to want that.
+        abort_if(
+            $rule->isBaseRule(),
+            422,
+            'لا يمكن استثناء عميل من القاعدة الأساسية العامة — استثناؤه منها يوقف اكتسابه للنقاط كلياً وبصمت على أي صنف لا تطابقه قاعدة أخرى.'
+        );
+
         $data = $request->validate([
             'customer_id' => ['required', 'integer', 'exists:customers,id'],
         ]);
@@ -157,20 +169,18 @@ class LoyaltyRuleController extends Controller
     }
 
     /**
-     * Guards the shape LoyaltyEngine::baseRule() requires to exist exactly
-     * once: scope_type=global, min_order_value=null, ends_at=null,
-     * points_per_amount and per_amount both present. A row matching that
-     * shape needs a rate — enforced here rather than left to the engine to
-     * discover mid-payment.
+     * Guards LoyaltyRule::isBaseRuleData()'s invariant — exactly one active
+     * row may match it — enforced here at write time rather than left for
+     * LoyaltyEngine::baseRule() to discover mid-payment.
      */
     private function assertBaseRuleInvariant(array $data, ?int $ignoreRuleId = null): void
     {
-        $looksLikeBaseRule = ($data['scope_type'] ?? null) === 'global'
-            && ($data['min_order_value'] ?? null) === null
-            && ($data['ends_at'] ?? null) === null
-            && ($data['is_active'] ?? true);
-
-        if (! $looksLikeBaseRule) {
+        // isBaseRuleShape(), not isBaseRuleData(): a payload missing its rate
+        // still needs to be caught by the abort_if() below and told so — if
+        // the rate-presence check were folded into the shape check, a
+        // rateless global-permanent row would silently look like "not a
+        // base rule" and skip both this error and the uniqueness check.
+        if (! LoyaltyRule::isBaseRuleShape($data)) {
             return;
         }
 
@@ -180,14 +190,15 @@ class LoyaltyRuleController extends Controller
             'القاعدة العامة الدائمة (بلا حد أدنى وبلا تاريخ انتهاء) يجب أن تحمل points_per_amount وper_amount.'
         );
 
+        // isBaseRule() here, not isBaseRuleShape() — the single definition
+        // shared with LoyaltyEngine::baseRule() and the `is_base_rule` API
+        // field, so "would this create a duplicate" always agrees with
+        // "which row does the engine actually treat as the base rule."
         $conflicting = LoyaltyRule::query()
-            ->where('scope_type', 'global')
-            ->whereNull('min_order_value')
-            ->whereNull('ends_at')
             ->where('is_active', true)
-            ->whereNotNull('points_per_amount')
             ->when($ignoreRuleId, fn ($q) => $q->where('id', '!=', $ignoreRuleId))
-            ->exists();
+            ->get()
+            ->contains(fn (LoyaltyRule $r) => $r->isBaseRule());
 
         abort_if($conflicting, 422, 'توجد بالفعل قاعدة أساسية عامة دائمة نشطة — لا يجوز أن توجد أكثر من واحدة.');
     }
@@ -201,25 +212,15 @@ class LoyaltyRuleController extends Controller
      */
     private function assertNotTheOnlyBaseRule(LoyaltyRule $rule): void
     {
-        $isBaseRule = $rule->scope_type === 'global'
-            && $rule->min_order_value === null
-            && $rule->ends_at === null
-            && $rule->points_per_amount !== null
-            && $rule->per_amount !== null
-            && $rule->is_active;
-
-        if (! $isBaseRule) {
+        if (! $rule->isBaseRule()) {
             return;
         }
 
         $otherActiveBaseRules = LoyaltyRule::query()
             ->where('id', '!=', $rule->id)
-            ->where('scope_type', 'global')
-            ->whereNull('min_order_value')
-            ->whereNull('ends_at')
             ->where('is_active', true)
-            ->whereNotNull('points_per_amount')
-            ->exists();
+            ->get()
+            ->contains(fn (LoyaltyRule $r) => $r->isBaseRule());
 
         abort_if(
             ! $otherActiveBaseRules,
