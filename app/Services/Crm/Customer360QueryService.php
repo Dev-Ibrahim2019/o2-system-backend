@@ -188,6 +188,12 @@ class Customer360QueryService
             'group:id,name,group_type',
             'phones:id,customer_id,phone,normalized_phone,type,is_primary,is_verified',
             'address',
+            // Lifted out of Employee's global BranchScope for the same reason
+            // ComplaintController's assignedTo load is: a salesperson at
+            // another branch is a legitimate assignment, and leaving the
+            // scope on silently resolved the name to null even though
+            // salesperson_id held a valid id.
+            'salesperson' => fn ($q) => $q->withoutGlobalScope(\App\Models\Scopes\BranchScope::class)->select('id', 'name'),
             // Birthday is modeled as a CustomerOccasion (occasion_type='birthday'),
             // not a customers.birth_date column — see CustomerIdentityService::syncBirthdayOccasion().
             'occasions' => fn ($q) => $q->where('occasion_type', 'birthday')->where('is_active', true),
@@ -211,6 +217,7 @@ class Customer360QueryService
             'id' => $customer->id,
             'identity' => [
                 'name' => $customer->name,
+                'name_en' => $customer->name_en,
                 'title' => $customer->title,
                 'gender' => $customer->gender,
                 'code' => $customer->code,
@@ -222,6 +229,14 @@ class Customer360QueryService
                 'phones' => $customer->phones,
                 'email' => $customer->email,
                 'branch' => $customer->branch,
+                'salesperson_id' => $customer->salesperson_id,
+                // Named salesperson, not assignedEmployee/salesperson_name: the
+                // relation is already called salesperson() on the model, and a
+                // loaded relation serializes under its own snake_case name
+                // regardless of what key we assign it to here — same collision
+                // class documented on ComplaintController's assignedTo. Keeping
+                // the same name on both sides avoids a second implicit key.
+                'salesperson' => $customer->salesperson,
                 'default_address' => $customer->address,
                 'loyalty_points' => $customer->loyalty_points ?? null,
                 'source' => $customer->source,
