@@ -280,6 +280,17 @@ class CallCenterService
             'id' => $order->id,
             'order_number' => $order->order_number,
             'status' => $order->status,
+            'payment_status' => $order->payment_status,
+            // Same derivation as CrmController::ordersIndex()'s `is_paid` — status
+            // alone is 'paid' only on the POS/general-settlement path (Call Center
+            // reaches full payment without ever touching status, see
+            // OrderPaymentService::CLOSES_LIFECYCLE), and payment_status alone is
+            // null for most historically-paid POS orders that never wrote it. This
+            // OR is the only signal that is correct on both paths — added here so
+            // CRM's order-detail consumers (Customer 360 tabs, the orders screens'
+            // expansion panel) can tell a real payment apart from just an open order,
+            // without duplicating this rule a third time.
+            'is_paid' => $order->status === 'paid' || $order->payment_status === 'paid',
             'order_type' => $order->order_type,
             'source' => $order->source,
             'customer_id' => $order->customer_id,
