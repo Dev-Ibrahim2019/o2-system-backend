@@ -29,41 +29,16 @@ class CallCenterService
         $orders = Order::query()
             ->where('source', 'call_center')
             ->when($branchId, fn (Builder $query) => $query->where('branch_id', $branchId))
-            ->whereNotIn('status', ['cancelled', 'canceled', 'served'])
             ->withCount('tickets')
-            ->with('branch:id,name')
+            ->with(['branch:id,name', 'invoice:id,order_id,status'])
             ->latest()
             ->limit(100)
-            ->get();
+            ->get()
+            ->filter(fn (Order $order) => self::determineLifecycle($order->status, $order->invoice?->status) === 'active');
 
-        $rows = $orders->map(function (Order $order) {
-            $scopes = self::classifyActiveOrder(
-                $order->status,
-                $order->order_type,
-                (int) $order->tickets_count,
-            );
-            // "بلا فرع" محسوبة هنا (وليست في classifyActiveOrder المشترك) لتفادي كسر
-            // المستدعين الآخرين لهذه الدالة الذين لا يمرّرون فرعاً أصلاً ولا يعنيهم الأمر
-            if ($scopes !== [] && ! $order->branch_id) {
-                $scopes[] = 'no_branch';
-            }
-
-            return [
-                'id' => $order->id,
-                'order_number' => $order->order_number,
-                'status' => $order->status,
-                'order_type' => $order->order_type,
-                'customer_id' => $order->customer_id,
-                'customer_name' => $order->customer_name,
-                'customer_phone' => $order->customer_phone,
-                'total' => (float) $order->total,
-                'branch' => $order->branch,
-                'created_at' => $order->created_at,
-                'scheduled_at' => $order->scheduled_at,
-                'payments' => $order->payments,
-                'scopes' => $scopes,
-            ];
-        })->filter(fn (array $row) => $row['scopes'] !== [])->values();
+        $rows = $orders->map(fn (Order $order) => $this->toActiveOrderRow($order))
+            ->filter(fn (array $row) => $row['scopes'] !== [])
+            ->values();
 
         return [
             'operational_active' => $rows->filter(fn ($row) => in_array('operational_active', $row['scopes'], true))->values(),
@@ -76,14 +51,143 @@ class CallCenterService
         ];
     }
 
+    /**
+     * الطلبات المغلقة (source=call_center فقط — نفس نطاق getActiveOrders، وليس /orders العام
+     * الذي يرجّع كل الطلبات بغض النظر عن مصدرها). طلب "مغلق" فقط لما determineLifecycle ترجّعه
+     * closed: حالة الطلب اكتملت (served/DELIVERED) والفاتورة مدفوعة بالكامل، أو الطلب ملغي.
+     * الدفع وحده لا يغلق الطلب أبداً.
+     */
+    public function getClosedOrders(?int $branchId = null, array $filters = []): array
+    {
+        $query = Order::query()
+            ->where('source', 'call_center')
+            ->when($branchId, fn (Builder $q) => $q->where('branch_id', $branchId))
+            ->when($filters['search'] ?? null, fn (Builder $q, $search) => $q->where(function (Builder $q2) use ($search) {
+                $q2->where('order_number', 'like', "%{$search}%")
+                    ->orWhere('customer_name', 'like', "%{$search}%")
+                    ->orWhere('customer_phone', 'like', "%{$search}%");
+            }))
+            ->with(['branch:id,name', 'invoice:id,order_id,status'])
+            ->latest();
+
+        // ما في عمود "أُغلق بتاريخ" جاهز بالطلب، فبنفلتر بالـ lifecycle بعد الجلب (نفس أسلوب
+        // getActiveOrders) — الحجم بالممارسة صغير (طلبات كول سنتر فقط) فمقبول أداءً.
+        $perPage = (int) ($filters['per_page'] ?? 20);
+        $page = (int) ($filters['page'] ?? 1);
+
+        $all = $query->get()->filter(
+            fn (Order $order) => self::determineLifecycle($order->status, $order->invoice?->status) === 'closed'
+        )->values();
+
+        if (($filters['status'] ?? null) && $filters['status'] !== 'all') {
+            $all = $all->filter(fn (Order $order) => $order->status === $filters['status'])->values();
+        }
+
+        $total = $all->count();
+        $paged = $all->slice(($page - 1) * $perPage, $perPage)->values();
+
+        return [
+            'data' => $paged->map(fn (Order $order) => $this->toClosedOrderRow($order))->values(),
+            'meta' => [
+                'current_page' => $page,
+                'last_page' => max(1, (int) ceil($total / max(1, $perPage))),
+                'per_page' => $perPage,
+                'total' => $total,
+            ],
+        ];
+    }
+
+    private function toActiveOrderRow(Order $order): array
+    {
+        $scopes = self::classifyActiveOrder(
+            $order->status,
+            $order->order_type,
+            (int) $order->tickets_count,
+        );
+        // "بلا فرع" محسوبة هنا (وليست في classifyActiveOrder المشترك) لتفادي كسر
+        // المستدعين الآخرين لهذه الدالة الذين لا يمرّرون فرعاً أصلاً ولا يعنيهم الأمر
+        if ($scopes !== [] && ! $order->branch_id) {
+            $scopes[] = 'no_branch';
+        }
+
+        return [
+            'id' => $order->id,
+            'order_number' => $order->order_number,
+            'status' => $order->status,
+            'order_type' => $order->order_type,
+            'customer_id' => $order->customer_id,
+            'customer_name' => $order->customer_name,
+            'customer_phone' => $order->customer_phone,
+            'total' => (float) $order->total,
+            'branch' => $order->branch,
+            'created_at' => $order->created_at,
+            'scheduled_at' => $order->scheduled_at,
+            'payments' => $order->payments,
+            'payment_status' => self::derivePaymentStatus($order->invoice?->status),
+            'scopes' => $scopes,
+        ];
+    }
+
+    private function toClosedOrderRow(Order $order): array
+    {
+        return [
+            'id' => $order->id,
+            'order_number' => $order->order_number,
+            'status' => $order->status,
+            'order_type' => $order->order_type,
+            'customer_id' => $order->customer_id,
+            'customer_name' => $order->customer_name,
+            'customer_phone' => $order->customer_phone,
+            'total' => (float) $order->total,
+            'branch' => $order->branch,
+            'created_at' => $order->created_at,
+            'updated_at' => $order->updated_at,
+            'payment_status' => self::derivePaymentStatus($order->invoice?->status),
+        ];
+    }
+
+    /**
+     * مصدر الحقيقة الوحيد لتحديد Active/Closed — الدفع وحده لا يُغلق الطلب أبداً؛ الإغلاق فقط
+     * لما تكتمل حالة الطلب (served/DELIVERED) والفاتورة مدفوعة بالكامل معاً، أو يكون الطلب ملغي.
+     * $invoiceStatus: حالة Invoice الحقيقية (paid/partial/awaiting_approval/draft/cancelled) أو
+     * null لو ما في فاتورة أصلاً بعد — Invoice::resolveAutoStatus() هو من يحسم "paid" فعليًا.
+     */
+    public static function determineLifecycle(string $status, ?string $invoiceStatus): string
+    {
+        if (in_array($status, ['cancelled', 'canceled', 'CANCELLED'], true)) {
+            return 'closed';
+        }
+
+        $isCompleted = in_array($status, ['served', 'DELIVERED'], true);
+        $isFullyPaid = $invoiceStatus === 'paid';
+
+        return ($isCompleted && $isFullyPaid) ? 'closed' : 'active';
+    }
+
+    /**
+     * حالة الدفع المعروضة للواجهة، مستقلة تمامًا عن حالة الطلب — مبنية على Invoice::status
+     * الحقيقي (المصدر الوحيد الموثوق لـ"هل تم الدفع فعلاً" بالمشروع)، مش على status الطلب نفسه.
+     */
+    public static function derivePaymentStatus(?string $invoiceStatus): string
+    {
+        return match ($invoiceStatus) {
+            'paid' => 'paid',
+            'partial' => 'pending',
+            default => 'unpaid', // لا فاتورة بعد، أو awaiting_approval/draft/cancelled — ما تحصّل شي
+        };
+    }
+
     public static function classifyActiveOrder(string $status, ?string $orderType, int $ticketCount = 0): array
     {
-        if (in_array($status, ['cancelled', 'canceled', 'served'], true)) {
+        if (in_array($status, ['cancelled', 'canceled'], true)) {
             return [];
         }
 
+        // ملاحظة: هاي الدالة ما بتوصلها إلا الطلبات اللي determineLifecycle حسمها active أصلاً —
+        // يعني لو status هون served/DELIVERED فهذا معناه الطلب لسا مو مدفوع بالكامل (وإلا كان
+        // انصنّف closed قبل ما نوصل هون)، فمنطقي نحطه ضمن "بانتظار الدفع".
         $scopes = ['operational_active'];
-        if (in_array($status, ['pending', 'pending_confirmation', 'pending_payment'], true)) {
+        if (in_array($status, ['pending', 'pending_confirmation', 'pending_payment', 'served', 'DELIVERED'], true)) {
             $scopes[] = 'awaiting_payment';
         }
         if (in_array($status, ['confirmed', 'in_progress', 'ready'], true) || ($status === 'paid' && $ticketCount > 0)) {

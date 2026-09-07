@@ -32,6 +32,26 @@ class CallCenterController extends ApiController
     }
 
     /**
+     * GET /api/call-center/closed-orders — طلبات كول سنتر المغلقة فقط (نفس نطاق source
+     * الخاص بـ activeOrders، بعكس /api/orders العام الذي يرجّع كل مصادر الطلبات).
+     */
+    public function closedOrders(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'status' => ['nullable', 'string', 'max:30'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ]);
+
+        return $this->success(
+            'تم تحميل الطلبات المغلقة',
+            $this->callCenterService->getClosedOrders($data['branch_id'] ?? null, $data),
+        );
+    }
+
+    /**
      * POST /api/call-center/customers
      */
     public function storeCustomer(Request $request): JsonResponse

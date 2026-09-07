@@ -435,15 +435,21 @@ class OrderController extends ApiController
         }
     }
 
-    public function cancel(Order $order): JsonResponse
+    public function cancel(Request $request, Order $order): JsonResponse
     {
         if (! in_array($order->status, ['pending', 'pending_confirmation', 'confirmed'], true)) {
             return $this->error('لا يمكن إلغاء هذا الطلب في حالته الحالية.', 422);
         }
 
+        $reason = $request->validate(['reason' => ['nullable', 'string', 'max:1000']])['reason'] ?? null;
+
         try {
-            DB::transaction(function () use ($order) {
-                $order->update(['status' => 'cancelled']);
+            DB::transaction(function () use ($order, $reason) {
+                $order->update([
+                    'status' => 'cancelled',
+                    'cancellation_reason' => $reason,
+                    'cancelled_at' => now(),
+                ]);
                 $order->tickets()->update(['status' => 'cancelled']);
                 $order->items()->update(['status' => 'cancelled']);
 

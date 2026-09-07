@@ -60,6 +60,8 @@ class Order extends Model
         'scheduled_at',
         'payments',
         'total',
+        'cancellation_reason',
+        'cancelled_at',
     ];
 
     protected $casts = [
@@ -76,6 +78,7 @@ class Order extends Model
         'customer_count' => 'integer',
         'delivery_fee' => 'decimal:3',
         'delivery_address_snapshot' => 'array',
+        'cancelled_at' => 'datetime',
     ];
 
     public function branch(): BelongsTo
