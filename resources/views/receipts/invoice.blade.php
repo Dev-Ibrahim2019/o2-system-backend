@@ -192,6 +192,25 @@
             text-align: right;
         }
 
+        /* ملاحظة الطلب (فاتورة الفوري والمحلي) */
+        .order-note {
+            border: 2px dashed #000000;
+            border-radius: 8px;
+            padding: 7px 9px;
+            font-size: 19px;
+            font-weight: 800;
+            text-align: right;
+            margin-bottom: 6px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .order-note .order-note-label {
+            font-size: 15px;
+            display: block;
+            margin-bottom: 2px;
+        }
+
         .footer {
             text-align: center;
             font-size: 16px;
@@ -261,6 +280,12 @@
                 </tbody>
             </table>
         </div>
+
+        @if(!empty($order->note))
+        <div class="order-note">
+            <span class="order-note-label">ملاحظة:</span>{{ $order->note }}
+        </div>
+        @endif
 
         @php
             // الخصم إجمالي (تلقائي من محرك الخصومات + يدوي) يُعرض بس بفاتورة
