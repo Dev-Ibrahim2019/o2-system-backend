@@ -238,6 +238,15 @@ class Customer360QueryService
                 // the same name on both sides avoids a second implicit key.
                 'salesperson' => $customer->salesperson,
                 'default_address' => $customer->address,
+                // customers.city / customers.country — genuinely persisted by
+                // CustomerIdentityService::create()/update() (both are plain
+                // mass-assignment, both columns are fillable) but never
+                // returned here, so the edit form always reloaded them blank
+                // regardless of what was actually saved. Same class of gap as
+                // name_en/salesperson_id above, just silent instead of wrong:
+                // there was no value at all to read, not a stale one.
+                'city' => $customer->city,
+                'country' => $customer->country,
                 'loyalty_points' => $customer->loyalty_points ?? null,
                 'source' => $customer->source,
                 'created_at' => $customer->created_at?->toIso8601String(),
