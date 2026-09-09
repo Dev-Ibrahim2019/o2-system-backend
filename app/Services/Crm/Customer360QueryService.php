@@ -106,7 +106,8 @@ class Customer360QueryService
                     $q->where('name', 'like', "%{$search}%")
                         ->orWhere('code', 'like', "%{$search}%")
                         ->orWhere('phone', 'like', "%{$search}%")
-                        ->orWhere('mobile', 'like', "%{$search}%");
+                        ->orWhere('mobile', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%");
 
                     if ($digits !== '') {
                         $q->orWhereHas('phones', fn ($phones) => $phones

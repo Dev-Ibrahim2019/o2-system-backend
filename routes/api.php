@@ -451,6 +451,13 @@ Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->gro
     Route::post('customers/{customer}/occasions', [$crm, 'createOccasion'])->middleware('permission:crm.occasions.create');
     Route::put('customers/{customer}/occasions/{occasion}', [$crm, 'updateOccasion'])->middleware('permission:crm.occasions.update');
     Route::delete('customers/{customer}/occasions/{occasion}', [$crm, 'deleteOccasion'])->middleware('permission:crm.occasions.delete');
+    // Family members — same permissions as the customer record itself
+    // (view-customers / edit-customers), no new permission: this is
+    // identity data about the customer, not a separately-gated concern.
+    Route::get('customers/{customer}/family-members', [$crm, 'familyMembers'])->middleware('permission:crm.view-customers');
+    Route::post('customers/{customer}/family-members', [$crm, 'storeFamilyMember'])->middleware('permission:crm.edit-customers');
+    Route::put('customers/{customer}/family-members/{familyMember}', [$crm, 'updateFamilyMember'])->middleware('permission:crm.edit-customers');
+    Route::delete('customers/{customer}/family-members/{familyMember}', [$crm, 'deleteFamilyMember'])->middleware('permission:crm.edit-customers');
     // Group-owned occasions — the same three permissions, no new ones. Groups
     // carry no branch_id, so there is no branch scope to apply here.
     Route::get('groups/{group}/occasions', [$crm, 'groupOccasions'])->middleware('permission:crm.occasions.view');

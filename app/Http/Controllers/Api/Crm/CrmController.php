@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\CustomerComplaint;
+use App\Models\CustomerFamilyMember;
 use App\Models\CustomerGroup;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\CustomerNote;
@@ -890,6 +891,15 @@ class CrmController extends Controller
         );
     }
 
+    private function assertFamilyMemberBelongsTo(CustomerFamilyMember $familyMember, Customer $customer): void
+    {
+        abort_unless(
+            (int) $familyMember->customer_id === (int) $customer->getKey(),
+            404,
+            'فرد العائلة غير موجود.'
+        );
+    }
+
     /**
      * GET /api/crm/groups/{group}/occasions
      *
@@ -1025,6 +1035,74 @@ class CrmController extends Controller
         $this->assertOccasionBelongsTo($occasion, $customer);
 
         $this->callCenter->deleteOccasion($occasion->id);
+
+        return response()->json(['data' => ['deleted' => true]]);
+    }
+
+    /**
+     * GET /api/crm/customers/{customer}/family-members
+     *
+     * Same permission as reading the customer itself — this is identity
+     * data about them, not a separately-gated concern (no new permission,
+     * per the feature's own spec).
+     */
+    public function familyMembers(Request $request, Customer $customer): JsonResponse
+    {
+        $this->access->authorize($request->user(), $customer);
+
+        return response()->json(['data' => $customer->familyMembers()->latest()->get()]);
+    }
+
+    /**
+     * POST /api/crm/customers/{customer}/family-members
+     *
+     * birth_date is optional here (unlike occasions.date, which is
+     * required): a family member is worth recording even before their
+     * birthday is known, and CustomerIdentityService::createFamilyMember()
+     * only creates the linked occasion once one is actually given.
+     */
+    public function storeFamilyMember(Request $request, Customer $customer): JsonResponse
+    {
+        $this->access->authorize($request->user(), $customer);
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'relationship' => ['required', Rule::in(CustomerFamilyMember::RELATIONSHIPS)],
+            'birth_date' => ['nullable', 'date'],
+        ]);
+
+        $member = $this->customerIdentity->createFamilyMember($customer, $data, $request->user()->id);
+
+        return response()->json(['data' => $member], 201);
+    }
+
+    public function updateFamilyMember(Request $request, Customer $customer, CustomerFamilyMember $familyMember): JsonResponse
+    {
+        $this->access->authorize($request->user(), $customer);
+        $this->assertFamilyMemberBelongsTo($familyMember, $customer);
+
+        $data = $request->validate([
+            'name' => ['nullable', 'string', 'max:255'],
+            'relationship' => ['nullable', Rule::in(CustomerFamilyMember::RELATIONSHIPS)],
+            'birth_date' => ['nullable', 'date'],
+        ]);
+
+        return response()->json(['data' => $this->customerIdentity->updateFamilyMember($familyMember, $data)]);
+    }
+
+    /**
+     * DELETE /api/crm/customers/{customer}/family-members/{familyMember}
+     *
+     * Soft delete, and takes the family member's birthday occasion (also
+     * soft) down with it — see
+     * CustomerIdentityService::deleteFamilyMember().
+     */
+    public function deleteFamilyMember(Request $request, Customer $customer, CustomerFamilyMember $familyMember): JsonResponse
+    {
+        $this->access->authorize($request->user(), $customer);
+        $this->assertFamilyMemberBelongsTo($familyMember, $customer);
+
+        $this->customerIdentity->deleteFamilyMember($familyMember);
 
         return response()->json(['data' => ['deleted' => true]]);
     }

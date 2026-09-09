@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Customer;
 use App\Models\CustomerAddress;
+use App\Models\CustomerFamilyMember;
 use App\Models\CustomerOccasion;
 use App\Models\CustomerPhone;
 use App\Services\Support\PhoneNormalizer;
@@ -147,7 +148,62 @@ class CustomerIdentityService
             ->where('occasion_type', 'birthday')
             ->first();
 
-        if (! $birthDate) {
+        return $this->syncBirthdayOccasionRow($existing, $customer, $birthDate, 'عيد ميلاد ' . $customer->name, $createdBy);
+    }
+
+    /**
+     * Create/update/remove a family member's birthday occasion — same
+     * upsert-not-duplicate, restore-not-recreate mechanics as
+     * syncBirthdayOccasion() above, factored into syncBirthdayOccasionRow()
+     * so both call it instead of a second copy of the same four states.
+     *
+     * The one real difference: syncBirthdayOccasion() finds "existing" by
+     * (owner, occasion_type='birthday') because a customer has exactly one
+     * birthday. A family member can't use that — one customer can have many
+     * family members, each with their own birthday occasion under the same
+     * occasionable — so this finds "existing" via occasion_id, a link
+     * this method itself maintains on the family member row (see the
+     * migration's comment on that column).
+     */
+    public function syncFamilyMemberBirthdayOccasion(CustomerFamilyMember $member, ?int $createdBy = null): ?CustomerOccasion
+    {
+        $existing = $member->occasion_id
+            ? CustomerOccasion::withTrashed()->find($member->occasion_id)
+            : null;
+
+        $title = 'عيد ميلاد ' . $member->name . ' (' . (CustomerFamilyMember::RELATIONSHIP_LABELS[$member->relationship] ?? $member->relationship) . ')';
+
+        $occasion = $this->syncBirthdayOccasionRow($existing, $member->customer, $member->birth_date?->toDateString(), $title, $createdBy);
+
+        if ($member->occasion_id !== $occasion?->id) {
+            // Quiet: this is bookkeeping for the sync itself, not a change
+            // the caller asked for — must not fire model events a second
+            // time on top of whatever create/update just fired.
+            $member->occasion_id = $occasion?->id;
+            $member->saveQuietly();
+        }
+
+        return $occasion;
+    }
+
+    /**
+     * The four birthday-occasion states every caller above was duplicating:
+     * clear an active one, restore+update a trashed one, update an active
+     * one, or create fresh. $existing is whatever the caller found (or
+     * null) — this method owns none of that lookup, only what happens next,
+     * so syncBirthdayOccasion() and syncFamilyMemberBirthdayOccasion() can
+     * disambiguate "existing" however their own shape requires while still
+     * sharing one real implementation instead of two that drift apart.
+     *
+     * $title is applied on create only, exactly as the original
+     * syncBirthdayOccasion() always did — an existing occasion's title is
+     * never touched on update, so a family member's occasion title going
+     * stale after their name changes is the same accepted limitation the
+     * customer's own birthday occasion already has, not a new one.
+     */
+    private function syncBirthdayOccasionRow(?CustomerOccasion $existing, Customer $occasionable, ?string $date, string $title, ?int $createdBy): ?CustomerOccasion
+    {
+        if (! $date) {
             // Already trashed is already the desired state; deleting again
             // would only move the timestamp.
             if ($existing && ! $existing->trashed()) {
@@ -162,19 +218,66 @@ class CustomerIdentityService
                 $existing->restore();
             }
 
-            $existing->update(['date' => $birthDate, 'is_active' => true]);
+            $existing->update(['date' => $date, 'is_active' => true]);
 
             return $existing->fresh();
         }
 
-        return $customer->occasions()->create([
+        return $occasionable->occasions()->create([
             'occasion_type' => 'birthday',
-            'title' => 'عيد ميلاد ' . $customer->name,
-            'date' => $birthDate,
+            'title' => $title,
+            'date' => $date,
             'repeats_annually' => true,
             'is_active' => true,
             'created_by' => $createdBy,
         ]);
+    }
+
+    /**
+     * POST-equivalent for a family member. Validation (name/relationship
+     * required, birth_date optional) is the controller's job, same division
+     * as everywhere else in this service.
+     */
+    public function createFamilyMember(Customer $customer, array $data, ?int $createdBy = null): CustomerFamilyMember
+    {
+        $member = $customer->familyMembers()->create([
+            'name' => $data['name'],
+            'relationship' => $data['relationship'],
+            'birth_date' => $data['birth_date'] ?? null,
+            'created_by' => $createdBy,
+        ]);
+
+        $this->syncFamilyMemberBirthdayOccasion($member, $createdBy);
+
+        return $member->fresh();
+    }
+
+    public function updateFamilyMember(CustomerFamilyMember $member, array $data): CustomerFamilyMember
+    {
+        $member->update(array_intersect_key($data, array_flip(['name', 'relationship', 'birth_date'])));
+        $member = $member->fresh();
+
+        $this->syncFamilyMemberBirthdayOccasion($member, $member->created_by);
+
+        return $member->fresh();
+    }
+
+    /**
+     * Soft delete, matching the model — and its birthday occasion goes with
+     * it (also soft, also only if it wasn't already gone), so clearing a
+     * family member never leaves an orphaned occasion still showing up on
+     * the calendar for someone who no longer appears anywhere else.
+     */
+    public function deleteFamilyMember(CustomerFamilyMember $member): void
+    {
+        if ($member->occasion_id) {
+            $occasion = CustomerOccasion::withTrashed()->find($member->occasion_id);
+            if ($occasion && ! $occasion->trashed()) {
+                $occasion->delete();
+            }
+        }
+
+        $member->delete();
     }
 
     public function findByPhone(string $phone): ?Customer

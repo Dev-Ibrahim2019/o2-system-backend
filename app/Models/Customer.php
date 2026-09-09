@@ -173,6 +173,11 @@ class Customer extends Model
         return $this->hasMany(CustomerComplaint::class);
     }
 
+    public function familyMembers(): HasMany
+    {
+        return $this->hasMany(CustomerFamilyMember::class);
+    }
+
     public function orders(): HasMany
     {
         return $this->hasMany(Order::class);
