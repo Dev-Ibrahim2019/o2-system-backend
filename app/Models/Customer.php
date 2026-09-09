@@ -31,6 +31,17 @@ class Customer extends Model
      */
     public const TYPE_FINANCIAL = 'financial';
 
+    /**
+     * Auto-stamped acquisition source for a customer created through the CRM
+     * wizard (CrmController::store()) when the request left `source` blank —
+     * mirrors CustomerComplaint::CHANNEL_CRM, which does the same for a
+     * complaint filed through the same screen. Not in
+     * CrmController::CUSTOMER_SOURCE_VALUES: that list is what a user may
+     * *pick* for the field; this is what the system fills in when they don't,
+     * so it's written directly, not offered as a dropdown option.
+     */
+    public const SOURCE_CRM = 'crm';
+
     private ?float $balanceCache = null;
 
     protected static function booted(): void

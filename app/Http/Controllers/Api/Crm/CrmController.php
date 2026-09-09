@@ -107,6 +107,13 @@ class CrmController extends Controller
             ? ($data['branch_id'] ?? null)
             : $request->user()->branch_id;
 
+        // The wizard never exposes a source picker (deliberately — one more
+        // decision the operator creating a customer doesn't need to make),
+        // so every request through here leaves it unset. Stamped here rather
+        // than left null, the same way CustomerComplaint::CHANNEL_CRM is
+        // stated by this same controller instead of trusted to the payload.
+        $data['source'] = $data['source'] ?? Customer::SOURCE_CRM;
+
         $birthDate = $data['birth_date'] ?? null;
         $workAddress = $data['work_address'] ?? null;
         unset($data['birth_date'], $data['work_address']);
