@@ -76,4 +76,9 @@ class OrderItem extends Model
     {
         return $this->hasOne(ProductionTicketItem::class);
     }
+
+    public function feedback(): HasOne
+    {
+        return $this->hasOne(OrderItemFeedback::class);
+    }
 }

@@ -14,6 +14,8 @@ use App\Models\CustomerOccasion;
 use App\Models\LoyaltyTransaction;
 use App\Models\Order;
 use App\Models\OrderFeedback;
+use App\Models\OrderItem;
+use App\Models\OrderItemFeedback;
 use App\Services\Accounting\CustomerAccountingService;
 use App\Services\CallCenter\CallCenterService;
 use App\Services\Crm\CrmCustomerAccessService;
@@ -1357,5 +1359,45 @@ class CrmController extends Controller
         }
 
         return app(\App\Http\Controllers\Api\OrderTimelineController::class)->timeline($order);
+    }
+
+    /**
+     * PUT /api/crm/orders/{order}/items/{orderItem}/feedback
+     *
+     * Upserts a 1–5 rating (plus an optional note) for one line item, the
+     * item-level counterpart of OrderFeedbackController::store(). Same branch
+     * authorization as orderDetails() — derived from the order's own customer
+     * — and the same permission the order-level feedback write already rides
+     * on (crm.customer-orders.view); an item rating is not a separately-gated
+     * concern from the order rating it sits beside.
+     */
+    public function storeItemFeedback(Request $request, Order $order, OrderItem $orderItem): JsonResponse
+    {
+        if ($order->customer_id) {
+            $customer = Customer::findOrFail($order->customer_id);
+            $this->access->authorize($request->user(), $customer);
+        }
+
+        abort_unless((int) $orderItem->order_id === (int) $order->id, 404);
+
+        $data = $request->validate([
+            'rating' => ['required', 'integer', 'min:1', 'max:5'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $feedback = OrderItemFeedback::updateOrCreate(
+            ['order_item_id' => $orderItem->id],
+            [
+                'order_id' => $order->id,
+                'rating' => $data['rating'],
+                'notes' => $data['notes'] ?? null,
+                'recorded_by' => $request->user()->id,
+            ],
+        );
+
+        return response()->json(
+            ['data' => $feedback->load('recorder:id,name')],
+            $feedback->wasRecentlyCreated ? 201 : 200,
+        );
     }
 }

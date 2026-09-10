@@ -420,6 +420,9 @@ Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->gro
     Route::get('orders/delayed', [$crm, 'ordersDelayed'])->middleware('permission:crm.customer-orders.view');
     Route::get('orders/{order}', [$crm, 'orderDetails'])->middleware('permission:crm.customer-orders.view');
     Route::get('orders/{order}/timeline', [$crm, 'orderTimeline'])->middleware('permission:crm.customer-orders.view');
+    // Per-line-item rating — same permission as the order-level feedback
+    // write below; an item rating is not a separately-gated concern.
+    Route::put('orders/{order}/items/{orderItem}/feedback', [$crm, 'storeItemFeedback'])->middleware('permission:crm.customer-orders.view');
     // Reuses OrderFeedbackController as-is (same controller the Call Center
     // uses) — no CRM wrapper needed, just a CRM-permission-gated route.
     Route::get('customers/{customer}/orders/{order}/feedback', [\App\Http\Controllers\Api\OrderFeedbackController::class, 'show'])->middleware('permission:crm.customer-orders.view');

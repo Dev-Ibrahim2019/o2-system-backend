@@ -269,7 +269,7 @@ class CallCenterService
     public function getOrderDetails(int $orderId): array
     {
         $order = Order::with([
-            'items',
+            'items.feedback',
             'branch:id,name',
             'cashier:id,name',
             'invoice',
@@ -317,6 +317,13 @@ class CallCenterService
                 'price' => (float) $i->price,
                 'total' => (float) $i->total,
                 'notes' => $i->notes,
+                // Per-item rating (order_item_feedback) — null until someone
+                // rates it from the CRM order pop-up. Kept minimal here; the
+                // recorder/timestamps are only needed on the write response.
+                'feedback' => $i->feedback ? [
+                    'rating' => (int) $i->feedback->rating,
+                    'notes' => $i->feedback->notes,
+                ] : null,
             ])->toArray(),
             'invoice' => $order->invoice ? [
                 'id' => $order->invoice->id,
