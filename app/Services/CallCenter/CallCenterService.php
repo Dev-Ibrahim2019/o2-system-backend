@@ -659,16 +659,22 @@ class CallCenterService
 
         $complaint->save();
 
-        $statusLabel = fn (string $status) => CustomerComplaint::STATUS_LABELS[$status] ?? $status;
-        $this->addFollowup(
-            $complaintId,
-            $userId,
-            'status_changed',
-            $notes ?? "تغيير الحالة من «{$statusLabel($oldStatus)}» إلى «{$statusLabel($newStatus)}»",
-            'system',
-            $oldStatus,
-            $newStatus,
-        );
+        // A no-op restatement of the current status is allowed through the
+        // guard above so a caller can send the whole object back — but it is
+        // not an event, so it must not leave a "من «مفتوحة» إلى «مفتوحة»" line
+        // in the trail. A resolution note sent alongside it is still recorded.
+        if ($oldStatus !== $newStatus || ($notes !== null && trim($notes) !== '')) {
+            $statusLabel = fn (string $status) => CustomerComplaint::STATUS_LABELS[$status] ?? $status;
+            $this->addFollowup(
+                $complaintId,
+                $userId,
+                'status_changed',
+                $notes ?? "تغيير الحالة من «{$statusLabel($oldStatus)}» إلى «{$statusLabel($newStatus)}»",
+                'system',
+                $oldStatus,
+                $newStatus,
+            );
+        }
 
         return $complaint;
     }
