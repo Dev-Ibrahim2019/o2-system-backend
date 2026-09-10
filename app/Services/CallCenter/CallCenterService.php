@@ -318,11 +318,12 @@ class CallCenterService
                 'total' => (float) $i->total,
                 'notes' => $i->notes,
                 // Per-item rating (order_item_feedback) — null until someone
-                // rates it from the CRM order pop-up. Kept minimal here; the
-                // recorder/timestamps are only needed on the write response.
+                // rates it from the CRM order pop-up. complaint_id is set once
+                // that rating has been escalated into a complaint.
                 'feedback' => $i->feedback ? [
                     'rating' => (int) $i->feedback->rating,
                     'notes' => $i->feedback->notes,
+                    'complaint_id' => $i->feedback->complaint_id,
                 ] : null,
             ])->toArray(),
             'invoice' => $order->invoice ? [

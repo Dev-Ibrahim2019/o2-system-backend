@@ -1400,4 +1400,58 @@ class CrmController extends Controller
             $feedback->wasRecentlyCreated ? 201 : 200,
         );
     }
+
+    /**
+     * POST /api/crm/orders/{order}/items/{orderItem}/complaint
+     *
+     * Escalates a per-item rating into a customer complaint: the rating's
+     * note becomes the complaint body, it's filed through the same
+     * CallCenterService::createComplaint() as every other complaint (channel
+     * CRM), linked to the order and customer, and so shows up in the CRM
+     * complaints list and the customer's complaints tab. One rating spawns at
+     * most one complaint — a second call returns the first.
+     *
+     * Gated on crm.complaints.create (route middleware), not the
+     * order-feedback permission — this creates a complaint, which is a
+     * separately-permissioned action.
+     */
+    public function flagItemFeedbackAsComplaint(Request $request, Order $order, OrderItem $orderItem): JsonResponse
+    {
+        abort_unless((int) $orderItem->order_id === (int) $order->id, 404);
+        abort_unless($order->customer_id, 422, 'الطلب غير مرتبط بعميل — لا يمكن تسجيل شكوى.');
+
+        $customer = Customer::findOrFail($order->customer_id);
+        $this->access->authorize($request->user(), $customer);
+
+        $feedback = OrderItemFeedback::where('order_item_id', $orderItem->id)->first();
+        abort_unless($feedback, 422, 'قيّم الصنف أولاً قبل تسجيله كشكوى.');
+
+        if ($feedback->complaint_id && ($existing = CustomerComplaint::find($feedback->complaint_id))) {
+            return response()->json([
+                'data' => $existing->load(['order:id,order_number']),
+                'already' => true,
+            ]);
+        }
+
+        $name = $orderItem->item_name_ar ?: $orderItem->item_name;
+        $body = trim((string) $feedback->notes) !== ''
+            ? trim((string) $feedback->notes)
+            : "شكوى على الصنف «{$name}» (تقييم {$feedback->rating}/5) ضمن الطلب {$order->order_number}.";
+
+        $complaint = $this->callCenter->createComplaint([
+            'customer_id' => $customer->id,
+            'order_id' => $order->id,
+            'title' => "شكوى على صنف: {$name}",
+            'description' => $body,
+            'type' => 'item',
+            'department' => CustomerComplaint::DEPARTMENT_KITCHEN,
+            'severity' => $feedback->rating <= 2 ? 'warning' : 'info',
+            'priority' => $feedback->rating <= 2 ? 'high' : 'normal',
+            'branch_id' => $order->branch_id,
+        ], $request->user()->id, CustomerComplaint::CHANNEL_CRM);
+
+        $feedback->update(['complaint_id' => $complaint->id]);
+
+        return response()->json(['data' => $complaint->load(['order:id,order_number'])], 201);
+    }
 }

@@ -23,6 +23,7 @@ class OrderTimelineController extends ApiController
             'opener', 'closer', 'printer', 'items.creator', 'invoice.closedByUser',
             // Feedback is an action taken on the order — it belongs in this trail.
             'feedback.recorder', 'items.feedback.recorder',
+            'items.feedback.complaint:id,created_by,created_at', 'items.feedback.complaint.createdBy:id,name',
         ]);
 
         $events = [];
@@ -124,6 +125,23 @@ class OrderTimelineController extends ApiController
                     'notes' => $fb->notes,
                 ],
             ];
+
+            // 5b. تصعيد التقييم إلى شكوى
+            if ($fb->complaint) {
+                $events[] = [
+                    'type' => 'item_complaint',
+                    'label' => "تسجيل شكوى على صنف «{$name}»",
+                    'user' => $fb->complaint->createdBy
+                        ? ['id' => $fb->complaint->createdBy->id, 'name' => $fb->complaint->createdBy->name]
+                        : null,
+                    'timestamp' => $fb->complaint->created_at?->toISOString(),
+                    'details' => [
+                        'item_id' => $item->id,
+                        'item_name' => $name,
+                        'complaint_id' => $fb->complaint->id,
+                    ],
+                ];
+            }
         }
 
         // 6. تقييم الطلب العام (طعام / خدمة / سرعة توصيل)

@@ -19,6 +19,7 @@ class OrderItemFeedback extends Model
         'order_id',
         'rating',
         'notes',
+        'complaint_id',
         'recorded_by',
     ];
 
@@ -29,6 +30,12 @@ class OrderItemFeedback extends Model
     public function orderItem(): BelongsTo
     {
         return $this->belongsTo(OrderItem::class);
+    }
+
+    /** The complaint this rating was escalated into, if any. */
+    public function complaint(): BelongsTo
+    {
+        return $this->belongsTo(CustomerComplaint::class);
     }
 
     public function order(): BelongsTo
