@@ -589,6 +589,9 @@ class CallCenterService
             'order_id' => $data['order_id'] ?? null,
             'invoice_id' => $data['invoice_id'] ?? null,
             'assigned_to' => $data['assigned_to'] ?? null,
+            // CRM assignee (a user). The Call Center never sends this, so it
+            // stays null on that path.
+            'assigned_user_id' => $data['assigned_user_id'] ?? null,
             'created_by' => $userId,
             'title' => $data['title'],
             'description' => $data['description'] ?? '',

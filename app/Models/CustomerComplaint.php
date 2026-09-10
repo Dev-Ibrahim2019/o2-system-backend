@@ -16,6 +16,7 @@ class CustomerComplaint extends Model
         'order_id',
         'invoice_id',
         'assigned_to',
+        'assigned_user_id',
         'created_by',
         'title',
         'description',
@@ -172,6 +173,17 @@ class CustomerComplaint extends Model
     public function assignedTo(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'assigned_to');
+    }
+
+    /**
+     * The CRM agent who owns the ticket — a real login account, unlike
+     * assignedTo() which points at the (login-less) employees table. This is
+     * the one the CRM screens read and write; assigned_to is left for the
+     * Call Center.
+     */
+    public function assignedUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_user_id');
     }
 
     public function createdBy(): BelongsTo

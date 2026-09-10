@@ -16,6 +16,9 @@ use App\Models\Order;
 use App\Models\OrderFeedback;
 use App\Models\OrderItem;
 use App\Models\OrderItemFeedback;
+use App\Models\Scopes\BranchScope;
+use App\Models\User;
+use App\Notifications\ComplaintActivityNotification;
 use App\Services\Accounting\CustomerAccountingService;
 use App\Services\CallCenter\CallCenterService;
 use App\Services\Crm\CrmCustomerAccessService;
@@ -733,6 +736,7 @@ class CrmController extends Controller
             'order_id'     => ['nullable', 'integer', 'exists:orders,id'],
             'invoice_id'   => ['nullable', 'integer', 'exists:invoices,id'],
             'assigned_to'  => ['nullable', 'integer', 'exists:employees,id'],
+            'assigned_user_id' => ['nullable', 'integer', 'exists:users,id'],
             'type'         => ['nullable', 'string', 'max:50'],
             'priority'     => ['nullable', 'in:low,normal,high,critical'],
             'severity'     => ['nullable', 'in:info,warning,critical'],
@@ -749,6 +753,16 @@ class CrmController extends Controller
             abort_unless($request->user()->can('crm.view-sensitive-notes'), 403, 'لا تملك صلاحية إنشاء شكوى حساسة.');
         }
 
+        // Assigning the new complaint to anyone other than yourself is the
+        // manager's call — same rule as reassigning an existing one.
+        if (($data['assigned_user_id'] ?? null) !== null && (int) $data['assigned_user_id'] !== $request->user()->id) {
+            abort_unless(
+                $request->user()->can('crm.complaints.assign'),
+                403,
+                'إسناد الشكوى لموظف آخر من صلاحية مدير قسم CRM.',
+            );
+        }
+
         $complaint = $this->callCenter->createComplaint(
             [...$data, 'customer_id' => $customer->id],
             $request->user()->id,
@@ -756,6 +770,10 @@ class CrmController extends Controller
             // accepts a channel, so this is the only thing that can set it.
             CustomerComplaint::CHANNEL_CRM,
         );
+
+        if ($complaint->assigned_user_id) {
+            $this->recordAssigneeChange($complaint->fresh(), $request->user(), null, (int) $complaint->assigned_user_id);
+        }
 
         return response()->json([
             'data' => $complaint->load(['customer:id,name,phone', 'order:id,order_number']),
@@ -771,15 +789,19 @@ class CrmController extends Controller
      */
     public function updateComplaint(Request $request, CustomerComplaint $complaint): JsonResponse
     {
-        $this->access->authorize($request->user(), $complaint->customer);
+        $actor = $request->user();
+        $this->access->authorize($actor, $complaint->customer);
 
         if ($complaint->is_sensitive) {
-            abort_unless($request->user()->can('crm.view-sensitive-notes'), 403, 'لا تملك صلاحية تعديل شكوى حساسة.');
+            abort_unless($actor->can('crm.view-sensitive-notes'), 403, 'لا تملك صلاحية تعديل شكوى حساسة.');
         }
 
         $data = $request->validate([
             'status'            => ['nullable', 'in:new,open,in_progress,waiting_customer,resolved,closed,cancelled'],
             'assigned_to'       => ['nullable', 'integer', 'exists:employees,id'],
+            // The CRM assignee — a real login account. 'sometimes' so an
+            // absent field is left alone while an explicit null clears it.
+            'assigned_user_id'  => ['sometimes', 'nullable', 'integer', 'exists:users,id'],
             'priority'          => ['nullable', 'in:low,normal,high,critical'],
             'title'             => ['nullable', 'string', 'max:255'],
             'description'       => ['nullable', 'string'],
@@ -796,43 +818,56 @@ class CrmController extends Controller
 
         // Same rule the notes path enforces, in both directions: classifying a
         // complaint as sensitive and declassifying one both need the clearance.
-        // The check above already covers a complaint that is sensitive today;
-        // this covers one that is about to become sensitive. Until now the
-        // field was simply absent from the validator, so a request asking to
-        // reclassify returned 200 and changed nothing — a silent no-op is the
-        // worst of the three possible answers.
         if (array_key_exists('is_sensitive', $data)) {
             abort_unless(
-                $request->user()->can('crm.view-sensitive-notes'),
+                $actor->can('crm.view-sensitive-notes'),
                 403,
                 'لا تملك صلاحية تغيير تصنيف حساسية الشكوى.',
             );
         }
 
-        // Assigning a complaint — or moving it off the person it's on — is a
-        // manager call, not something the agent holding it (or any agent) can
-        // do. Only fires when the request actually changes assigned_to; a
-        // request that re-sends the same assignee passes untouched.
+        // Legacy employee assignment (Call Center's field). Unchanged: any
+        // real change to it is manager-only.
         if (array_key_exists('assigned_to', $data)) {
             $current = $complaint->getAttribute('assigned_to');
             $current = $current === null ? null : (int) $current;
             $next = $data['assigned_to'] === null ? null : (int) $data['assigned_to'];
             if ($next !== $current) {
                 abort_unless(
-                    $request->user()->can('crm.complaints.assign'),
+                    $actor->can('crm.complaints.assign'),
                     403,
                     'إسناد الشكوى أو تحويلها لموظف آخر من صلاحية مدير قسم CRM.',
                 );
             }
         }
 
-        // Resolving is the one transition that must carry an explanation:
-        // "resolved" is a claim that something was done about the complaint,
-        // and a resolved ticket with no record of what was done is worthless
-        // the moment the customer calls back. Closing, cancelling and
-        // reopening are deliberately exempt — they are administrative moves,
-        // not claims.
-        if (($data['status'] ?? null) === CustomerComplaint::STATUS_RESOLVED
+        // The CRM assignee gate. One move is open to any agent: TAKING an
+        // unassigned complaint for themselves. Everything else — handing it to
+        // someone else, lifting it off its current owner, clearing it — is the
+        // manager's call, so an agent cannot shed a ticket once it is on them.
+        // Applied explicitly further down (not through the mass update) so the
+        // change can be logged and notified.
+        $assigneeChange = null;
+        if (array_key_exists('assigned_user_id', $data)) {
+            $from = $complaint->assigned_user_id ? (int) $complaint->assigned_user_id : null;
+            $to = $data['assigned_user_id'] === null ? null : (int) $data['assigned_user_id'];
+            if ($to !== $from) {
+                $selfTakeOfUnassigned = $from === null && $to === $actor->id;
+                if (! $selfTakeOfUnassigned) {
+                    abort_unless(
+                        $actor->can('crm.complaints.assign'),
+                        403,
+                        'إسناد الشكوى أو تحويلها لموظف آخر من صلاحية مدير قسم CRM.',
+                    );
+                }
+                $assigneeChange = ['from' => $from, 'to' => $to];
+            }
+            unset($data['assigned_user_id']);
+        }
+
+        // Resolving is the one transition that must carry an explanation.
+        $requestedStatus = $data['status'] ?? null;
+        if ($requestedStatus === CustomerComplaint::STATUS_RESOLVED
             && trim((string) ($data['resolution_notes'] ?? $complaint->resolution_notes ?? '')) === ''
         ) {
             throw ValidationException::withMessages([
@@ -840,22 +875,22 @@ class CrmController extends Controller
             ]);
         }
 
+        $sensitiveWas = (bool) $complaint->is_sensitive;
+
         if (isset($data['status'])) {
             $resolutionNotes = $data['resolution_notes'] ?? null;
 
             $complaint = $this->callCenter->updateComplaintStatus(
                 $complaint->id,
                 $data['status'],
-                $request->user()->id,
+                $actor->id,
                 $resolutionNotes,
             );
 
             unset($data['status']);
 
             // updateComplaintStatus() only writes the note into the followup
-            // trail; it never touches the column. Left as it was, a
-            // resolution sent alongside a status change was recorded in the
-            // history and silently lost from the field meant to hold it.
+            // trail; it never touches the column.
             if ($resolutionNotes !== null) {
                 $data['resolution_notes'] = $resolutionNotes;
             } else {
@@ -867,9 +902,187 @@ class CrmController extends Controller
             $complaint->update($data);
         }
 
-        return response()->json([
-            'data' => $complaint->fresh()->load(['customer:id,name,phone', 'followups']),
+        $complaint = $complaint->fresh();
+
+        // ── Explicit assignee change: apply, log, notify ──
+        if ($assigneeChange !== null) {
+            $complaint->assigned_user_id = $assigneeChange['to'];
+            $complaint->save();
+            $this->recordAssigneeChange($complaint, $actor, $assigneeChange['from'], $assigneeChange['to']);
+        }
+
+        // ── Auto-assign: starting work on an unassigned complaint claims it.
+        // This is the "it sticks to whoever opens it" rule — from here only a
+        // manager can move it off them.
+        if (in_array($requestedStatus, [CustomerComplaint::STATUS_OPEN, CustomerComplaint::STATUS_IN_PROGRESS], true)
+            && $complaint->assigned_user_id === null
+            && $actor->can('crm.complaints.update')
+        ) {
+            $complaint->assigned_user_id = $actor->id;
+            $complaint->save();
+            $this->recordAssigneeChange($complaint, $actor, null, $actor->id, auto: true);
+        }
+
+        // ── Sensitivity toggle leaves a line in the trail ──
+        if ((bool) $complaint->is_sensitive !== $sensitiveWas) {
+            $this->callCenter->addFollowup(
+                $complaint->id,
+                $actor->id,
+                'reclassified',
+                $complaint->is_sensitive
+                    ? "صنّف {$actor->name} الشكوى كحساسة"
+                    : "ألغى {$actor->name} تصنيف الحساسية عن الشكوى",
+                'system',
+            );
+        }
+
+        // ── Resolve / cancel: notify the overseers ──
+        if (in_array($requestedStatus, [CustomerComplaint::STATUS_RESOLVED, CustomerComplaint::STATUS_CANCELLED], true)) {
+            $isResolve = $requestedStatus === CustomerComplaint::STATUS_RESOLVED;
+            $this->notifyComplaintOversight(
+                $complaint,
+                $actor,
+                $isResolve ? 'resolved' : 'cancelled',
+                ($isResolve ? 'حلّ' : 'ألغى') . " {$actor->name} الشكوى #{$complaint->id}: {$complaint->title}",
+            );
+        }
+
+        return $this->respondWithComplaint($complaint);
+    }
+
+    /**
+     * The shape every complaint write returns — identical to
+     * Crm\ComplaintController::show(), so the frontend patches its state from
+     * the response and never needs a follow-up GET.
+     */
+    private function respondWithComplaint(CustomerComplaint $complaint): JsonResponse
+    {
+        $liftScope = fn ($q) => $q->withoutGlobalScope(BranchScope::class);
+
+        $complaint = $complaint->fresh()->load([
+            'customer:id,name,code,phone,branch_id',
+            'assignedTo' => fn ($q) => $liftScope($q)->select('id', 'name', 'branch_id'),
+            'assignedUser' => fn ($q) => $liftScope($q)->select('id', 'name', 'branch_id'),
+            'createdBy:id,name',
+            'order:id,order_number',
+            'followups.user' => fn ($q) => $liftScope($q)->select('id', 'name'),
         ]);
+
+        return response()->json([
+            'data' => $complaint,
+            'followups' => $complaint->followups->sortByDesc('created_at')->values(),
+        ]);
+    }
+
+    /**
+     * Write the follow-up line and fire the notifications for one change of
+     * assigned_user_id. Covers the three shapes: an agent takes an unassigned
+     * complaint (auto or by hand), a manager hands it to a specific person, a
+     * manager lifts it off its owner.
+     */
+    private function recordAssigneeChange(CustomerComplaint $complaint, User $actor, ?int $from, ?int $to, bool $auto = false): void
+    {
+        $nameOf = fn (?int $id) => $id
+            ? (User::withoutGlobalScope(BranchScope::class)->find($id)?->name ?? "#{$id}")
+            : null;
+
+        // Took it for themselves.
+        if ($from === null && $to === $actor->id) {
+            $this->callCenter->addFollowup(
+                $complaint->id,
+                $actor->id,
+                'assigned',
+                $auto
+                    ? "أُسندت الشكوى تلقائياً إلى {$actor->name} عند بدء المعالجة"
+                    : "مسك {$actor->name} الشكوى وأصبحت مُسندة إليه",
+                'system',
+            );
+            $this->notifyComplaintOversight(
+                $complaint,
+                $actor,
+                'self_assigned',
+                "مسك {$actor->name} الشكوى #{$complaint->id}: {$complaint->title}",
+            );
+
+            return;
+        }
+
+        // Lifted off its owner, back to unassigned.
+        if ($to === null) {
+            $this->callCenter->addFollowup(
+                $complaint->id,
+                $actor->id,
+                'unassigned',
+                "رفع {$actor->name} إسناد الشكوى عن " . ($nameOf($from) ?? '—'),
+                'system',
+            );
+            if ($from !== null) {
+                $this->notifyComplaintUser($from, $complaint, $actor, 'unassigned_from_you',
+                    "رُفعت عنك الشكوى #{$complaint->id}: {$complaint->title}");
+            }
+
+            return;
+        }
+
+        // Handed to a specific person.
+        $this->callCenter->addFollowup(
+            $complaint->id,
+            $actor->id,
+            'assigned',
+            $from !== null
+                ? "حوّل {$actor->name} الشكوى من " . ($nameOf($from) ?? '—') . " إلى {$nameOf($to)}"
+                : "أسند {$actor->name} الشكوى إلى {$nameOf($to)}",
+            'system',
+        );
+        if ($to !== $actor->id) {
+            $this->notifyComplaintUser($to, $complaint, $actor, 'assigned_to_you',
+                "أُسندت إليك الشكوى #{$complaint->id}: {$complaint->title}");
+        }
+        if ($from !== null && $from !== $to) {
+            $this->notifyComplaintUser($from, $complaint, $actor, 'unassigned_from_you',
+                "رُفعت عنك الشكوى #{$complaint->id}: {$complaint->title}");
+        }
+    }
+
+    /** Notify one user about a complaint (branch scope lifted to find them). */
+    private function notifyComplaintUser(int $userId, CustomerComplaint $complaint, User $actor, string $action, string $message): void
+    {
+        $user = User::withoutGlobalScope(BranchScope::class)->find($userId);
+        $user?->notify(new ComplaintActivityNotification(
+            (int) $complaint->id,
+            (string) $complaint->title,
+            $action,
+            $actor->name,
+            $message,
+        ));
+    }
+
+    /**
+     * Notify the people who watch complaints regardless of who works them:
+     * every CRM manager, plus whoever filed this one — never the actor.
+     */
+    private function notifyComplaintOversight(CustomerComplaint $complaint, User $actor, string $action, string $message): void
+    {
+        $recipients = User::withoutGlobalScope(BranchScope::class)
+            ->role('crm-manager')
+            ->get();
+
+        if ($complaint->created_by && ! $recipients->contains('id', (int) $complaint->created_by)) {
+            $creator = User::withoutGlobalScope(BranchScope::class)->find($complaint->created_by);
+            if ($creator) {
+                $recipients->push($creator);
+            }
+        }
+
+        $recipients
+            ->reject(fn (User $u) => $u->id === $actor->id)
+            ->each(fn (User $u) => $u->notify(new ComplaintActivityNotification(
+                (int) $complaint->id,
+                (string) $complaint->title,
+                $action,
+                $actor->name,
+                $message,
+            )));
     }
 
     public function notes(Request $request, Customer $customer): JsonResponse

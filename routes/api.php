@@ -447,10 +447,20 @@ Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->gro
     Route::get('complaints/summary', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'summary'])->middleware('permission:crm.complaints.view');
     // Literal, so it must precede the {complaint} wildcard below.
     Route::get('complaints/assignable-employees', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'assignableEmployees'])->middleware('permission:crm.complaints.update');
+    // The CRM assignee picker — real login accounts that may work a complaint,
+    // not the legacy employees list. Literal, so above the {complaint} wildcard.
+    Route::get('complaints/assignable-users', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'assignableUsers'])->middleware('permission:crm.complaints.update');
     Route::get('complaints/{complaint}', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'show'])->middleware('permission:crm.complaints.view');
     // Appending to the trail is a write on the complaint, so it rides on
     // crm.complaints.update rather than the view permission.
     Route::post('complaints/{complaint}/followups', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'addFollowup'])->middleware('permission:crm.complaints.update');
+
+    // The signed-in user's own notification feed for the CRM shell's bell.
+    // No extra permission — crm.access on the group is the whole gate.
+    $notifications = \App\Http\Controllers\Api\Crm\NotificationController::class;
+    Route::get('notifications', [$notifications, 'index']);
+    Route::post('notifications/read-all', [$notifications, 'markAllRead']);
+    Route::post('notifications/{id}/read', [$notifications, 'markRead']);
     Route::get('customers/{customer}/notes', [$crm, 'notes'])->middleware('permission:crm.notes.view');
     Route::post('customers/{customer}/notes', [$crm, 'createNote'])->middleware('permission:crm.notes.create');
     Route::put('customers/{customer}/notes/{note}', [$crm, 'updateNote'])->middleware('permission:crm.notes.update');

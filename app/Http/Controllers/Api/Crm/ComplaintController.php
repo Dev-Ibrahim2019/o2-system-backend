@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CustomerComplaint;
 use App\Models\Employee;
 use App\Models\Scopes\BranchScope;
+use App\Models\User;
 use App\Services\CallCenter\CallCenterService;
 use App\Services\Crm\CrmCustomerAccessService;
 use Illuminate\Database\Eloquent\Builder;
@@ -49,6 +50,12 @@ class ComplaintController extends Controller
                 'assignedTo' => fn ($q) => $q
                     ->withoutGlobalScope(BranchScope::class)
                     ->select('id', 'name', 'branch_id'),
+                // The CRM assignee (a user). Branch scope lifted for the same
+                // reason as assignedTo — a complaint is routinely worked by
+                // staff at another branch.
+                'assignedUser' => fn ($q) => $q
+                    ->withoutGlobalScope(BranchScope::class)
+                    ->select('id', 'name', 'branch_id'),
                 'createdBy:id,name',
                 'order:id,order_number',
             ])
@@ -90,6 +97,9 @@ class ComplaintController extends Controller
                 // Same one-line shape as the others. Unassigned complaints
                 // group under the NULL key ("") exactly as untagged ones do.
                 'by_employee' => $countsBy('assigned_to'),
+                // The CRM assignee tally (a user id per key); NULL key ("") is
+                // "unassigned". This is the one the CRM screens read.
+                'by_assigned_user' => $countsBy('assigned_user_id'),
             ],
         ]);
     }
@@ -118,9 +128,17 @@ class ComplaintController extends Controller
                 'assignedTo' => fn ($q) => $q
                     ->withoutGlobalScope(BranchScope::class)
                     ->select('id', 'name', 'branch_id'),
+                'assignedUser' => fn ($q) => $q
+                    ->withoutGlobalScope(BranchScope::class)
+                    ->select('id', 'name', 'branch_id'),
                 'createdBy:id,name',
                 'order:id,order_number',
-                'followups.user:id,name',
+                // Branch scope lifted here too: the follow-up trail must name
+                // who did what even when that person sits at another branch —
+                // without this the actor silently renders as "—".
+                'followups.user' => fn ($q) => $q
+                    ->withoutGlobalScope(BranchScope::class)
+                    ->select('id', 'name'),
             ])
             ->first();
 
@@ -159,6 +177,29 @@ class ComplaintController extends Controller
             ->get(['id', 'name', 'branch_id', 'role']);
 
         return response()->json(['data' => $employees]);
+    }
+
+    /**
+     * GET /api/crm/complaints/assignable-users
+     *
+     * The real login accounts a CRM complaint may be assigned to — anyone
+     * holding crm.complaints.update (the permission to work a complaint at
+     * all). Branch scope lifted, exactly like assignableEmployees(): a
+     * complaint filed at one branch is regularly worked by staff at another.
+     *
+     * This is the picker the CRM screens use; assignableEmployees() stays for
+     * the Call Center's own assigned_to field.
+     */
+    public function assignableUsers(Request $request): JsonResponse
+    {
+        $users = User::withoutGlobalScope(BranchScope::class)
+            ->permission('crm.complaints.update')
+            ->with('branch:id,name')
+            ->orderBy('name')
+            ->get(['id', 'name', 'branch_id'])
+            ->values();
+
+        return response()->json(['data' => $users]);
     }
 
     /**
@@ -215,6 +256,15 @@ class ComplaintController extends Controller
             // No exemption from the scopes above: this narrows the already
             // branch- and sensitivity-filtered set, it does not reach past it.
             ->when($filters['assigned_to'] ?? null, fn ($q, $v) => $q->where('assigned_to', $v))
+            // The CRM assignee filter. Accepts a user id, or the two words the
+            // toolbar offers: "mine" (assigned to me) and "none" (unassigned).
+            ->when($filters['assigned_user_id'] ?? null, function (Builder $q, string $v) use ($request) {
+                match ($v) {
+                    'mine' => $q->where('assigned_user_id', $request->user()->id),
+                    'none' => $q->whereNull('assigned_user_id'),
+                    default => $q->where('assigned_user_id', (int) $v),
+                };
+            })
             ->when($filters['date_from'] ?? null, fn ($q, $v) => $q->whereDate('created_at', '>=', $v))
             ->when($filters['date_to'] ?? null, fn ($q, $v) => $q->whereDate('created_at', '<=', $v))
             ->when($filters['search'] ?? null, function (Builder $q, string $term) {
@@ -252,6 +302,9 @@ class ComplaintController extends Controller
             'channel' => ['nullable', Rule::in(CustomerComplaint::CHANNELS)],
             'department' => ['nullable', Rule::in(CustomerComplaint::DEPARTMENTS)],
             'assigned_to' => ['nullable', 'integer', 'exists:employees,id'],
+            // A user id, or the literals "mine" / "none". Kept loose on
+            // purpose — scoped() maps the three shapes.
+            'assigned_user_id' => ['nullable', 'string', 'max:20'],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
             'search' => ['nullable', 'string', 'max:100'],
