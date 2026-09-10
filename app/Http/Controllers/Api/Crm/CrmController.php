@@ -583,6 +583,53 @@ class CrmController extends Controller
     }
 
     /**
+     * POST /api/crm/customers/{customer}/addresses
+     *
+     * Adds a saved address (home / work / other) to the customer. Takes the
+     * same fields Call Center's storeAddress() accepts and goes through the
+     * same service the wizard's work-address write uses
+     * (CustomerIdentityService::createAddress, which owns the "only one
+     * default" invariant). Gated on crm.edit-customers, not a new
+     * address-specific permission — an address is contact data about the
+     * customer, the same call the family-members routes made.
+     */
+    public function storeAddress(Request $request, Customer $customer): JsonResponse
+    {
+        $this->access->authorize($request->user(), $customer);
+
+        $data = $request->validate([
+            'label' => ['nullable', 'string', 'max:50'],
+            'city' => ['nullable', 'string', 'max:100'],
+            'area' => ['nullable', 'string', 'max:100'],
+            'district' => ['nullable', 'string', 'max:100'],
+            'street' => ['nullable', 'string', 'max:255'],
+            'landmark' => ['nullable', 'string', 'max:255'],
+            'building_no' => ['nullable', 'string', 'max:50'],
+            'floor' => ['nullable', 'string', 'max:20'],
+            'apartment' => ['nullable', 'string', 'max:20'],
+            'delivery_notes' => ['nullable', 'string'],
+            'phone' => ['nullable', 'string', 'max:30'],
+            'is_default' => ['nullable', 'boolean'],
+        ]);
+
+        // An address row that is only a label says nothing about where the
+        // place is — and still shows up in the Call Center's delivery picker.
+        // Require at least one locating line.
+        $hasLocation = collect($data)
+            ->except(['label', 'is_default'])
+            ->contains(fn ($value) => $value !== null && $value !== '');
+        if (! $hasLocation) {
+            throw ValidationException::withMessages([
+                'street' => 'أدخل بيانات العنوان — الشارع أو المنطقة أو المدينة على الأقل.',
+            ]);
+        }
+
+        $address = $this->customerIdentity->createAddress($customer, $data);
+
+        return response()->json(['data' => $address], 201);
+    }
+
+    /**
      * GET /api/crm/customers/{customer}/activity
      *
      * Surfaces two already-existing, already-collected data sources for

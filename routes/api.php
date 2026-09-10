@@ -425,6 +425,10 @@ Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->gro
     Route::get('customers/{customer}/orders/{order}/feedback', [\App\Http\Controllers\Api\OrderFeedbackController::class, 'show'])->middleware('permission:crm.customer-orders.view');
     Route::put('customers/{customer}/orders/{order}/feedback', [\App\Http\Controllers\Api\OrderFeedbackController::class, 'store'])->middleware('permission:crm.customer-orders.view');
     Route::get('customers/{customer}/addresses', [$crm, 'addresses'])->middleware('permission:crm.customer-addresses.view');
+    // No address-specific write permission — an address is contact data about
+    // the customer, gated exactly like the customer record's own edit path
+    // and like the family-members writes above.
+    Route::post('customers/{customer}/addresses', [$crm, 'storeAddress'])->middleware('permission:crm.edit-customers');
     Route::get('customers/{customer}/complaints', [$crm, 'complaints'])->middleware('permission:crm.complaints.view');
     // CRM's own write path onto the same complaint lifecycle the Call Center
     // uses. No delete: a complaint is closed or cancelled, never erased.
