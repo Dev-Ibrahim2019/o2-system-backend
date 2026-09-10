@@ -656,7 +656,16 @@ class CallCenterService
 
         $complaint->save();
 
-        $this->addFollowup($complaintId, $userId, 'status_changed', $notes ?? "تغيير الحالة من {$oldStatus} إلى {$newStatus}", 'system', $oldStatus, $newStatus);
+        $statusLabel = fn (string $status) => CustomerComplaint::STATUS_LABELS[$status] ?? $status;
+        $this->addFollowup(
+            $complaintId,
+            $userId,
+            'status_changed',
+            $notes ?? "تغيير الحالة من «{$statusLabel($oldStatus)}» إلى «{$statusLabel($newStatus)}»",
+            'system',
+            $oldStatus,
+            $newStatus,
+        );
 
         return $complaint;
     }

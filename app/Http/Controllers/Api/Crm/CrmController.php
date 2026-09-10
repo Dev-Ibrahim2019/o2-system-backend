@@ -809,6 +809,23 @@ class CrmController extends Controller
             );
         }
 
+        // Assigning a complaint — or moving it off the person it's on — is a
+        // manager call, not something the agent holding it (or any agent) can
+        // do. Only fires when the request actually changes assigned_to; a
+        // request that re-sends the same assignee passes untouched.
+        if (array_key_exists('assigned_to', $data)) {
+            $current = $complaint->getAttribute('assigned_to');
+            $current = $current === null ? null : (int) $current;
+            $next = $data['assigned_to'] === null ? null : (int) $data['assigned_to'];
+            if ($next !== $current) {
+                abort_unless(
+                    $request->user()->can('crm.complaints.assign'),
+                    403,
+                    'إسناد الشكوى أو تحويلها لموظف آخر من صلاحية مدير قسم CRM.',
+                );
+            }
+        }
+
         // Resolving is the one transition that must carry an explanation:
         // "resolved" is a claim that something was done about the complaint,
         // and a resolved ticket with no record of what was done is worthless
