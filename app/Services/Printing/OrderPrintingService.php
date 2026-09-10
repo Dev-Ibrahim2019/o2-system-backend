@@ -270,12 +270,17 @@ class OrderPrintingService
             ];
         }
 
+        // كل نسخ "فوري" بتطبع على نفس طابعة الكاشير وهي فعلياً فاتورة الزبون
+        // نفسها (مقسّمة بالعرض بس لسهولة القراءة) — مش تذاكر أقسام منفصلة زي
+        // وضع "محلي". ما بنعرض أي مجاميع على نسخ الأقسام (لا خصم ولا إجمالي)؛
+        // الخصم مخزّن ومخصوم من إجمالي الطلب/الفاتورة بس.
         $results = [];
         foreach ($groups as $group) {
             $imagePath = $this->receiptRenderer->renderFilteredInvoice(
                 $order,
                 $group['label'],
-                $group['items']
+                $group['items'],
+                false
             );
             $result = $this->printerService->printReceiptImage($cashierPrinter, $imagePath);
             $this->receiptRenderer->cleanup($imagePath);
@@ -340,7 +345,9 @@ class OrderPrintingService
         $results = [];
         foreach ($groupedByPrinter as $group) {
             $printer = $group['printer'];
-            $result = $this->printInvoiceForItems($order, $printer, $group['items']);
+            // نسخة القسم (زر "طباعة" بمحلي) — بلا أسعار ولا مجاميع، بس الاسم
+            // والكمية والملاحظات لطاقم القسم.
+            $result = $this->printInvoiceForItems($order, $printer, $group['items'], true);
 
             $results[] = array_merge($result, [
                 'printer_id'   => $printer->id,
@@ -449,13 +456,16 @@ class OrderPrintingService
     private function printInvoiceForItems(
         Order $order,
         Printer $printer,
-        array $items
+        array $items,
+        bool $hidePrices = false
     ): array {
         // بناء صورة الفاتورة مع الأصناف المفلترة فقط
         $imagePath = $this->receiptRenderer->renderFilteredInvoice(
             $order,
             $printer->name,
-            $items
+            $items,
+            false,
+            $hidePrices
         );
 
         $result = $this->printerService->printReceiptImage($printer, $imagePath);

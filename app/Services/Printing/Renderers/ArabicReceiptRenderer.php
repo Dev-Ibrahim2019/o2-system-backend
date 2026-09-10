@@ -69,15 +69,17 @@ class ArabicReceiptRenderer implements ReceiptRendererInterface
     /**
      * Render a filtered invoice receipt — only specific items for a cashier printer.
      *
-     * @param  Order  $order       The order model.
-     * @param  string $printerName Name of the destination printer.
-     * @param  array  $items       Filtered items array (item_id, name, quantity, price, etc.).
-     * @return string              Path to the generated PNG file
+     * @param  Order  $order           The order model.
+     * @param  string $printerName     Name of the destination printer.
+     * @param  array  $items           Filtered items array (item_id, name, quantity, price, etc.).
+     * @param  bool   $showOrderTotals إظهار خصم/مجموع الطلب الحقيقي على هالنسخة (راجع
+     *                                 ReceiptImageBuilder::buildFilteredInvoiceReceipt).
+     * @return string                  Path to the generated PNG file
      */
-    public function renderFilteredInvoice(Order $order, string $printerName, array $items): string
+    public function renderFilteredInvoice(Order $order, string $printerName, array $items, bool $showOrderTotals = false, bool $hidePrices = false): string
     {
         try {
-            return $this->builder->buildFilteredInvoiceReceipt($order, $printerName, $items);
+            return $this->builder->buildFilteredInvoiceReceipt($order, $printerName, $items, $showOrderTotals, $hidePrices);
         } catch (\Exception $e) {
             Log::error('Failed to render filtered invoice image', [
                 'error' => $e->getMessage(),

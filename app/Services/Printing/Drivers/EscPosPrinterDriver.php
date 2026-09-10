@@ -81,7 +81,10 @@ class EscPosPrinterDriver implements PrinterDriverInterface
 
             $escpos->bitImage($img);
 
-            $escpos->feed(4);
+            // تغذية سطرين فقط قبل القص — الحد الأدنى حتى ما يقص القاطع جوّا
+            // المحتوى (القاطع عادة ~10مم فوق رأس الطباعة). كان 4 = فراغ أبيض
+            // زيادة تحت الفاتورة.
+            $escpos->feed(2);
             $escpos->cut();
 
             return $this->success($printer);

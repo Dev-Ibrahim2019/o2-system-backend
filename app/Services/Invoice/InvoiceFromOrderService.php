@@ -42,6 +42,7 @@ class InvoiceFromOrderService
             'number' => Invoice::generateNumber(),
             'order_id' => $order->id,
             'customer_id' => $customerId,
+            'customer_phone' => $data['customer_phone'] ?? null,
             'branch_id' => $branchId,
             'status' => 'draft',
             'subtotal' => 0,
@@ -66,14 +67,20 @@ class InvoiceFromOrderService
 
         foreach ($orderItems as $orderItem) {
             $originalPrice = (float) $orderItem->price;
-            $quantity = (int) $orderItem->quantity;
+            // كمية حقيقية (عشرية مسموحة لأصناف الوزن). قبل هيك (int) كانت
+            // تحوّل 0.5 كيلو لـ 0 → سطر بصفر → subtotal الفاتورة يطلع غلط.
+            $quantity = (float) $orderItem->quantity;
+            if ($quantity <= 0) {
+                $quantity = 1.0;
+            }
+            $eligQuantity = max(1, (int) ceil($quantity));
             $lineGross = $originalPrice * $quantity;
             $grossSubtotal += $lineGross;
 
             try {
                 $bestDiscount = $this->discountEngine->getBestDiscount(
                     $originalPrice,
-                    $quantity,
+                    $eligQuantity,
                     $customerId,
                     $employeeId,
                     $supplierId,

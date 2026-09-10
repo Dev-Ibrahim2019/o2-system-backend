@@ -149,7 +149,6 @@ class TableOperationsController extends Controller
         $request->validate([
             'customer_count' => 'nullable|integer|min:1|max:50',
             'customer_name' => 'nullable|string|max:255',
-            'customer_phone' => 'nullable|string|max:50',
         ]);
 
         if ($table->status === 'MERGED') {
@@ -200,7 +199,7 @@ class TableOperationsController extends Controller
         }
 
         $request->validate([
-            'status' => 'required|in:AVAILABLE,OCCUPIED,PAYMENT_PENDING,PAID,RESERVED,CLEANING,MERGED',
+            'status' => 'required|in:AVAILABLE,OCCUPIED,PAYMENT_PENDING,BILL_PRINTED,PAID,RESERVED,CLEANING,MERGED',
             'current_order_id' => 'nullable|integer',
             'customer_count' => 'nullable|integer',
         ]);
@@ -615,7 +614,6 @@ class TableOperationsController extends Controller
                 $tableNumbers = [];
                 $notes = [];
                 $customerName = null;
-                $customerPhone = null;
                 $firstOrder = $orders->first();
 
                 foreach ($orders as $order) {
@@ -623,9 +621,6 @@ class TableOperationsController extends Controller
 
                     if ($order->customer_name && !$customerName) {
                         $customerName = $order->customer_name;
-                    }
-                    if ($order->customer_phone && !$customerPhone) {
-                        $customerPhone = $order->customer_phone;
                     }
 
                     if ($order->table_number && !in_array($order->table_number, $tableNumbers)) {
@@ -662,7 +657,6 @@ class TableOperationsController extends Controller
                     'discount_value' => 0,
                     'discount_type' => 'amount',
                     'customer_name' => $customerName,
-                    'customer_phone' => $customerPhone,
                     'note' => '[Table: ' . implode(', ', $tableNumbers) . ']' . ($notes ? ' | ' . implode(' | ', $notes) : ''),
                 ]);
 

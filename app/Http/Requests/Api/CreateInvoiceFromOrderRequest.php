@@ -15,6 +15,7 @@ class CreateInvoiceFromOrderRequest extends FormRequest
     {
         return [
             'customer_id' => 'nullable|integer',
+            'customer_phone' => 'nullable|string|max:50',
             'employee_id' => 'nullable|integer|exists:employees,id',
             'supplier_id' => 'nullable|integer|exists:suppliers,id',
             'notes' => 'nullable|string',

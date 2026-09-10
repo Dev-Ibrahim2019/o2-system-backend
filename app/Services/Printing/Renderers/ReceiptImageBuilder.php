@@ -33,12 +33,16 @@ class ReceiptImageBuilder
     /**
      * Render a filtered invoice receipt — only specific items for a cashier printer.
      *
-     * @param  Order  $order       The order model.
-     * @param  string $printerName Name of the destination printer.
-     * @param  array  $items       Filtered items: ['item_id','name','quantity','price','total','notes']
-     * @return string              Absolute path to the generated PNG image.
+     * @param  Order  $order           The order model.
+     * @param  string $printerName     Name of the destination printer.
+     * @param  array  $items           Filtered items: ['item_id','name','quantity','price','total','notes']
+     * @param  bool   $showOrderTotals إظهار الخصم والمجموع الكلي الحقيقي للطلب (مش بس مجموع
+     *                                 هالنسخة المفلترة) — تُستخدم لآخر نسخة بوضع "فوري" لأنها
+     *                                 كلها فاتورة الزبون نفسها منقسمة لأقسام على نفس الطابعة،
+     *                                 مش تذاكر أقسام منفصلة فعلياً زي وضع "محلي".
+     * @return string                  Absolute path to the generated PNG image.
      */
-    public function buildFilteredInvoiceReceipt(Order $order, string $printerName, array $items): string
+    public function buildFilteredInvoiceReceipt(Order $order, string $printerName, array $items, bool $showOrderTotals = false, bool $hidePrices = false): string
     {
         // Convert items to objects so the Blade template can use -> property access
         $filteredItems = array_map(function ($item) {
@@ -56,14 +60,17 @@ class ReceiptImageBuilder
             ];
         }, $items);
 
-        // Calculate filtered total
+        // مجموع أصناف هذه النسخة (يُستخدم فقط بالفاتورة الكاملة؛ نسخ "فوري"
+        // المقسّمة ما بتعرض أي مجاميع).
         $filteredTotal = array_sum(array_map(fn($i) => $i->total, $filteredItems));
 
         $viewData = [
-            'order'          => $order,
-            'filteredItems'  => $filteredItems,
-            'filteredTotal'  => $filteredTotal,
-            'printerName'    => $printerName,
+            'order'            => $order,
+            'filteredItems'    => $filteredItems,
+            'filteredTotal'    => $filteredTotal,
+            'printerName'      => $printerName,
+            'showOrderTotals'  => $showOrderTotals,
+            'hidePrices'       => $hidePrices,
         ];
 
         $html = view('receipts.invoice', $viewData)->render();
@@ -138,7 +145,9 @@ class ReceiptImageBuilder
 
         try {
             $browsershot = Browsershot::html($html)
-                ->windowSize(550, 850)
+                // ارتفاع نافذة كبير حتى الطلبات الطويلة (خط أكبر = صفوف أطول)
+                // ما تنقصّ قبل ما يشتغل الـ crop — الـ crop بيشيل الزيادة بأي حال.
+                ->windowSize(550, 2200)
                 ->deviceScaleFactor(1)
                 ->noSandbox();
 
@@ -244,47 +253,78 @@ class ReceiptImageBuilder
         );
         imagedestroy($image);
 
-        // ── Step 2: Scan from bottom to find last non-white row ────────
-        // White = background. We crop everything below the last row that
-        // has any visible content (text, borders, lines).
-        $cropRow = 0; // will hold the Y of the last content row
+        // ── Step 2: Find the content bounding box (trim white on all 4 sides) ──
+        // نلقّي أول/آخر صف وعمود فيهم محتوى (نص، خطوط، إطارات) — أي شي أغمق
+        // من الأبيض تقريباً — ونقصّ كل الفراغ حوالين المحتوى.
+        $isContent = static function (int $rgb): bool {
+            return (($rgb >> 16) & 0xFF) < 245 || (($rgb >> 8) & 0xFF) < 245 || ($rgb & 0xFF) < 245;
+        };
 
-        for ($y = $targetHeight - 1; $y >= 0; $y--) {
-            $foundContent = false;
+        $topRow = $bottomRow = -1;
+        $leftCol = $targetWidth;
+        $rightCol = -1;
+
+        for ($y = 0; $y < $targetHeight; $y++) {
+            $rowHit = false;
             for ($x = 0; $x < $targetWidth; $x++) {
-                $rgb = imagecolorat($resized, $x, $y);
-                $r = ($rgb >> 16) & 0xFF;
-                $g = ($rgb >> 8) & 0xFF;
-                $b = $rgb & 0xFF;
-
-                // Anything darker than near-white is content.
-                if ($r < 245 || $g < 245 || $b < 245) {
-                    $foundContent = true;
-                    break;
+                if ($isContent(imagecolorat($resized, $x, $y))) {
+                    $rowHit = true;
+                    if ($x < $leftCol) {
+                        $leftCol = $x;
+                    }
+                    if ($x > $rightCol) {
+                        $rightCol = $x;
+                    }
                 }
             }
-            if ($foundContent) {
-                $cropRow = $y;
-                break;
+            if ($rowHit) {
+                if ($topRow === -1) {
+                    $topRow = $y;
+                }
+                $bottomRow = $y;
             }
         }
 
-        // Add padding (5px) below the last content row.
-        $finalHeight = min($cropRow + 5, $targetHeight);
-
-        // ── Step 3: Crop ───────────────────────────────────────────────
-        $finalHeight = $cropRow + 1;
-
-        // Only crop if there's meaningful whitespace to remove (>10 rows).
-        if ($targetHeight - $finalHeight > 10) {
-            $cropped = imagecreatetruecolor($targetWidth, $finalHeight);
-            imagealphablending($cropped, false);
-            imagesavealpha($cropped, true);
-            $bg = imagecolorallocate($cropped, 255, 255, 255);
-            imagefilledrectangle($cropped, 0, 0, $targetWidth, $finalHeight, $bg);
-
-            imagecopy($cropped, $resized, 0, 0, 0, 0, $targetWidth, $finalHeight);
+        // ما لقينا محتوى إطلاقاً (صورة فاضية) — نرجّع كما هي.
+        if ($topRow === -1 || $rightCol === -1) {
+            $destPath = storage_path('app/receipt_' . uniqid('', true) . '.png');
+            $ok = imagepng($resized, $destPath, 6);
             imagedestroy($resized);
+            return $ok ? $destPath : null;
+        }
+
+        // هامش 1px من كل جهة حتى ما ينقص أول/آخر خط منقّط أو حرف.
+        $topRow   = max(0, $topRow - 1);
+        $leftCol  = max(0, $leftCol - 1);
+        $bottomRow = min($targetHeight - 1, $bottomRow + 1);
+        $rightCol  = min($targetWidth - 1, $rightCol + 1);
+
+        $boxW = $rightCol - $leftCol + 1;
+        $boxH = $bottomRow - $topRow + 1;
+
+        // ── Step 3: Crop للـ bounding box ثم مطّه أفقياً لعرض الطابعة الكامل ──
+        // نقصّ الفراغ حوالين المحتوى، وبعدين نعيد عرضه لـ $targetWidth حتى
+        // يملأ الورقة من الحافة للحافة (بلا هوامش جانبية).
+        $cropped = imagecreatetruecolor($boxW, $boxH);
+        $bgC = imagecolorallocate($cropped, 255, 255, 255);
+        imagefilledrectangle($cropped, 0, 0, $boxW, $boxH, $bgC);
+        imagecopy($cropped, $resized, 0, 0, $leftCol, $topRow, $boxW, $boxH);
+        imagedestroy($resized);
+
+        if ($boxW !== $targetWidth) {
+            $finalHeight = (int) round($boxH * ($targetWidth / $boxW));
+            $stretched = imagecreatetruecolor($targetWidth, $finalHeight);
+            $bgS = imagecolorallocate($stretched, 255, 255, 255);
+            imagefilledrectangle($stretched, 0, 0, $targetWidth, $finalHeight, $bgS);
+            imagecopyresampled(
+                $stretched, $cropped,
+                0, 0, 0, 0,
+                $targetWidth, $finalHeight,
+                $boxW, $boxH
+            );
+            imagedestroy($cropped);
+            $resized = $stretched;
+        } else {
             $resized = $cropped;
         }
 

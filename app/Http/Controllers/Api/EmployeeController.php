@@ -50,11 +50,14 @@ class EmployeeController extends ApiController
             ->when($request->branch_id,     fn($q) => $q->where('branch_id',     $request->branch_id))
             ->when($request->department_id, fn($q) => $q->where('department_id', $request->department_id))
             ->when($request->status,        fn($q) => $q->where('status',        $request->status))
+            // الرقم الوظيفي بحث مطابقة تامة (=) مش جزئي (like) — البحث بـ "45" كان
+            // يرجّع كل موظف رقمه يحتوي "45" (45, 145, 245, 450...) بدل صاحب
+            // الرقم 45 حصراً. الاسم والجوال يضلوا بحث جزئي لأنه المتوقع فيهم.
             ->when($request->search,        fn($q) => $q->where(
                 fn($qb) =>
                 $qb->where('name',       'like', "%{$request->search}%")
                     ->orWhere('phone',      'like', "%{$request->search}%")
-                    ->orWhere('employeeId', 'like', "%{$request->search}%")
+                    ->orWhere('employeeId', '=', $request->search)
             ))
             ->paginate($request->per_page ?? 50);
 

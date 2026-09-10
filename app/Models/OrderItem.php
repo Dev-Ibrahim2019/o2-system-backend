@@ -45,7 +45,8 @@ class OrderItem extends Model
 
     protected $casts = [
         'price' => 'decimal:2',
-        'quantity' => 'decimal:2',
+        // 4 خانات عشرية لأصناف الوزن (كمية مشتقّة من الإجمالي ÷ السعر)
+        'quantity' => 'decimal:4',
         'weight_grams' => 'integer',
         'total' => 'decimal:2',
         'discount_amount' => 'decimal:2',

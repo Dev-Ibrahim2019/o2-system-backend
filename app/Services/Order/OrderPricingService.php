@@ -26,13 +26,22 @@ class OrderPricingService
 
         foreach ($items as $item) {
             $unitPrice = (float) $item->price;
-            $quantity = (int) ceil((float) $item->quantity);
+            // الكمية الحقيقية (ممكن تكون عشرية لأصناف الوزن: 0.5 كيلو مثلاً) —
+            // بتستعمل لحساب المبالغ. قبل هيك كان (int) ceil يقرّبها لفوق فيصير
+            // نص كيلو محسوب ككيلو كامل، فيطلع إجمالي الفاتورة أكبر من الظاهر
+            // للكاشير و«المبلغ المدفوع ناقص» وقت الإغلاق.
+            $quantity = (float) $item->quantity;
+            if ($quantity <= 0) {
+                $quantity = 1.0;
+            }
+            // فحص أهلية الخصم بيتوقّع عدد وحدات صحيح — نقرّب لفوق (نص كيلو = وحدة).
+            $eligQuantity = max(1, (int) ceil($quantity));
             $lineGross = $unitPrice * $quantity;
             $grossSubtotal += $lineGross;
 
             $best = $this->discountEngine->getBestDiscount(
                 $unitPrice,
-                $quantity,
+                $eligQuantity,
                 $order->customer_id,
                 $order->employee_id,
                 $order->supplier_id,

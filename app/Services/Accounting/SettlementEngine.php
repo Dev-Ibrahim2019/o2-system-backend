@@ -110,6 +110,9 @@ class SettlementEngine
                 'paid_at' => now(),
             ]);
 
+            // تحصيل الفاتورة اكتمل → نغلق الطاولة ونرجعها لحالتها الطبيعية.
+            $order->releaseDiningTable();
+
             $transaction = $this->accountingService->createJournalEntryForInvoice($invoice->fresh());
 
             return [

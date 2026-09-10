@@ -34,7 +34,7 @@ class InvoiceItem extends Model
     ];
 
     protected $casts = [
-        'quantity' => 'decimal:3',
+        'quantity' => 'decimal:4',
         'price' => 'decimal:3',
         'original_price' => 'decimal:3',
         'subtotal' => 'decimal:3',

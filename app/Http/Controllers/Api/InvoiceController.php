@@ -140,6 +140,9 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
 
             DB::commit();
 
+            // تنفيذ الفاتورة (إنشاؤها) → الطاولة تضوي أزرق لحين التحصيل الكامل.
+            $order->markDiningTableBillPrinted();
+
             return $this->success(
                 'تم إنشاء الفاتورة',
                 new InvoiceResource($invoice),
@@ -233,6 +236,11 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
 
                 if ($invoice->order_id) {
                     $invoice->order()->update(['status' => 'paid']);
+
+                    // تحصيل الفاتورة اكتمل → نغلق الطاولة ونرجعها لحالتها الطبيعية.
+                    $paidOrder = Order::withoutGlobalScope(\App\Models\Scopes\BranchScope::class)
+                        ->find($invoice->order_id);
+                    $paidOrder?->releaseDiningTable();
                 }
 
                 $journalEntry = app(AccountingService::class)

@@ -91,8 +91,6 @@ class OrderController extends ApiController
                 'status' => 'pending',
                 'table_number' => $data['table_number'] ?? null,
                 'customer_name' => $data['customer_name'] ?? null,
-                'customer_phone' => $data['customer_phone'] ?? null,
-                'customer_mobile' => $data['customer_mobile'] ?? null,
                 'customer_address' => $data['customer_address'] ?? null,
                 'customer_notes' => $data['customer_notes'] ?? null,
                 'scheduled_at' => $data['scheduled_at'] ?? null,
@@ -984,6 +982,13 @@ class OrderController extends ApiController
             auth()->id(),
             $mode,
         );
+
+        // طباعة فاتورة الزبون → الطاولة تضوي أزرق (BILL_PRINTED). نستثني وضع
+        // 'departments' لأنه طباعة تذاكر أقسام مش فاتورة زبون. نضبط الحالة هون
+        // (مش داخل الـ Job) حتى تكون موثوقة بغض النظر عن نجاح الطباعة الفعلي.
+        if ($mode !== 'departments') {
+            $order->markDiningTableBillPrinted();
+        }
 
         return $this->success('تم إرسال أمر طباعة الفاتورة');
     }

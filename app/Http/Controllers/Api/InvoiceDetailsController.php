@@ -32,7 +32,7 @@ class InvoiceDetailsController extends ApiController
             'branch_id'        => $invoice->branch_id,
             'branch_name'      => $invoice->relationLoaded('branch') && $invoice->branch ? $invoice->branch->name : null,
             'customer_name'    => $order?->customer_name ?? $invoice->customer?->name,
-            'customer_phone'   => $order?->customer_phone,
+            'customer_phone'   => $invoice->customer_phone,
             'table_number'     => $order?->table_number,
             'cashier_name'     => $order?->relationLoaded('cashier') && $order?->cashier ? $order->cashier->name : null,
             'cashier_id'       => $order?->cashier_id,

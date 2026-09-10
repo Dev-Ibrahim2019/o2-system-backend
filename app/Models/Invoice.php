@@ -23,6 +23,7 @@ class Invoice extends Model
         'order_id',
         'customer_id',
         'customer_name',
+        'customer_phone',
         'entity_type',
         'entity_id',
         'branch_id',

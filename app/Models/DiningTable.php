@@ -77,6 +77,14 @@ class DiningTable extends Model
         $this->update(['status' => 'PAYMENT_PENDING']);
     }
 
+    /**
+     * فاتورة الزبون انطبعت — الطاولة تضوي أزرق لحين تنفيذ/تحصيل الفاتورة.
+     */
+    public function setBillPrinted(): void
+    {
+        $this->update(['status' => 'BILL_PRINTED']);
+    }
+
     public function setPaid(): void
     {
         $this->update([

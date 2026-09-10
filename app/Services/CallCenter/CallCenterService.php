@@ -163,7 +163,7 @@ class CallCenterService
     public function getCustomerOrders(int $customerId, int $perPage = 20, ?string $cursor = null): array
     {
         $query = Order::where('customer_id', $customerId)
-            ->with(['branch:id,name', 'cashier:id,name'])
+            ->with(['branch:id,name', 'cashier:id,name', 'invoice:id,order_id,customer_phone'])
             ->orderByDesc('created_at');
 
         if ($cursor) {
@@ -191,7 +191,7 @@ class CallCenterService
                 'cashier' => $o->cashier ? ['id' => $o->cashier->id, 'name' => $o->cashier->name] : null,
                 'created_at' => $o->created_at,
                 'customer_name' => $o->customer_name,
-                'customer_phone' => $o->customer_phone,
+                'customer_phone' => $o->invoice?->customer_phone,
             ])->values()->toArray(),
             'next_cursor' => $nextCursor,
             'has_more' => $hasMore,
@@ -223,7 +223,7 @@ class CallCenterService
             'total' => (float) $order->total,
             'note' => $order->note,
             'customer_name' => $order->customer_name,
-            'customer_phone' => $order->customer_phone,
+            'customer_phone' => $order->invoice?->customer_phone,
             'branch' => $order->branch ? ['id' => $order->branch->id, 'name' => $order->branch->name] : null,
             'cashier' => $order->cashier ? ['id' => $order->cashier->id, 'name' => $order->cashier->name] : null,
             'created_at' => $order->created_at,

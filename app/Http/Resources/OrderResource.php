@@ -23,8 +23,8 @@ class OrderResource extends JsonResource
             'status'           => $this->status,
             'table_number'     => $this->table_number,
             'customer_name'    => $this->customer_name,
-            'customer_phone'   => $this->customer_phone,
-            'customer_mobile'  => $this->customer_mobile,
+            // انتقل رقم الجوال إلى الفاتورة — يظهر هون فقط إذا كانت الفاتورة محمّلة
+            'customer_phone'   => $this->whenLoaded('invoice', fn () => $this->invoice?->customer_phone),
             'customer_address_id' => $this->customer_address_id,
             'customer_address' => $this->customer_address,
             'scheduled_at'     => $this->scheduled_at?->toIso8601String(),

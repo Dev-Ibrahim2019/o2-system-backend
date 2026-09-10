@@ -23,29 +23,29 @@
         .receipt-container {
             width: 550px;
             background: #fff;
-            padding: 3px 10px;
+            padding: 0;
             margin: 0 auto;
         }
 
         /* شعار O2 أعلى الفاتورة */
         .brand-header {
             text-align: center;
-            padding: 8px 0 6px;
-            margin-bottom: 4px;
+            padding: 0 0 3px;
+            margin-bottom: 3px;
             border-bottom: 2px dashed #000;
         }
 
         .o2-logo {
             font-family: 'Arial Black', 'Arial', sans-serif;
             font-weight: 900;
-            font-size: 60px;
+            font-size: 46px;
             line-height: 1;
             color: #e2001a;
             letter-spacing: -1px;
         }
 
         .o2-logo sub {
-            font-size: 32px;
+            font-size: 25px;
             font-weight: 900;
             vertical-align: sub;
         }
@@ -55,15 +55,15 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 3px 2px;
-            margin-bottom: 5px;
+            padding: 2px;
+            margin-bottom: 4px;
         }
 
         .header-info {
             display: flex;
             flex-direction: column;
-            gap: 4px;
-            font-size: 20px;
+            gap: 3px;
+            font-size: 18px;
             font-weight: 800;
         }
 
@@ -75,28 +75,28 @@
         .header-badges {
             display: flex;
             flex-direction: column;
-            gap: 4px;
-            width: 155px;
+            gap: 3px;
+            width: 120px;
             flex-shrink: 0;
         }
 
         /* مربع رقم الطاولة - خط أسود غامق متصل وليس منقط */
         .badge-box {
             border: 2px solid #000000;
-            border-radius: 8px;
-            padding: 3px;
+            border-radius: 6px;
+            padding: 2px;
             text-align: center;
         }
 
         .badge-box .title {
-            font-size: 13px;
+            font-size: 11px;
             color: #000000;
             font-weight: 800;
             margin-bottom: 1px;
         }
 
         .badge-box .value {
-            font-size: 24px;
+            font-size: 20px;
             font-weight: 800;
             color: #000;
         }
@@ -105,19 +105,19 @@
         .customer-card {
             border: 2px dashed #000000;
             text-align: center;
-            font-size: 20px;
+            font-size: 18px;
             font-weight: 800;
-            padding: 7px;
-            border-radius: 8px;
-            margin-bottom: 6px;
+            padding: 5px;
+            border-radius: 6px;
+            margin-bottom: 4px;
         }
 
         /* كرت الجدول محاط بالكامل بإطار دائري صريح */
         .table-card {
             border: 1.5px solid #000000;
-            border-radius: 8px;
+            border-radius: 6px;
             padding: 0;
-            margin-bottom: 5px;
+            margin-bottom: 4px;
             overflow: hidden;
         }
 
@@ -130,8 +130,8 @@
         .items-table th {
             background: #f2f2f2;
             border-bottom: 2px solid #000000;
-            padding: 7px 4px;
-            font-size: 19px;
+            padding: 5px 3px;
+            font-size: 17px;
             font-weight: 800;
         }
 
@@ -142,9 +142,9 @@
 
         /* خطوط منقطة سوداء حادة لتقرأها الطابعة بوضوح */
         .items-table td {
-            padding: 8px 4px;
+            padding: 6px 3px;
             border-bottom: 1.5px dotted #000000;
-            font-size: 21px;
+            font-size: 19px;
             font-weight: 800;
             vertical-align: middle;
         }
@@ -154,70 +154,76 @@
         }
 
         .item-notes {
-            font-size: 16px;
+            font-size: 14px;
             color: #000000;
-            margin-top: 2px;
+            margin-top: 1px;
             font-weight: 800;
         }
 
         /* صندوق المجموع النهائي */
         .total-box {
             border: 1.5px solid #000000;
-            border-radius: 8px;
-            padding: 5px 8px;
+            border-radius: 6px;
+            padding: 4px 6px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 5px;
+            margin-bottom: 4px;
         }
 
         .total-label {
-            font-size: 20px;
+            font-size: 19px;
             font-weight: 800;
         }
 
         .total-amount {
-            font-size: 30px;
+            font-size: 27px;
             font-weight: 800;
             font-family: 'Arial', sans-serif;
         }
 
         .employee-card {
             border: 1.5px solid #000000;
-            border-radius: 6px;
-            padding: 6px 8px;
-            font-size: 16px;
+            border-radius: 5px;
+            padding: 3px 6px;
+            font-size: 13px;
             font-weight: 800;
-            margin-bottom: 4px;
+            margin-bottom: 2px;
             text-align: right;
         }
 
         /* ملاحظة الطلب (فاتورة الفوري والمحلي) */
         .order-note {
             border: 2px dashed #000000;
-            border-radius: 8px;
-            padding: 7px 9px;
-            font-size: 19px;
+            border-radius: 6px;
+            padding: 5px 7px;
+            font-size: 17px;
             font-weight: 800;
             text-align: right;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
             white-space: pre-wrap;
             word-wrap: break-word;
         }
 
         .order-note .order-note-label {
-            font-size: 15px;
+            font-size: 12px;
             display: block;
             margin-bottom: 2px;
         }
 
         .footer {
             text-align: center;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 800;
-            border-top: 2px dashed #000000;
-            padding-top: 6px;
-            margin-top: 4px;
+            border-top: 2px dashed #000;
+            padding-top: 3px;
+            margin-top: 2px;
+            padding-bottom: 0;
+            margin-bottom: 0;
+        }
+
+        .footer div {
+            line-height: 1.15;
         }
     </style>
 </head>
@@ -250,14 +256,20 @@
             <div class="customer-card">اسم الزبون: {{ $order->customer_name ?? 'زبون خارجي' }}</div>
         @endisset
 
+        @php
+            // نسخة قسم بلا أسعار (زر "طباعة" بمحلي → نسخ الأقسام) — بس الاسم
+            // والكمية والملاحظات، بدون عمود السعر ولا الإجمالي ولا المجاميع.
+            $hidePrices = !empty($hidePrices);
+        @endphp
+
         <div class="table-card">
             <table class="items-table">
                 <thead>
                     <tr>
                         <th class="col-name">الصنف</th>
-                        <th class="col-price">السعر</th>
+                        @unless($hidePrices)<th class="col-price">السعر</th>@endunless
                         <th class="col-qty">الكمية</th>
-                        <th class="col-total">الإجمالي</th>
+                        @unless($hidePrices)<th class="col-total">الإجمالي</th>@endunless
                     </tr>
                 </thead>
                 <tbody>
@@ -272,9 +284,9 @@
                             <div class="item-notes">// ملاحظة: {{ $item->notes }}</div>
                             @endif
                         </td>
-                        <td class="col-price">₪{{ number_format($item->price, 2) }}</td>
-                        <td class="col-qty">{{ $item->quantity }}</td>
-                        <td class="col-total">₪{{ number_format($item->total ?? ($item->price * $item->quantity), 2) }}</td>
+                        @unless($hidePrices)<td class="col-price">₪{{ number_format($item->price, 2) }}</td>@endunless
+                        <td class="col-qty">{{ rtrim(rtrim(number_format((float) $item->quantity, 4, '.', ''), '0'), '.') }}</td>
+                        @unless($hidePrices)<td class="col-total">₪{{ number_format($item->total ?? ($item->price * $item->quantity), 2) }}</td>@endunless
                     </tr>
                     @endforeach
                 </tbody>
@@ -288,28 +300,39 @@
         @endif
 
         @php
-            // الخصم إجمالي (تلقائي من محرك الخصومات + يدوي) يُعرض بس بفاتورة
-            // الطلب الكاملة (مش بالنسخ المفلترة لكل قسم، لأنه ما بينقسم بشكل منطقي).
-            $totalDiscount = !isset($filteredItems)
-                ? (float) ($order->engine_discount_amount ?? 0) + (float) ($order->discount_amount ?? 0)
-                : 0;
+            // نسخة قسم مفلترة (وضع "فوري")؟ أو فاتورة الطلب الكاملة (محلي/مدمجة)؟
+            $isFilteredSlice = isset($filteredItems);
+
+            $totalDiscount = (float) ($order->engine_discount_amount ?? 0) + (float) ($order->discount_amount ?? 0);
         @endphp
 
-        @if($totalDiscount > 0)
-        <div class="total-box" style="margin-bottom: 3px;">
-            <span class="total-label" style="font-size: 17px;">المجموع الفرعي</span>
-            <span class="total-amount" style="font-size: 21px;">₪{{ number_format($order->subtotal ?? 0, 2) }}</span>
+        {{-- نسخ الأقسام بلا أسعار (زر "طباعة" بمحلي): ما بنعرض أي مجاميع نهائياً. --}}
+        @unless($hidePrices)
+
+        {{-- سطر "المجموع الفرعي" + "الخصم" يُعرض فقط بالفاتورة الكاملة.
+             نسخ "فوري" المقسّمة للأقسام ما بتعرض سطر خصم — الخصم مخزّن ومخصوم
+             من إجمالي الطلب/الفاتورة بقاعدة البيانات فقط. --}}
+        @if($totalDiscount > 0 && ! $isFilteredSlice)
+        <div class="total-box" style="margin-bottom: 2px;">
+            <span class="total-label" style="font-size: 13px;">المجموع الفرعي</span>
+            <span class="total-amount" style="font-size: 16px;">₪{{ number_format($order->subtotal ?? 0, 2) }}</span>
         </div>
-        <div class="total-box" style="margin-bottom: 3px;">
-            <span class="total-label" style="font-size: 17px;">الخصم</span>
-            <span class="total-amount" style="font-size: 21px;">-₪{{ number_format($totalDiscount, 2) }}</span>
+        <div class="total-box" style="margin-bottom: 2px;">
+            <span class="total-label" style="font-size: 13px;">الخصم</span>
+            <span class="total-amount" style="font-size: 16px;">-₪{{ number_format($totalDiscount, 2) }}</span>
         </div>
         @endif
 
+        {{-- المجموع الإجمالي:
+             • فاتورة كاملة (محلي/مدمجة) → صافي الطلب بعد الخصم
+             • نسخة قسم بفوري → مجموع أصناف هذا القسم فقط (الخصم مخزّن بقاعدة
+               البيانات على الفاتورة الإجمالية، مش معروض هون) --}}
         <div class="total-box">
             <span class="total-label">المجموع الإجمالي</span>
-            <span class="total-amount">₪{{ number_format($filteredTotal ?? $order->total ?? 0, 2) }}</span>
+            <span class="total-amount">₪{{ number_format($isFilteredSlice ? ($filteredTotal ?? 0) : ($order->total ?? 0), 2) }}</span>
         </div>
+
+        @endunless
 
         <div class="employee-card">
             @if(!empty($order->printedByUser->name))

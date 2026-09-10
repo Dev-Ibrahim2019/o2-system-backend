@@ -178,7 +178,9 @@ class DiscountController extends ApiController
         $validator = Validator::make($request->all(), [
             'items' => 'required|array|min:1',
             'items.*.price' => 'required|numeric|min:0',
-            'items.*.quantity' => 'nullable|integer|min:1',
+            // كمية عشرية مسموحة — أصناف الوزن (كيلو) بتيجي بكمية مثل 0.75 لما
+            // الكاشير يحط سعر/إجمالي معيّن. قبل هيك كان بيرفضها ويطلع "فشل حساب الخصم".
+            'items.*.quantity' => 'nullable|numeric|gt:0',
             'items.*.item_id' => 'nullable|integer',
             'items.*.item_name' => 'nullable|string',
             'items.*.department_id' => 'nullable|integer',

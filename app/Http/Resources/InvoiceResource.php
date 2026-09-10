@@ -120,8 +120,7 @@ class InvoiceResource extends JsonResource
             // ─────────────────────────────────────────────────────────
             'contact' => $this->whenLoaded('order', fn () => [
                 'customer_name'    => $this->order?->customer_name,
-                'phone'            => $this->order?->customer_phone,
-                'mobile'           => $this->order?->customer_mobile,
+                'phone'            => $this->customer_phone,
                 'address'          => $this->order?->customer_address,
                 'scheduled_at'     => $this->order?->scheduled_at?->toIso8601String(),
                 'notes'            => $this->order?->customer_notes,

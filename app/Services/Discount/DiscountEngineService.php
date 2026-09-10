@@ -86,9 +86,15 @@ class DiscountEngineService
         ?int $supplierId = null,
         ?int $branchId = null
     ): array {
+        // كمية عشرية مدعومة لأصناف الوزن (كيلو): حساب المبالغ بيستعمل الكمية الحقيقية
+        // (0.75 مثلاً)، وفحص أهلية الخصم بيستعمل نسخة صحيحة منها (لأن دوال المحرك
+        // بتتوقّع int) — كفاية للحالة الغالبة إنه ما في خصم مستهدف لأصناف الوزن.
+        $realQty = static fn ($item): float => ($q = (float) ($item['quantity'] ?? 1)) > 0 ? $q : 1.0;
+        $eligQty = static fn (float $q): int => max(1, (int) ceil($q));
+
         $totalOriginal = 0.0;
         foreach ($items as $item) {
-            $totalOriginal += (float) ($item['price'] ?? 0) * max(1, (int) ($item['quantity'] ?? 1));
+            $totalOriginal += (float) ($item['price'] ?? 0) * $realQty($item);
         }
 
         $totalDiscount = 0.0;
@@ -96,12 +102,12 @@ class DiscountEngineService
 
         foreach ($items as $item) {
             $unitPrice = (float) ($item['price'] ?? 0);
-            $quantity = max(1, (int) ($item['quantity'] ?? 1));
+            $quantity = $realQty($item);
             $lineOriginal = $unitPrice * $quantity;
 
             $bestDiscount = $this->getBestDiscount(
                 $unitPrice,
-                $quantity,
+                $eligQty($quantity),
                 $customerId,
                 $employeeId,
                 $supplierId,

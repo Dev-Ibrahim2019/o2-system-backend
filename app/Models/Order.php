@@ -55,8 +55,6 @@ class Order extends Model
         'customer_count',
         'seated_at',
         'customer_name',
-        'customer_phone',
-        'customer_mobile',
         'customer_id',
         'customer_address_id',
         'customer_address',
@@ -162,6 +160,77 @@ class Order extends Model
     public function diningTable()
     {
         return $this->belongsTo(DiningTable::class, 'dining_table_id');
+    }
+
+    /**
+     * إيجاد طاولة الطلب — نجرب dining_table_id ثم current_order_id ثم رقم الطاولة
+     * (مطابقة تامة ثم غير حساسة لحالة الأحرف). نفس منطق deferOrder()/deferAll().
+     */
+    public function resolveDiningTable(): ?DiningTable
+    {
+        if ($this->dining_table_id) {
+            $table = DiningTable::find($this->dining_table_id);
+            if ($table) {
+                return $table;
+            }
+        }
+
+        $table = DiningTable::where('current_order_id', $this->id)->first();
+        if ($table) {
+            return $table;
+        }
+
+        if ($this->table_number && $this->branch_id) {
+            return DiningTable::where('branch_id', $this->branch_id)
+                ->where(function ($q) {
+                    $q->where('table_number', $this->table_number)
+                      ->orWhereRaw('LOWER(table_number) = LOWER(?)', [$this->table_number]);
+                })
+                ->first();
+        }
+
+        return null;
+    }
+
+    /**
+     * هل بقي على طاولة هذا الطلب أي طلب نشط آخر (جولة تانية لسا مفتوحة)؟
+     */
+    private function tableStillHasActiveOrders(DiningTable $table): bool
+    {
+        return static::withoutGlobalScope(BranchScope::class)
+            ->where(function ($q) use ($table) {
+                $q->where('dining_table_id', $table->id)
+                  ->orWhere('table_number', $table->table_number);
+            })
+            ->whereIn('status', ['pending', 'pending_confirmation', 'confirmed', 'in_progress', 'ready'])
+            ->where('id', '!=', $this->id)
+            ->exists();
+    }
+
+    /**
+     * فاتورة الزبون انطبعت / انفّذت — الطاولة تضوي أزرق (BILL_PRINTED).
+     * ما نلمس الطاولة إذا كانت مدمجة/محجوزة/متاحة — فقط لو عليها طلب فعلي.
+     */
+    public function markDiningTableBillPrinted(): void
+    {
+        $table = $this->resolveDiningTable();
+
+        if ($table && in_array($table->status, ['OCCUPIED', 'PENDING_CONFIRMATION', 'PAYMENT_PENDING'], true)) {
+            $table->setBillPrinted();
+        }
+    }
+
+    /**
+     * تحصيل الفاتورة اكتمل (الطلب صار paid) — نغلق الطاولة ونرجعها AVAILABLE،
+     * إلا إذا لسا عليها جولة تانية مفتوحة.
+     */
+    public function releaseDiningTable(): void
+    {
+        $table = $this->resolveDiningTable();
+
+        if ($table && ! $this->tableStillHasActiveOrders($table)) {
+            $table->setAvailable();
+        }
     }
 
     public function invoice(): HasOne
