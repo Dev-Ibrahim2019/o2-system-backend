@@ -19,7 +19,11 @@ class OrderTimelineController extends ApiController
      */
     public function timeline(Order $order): JsonResponse
     {
-        $order->load(['opener', 'closer', 'printer', 'items.creator', 'invoice.closedByUser']);
+        $order->load([
+            'opener', 'closer', 'printer', 'items.creator', 'invoice.closedByUser',
+            // Feedback is an action taken on the order — it belongs in this trail.
+            'feedback.recorder', 'items.feedback.recorder',
+        ]);
 
         $events = [];
 
@@ -94,6 +98,54 @@ class OrderTimelineController extends ApiController
                 'details' => [
                     'total' => $order->total,
                     'payment_method' => $invoice?->payment_method,
+                ],
+            ];
+        }
+
+        // 5. تقييم الأصناف (سطر لكل صنف مُقيَّم — من قيّمه ومتى)
+        foreach ($order->items as $item) {
+            $fb = $item->feedback;
+            if (! $fb) {
+                continue;
+            }
+            $name = $item->item_name_ar ?: $item->item_name;
+            $events[] = [
+                'type' => 'item_rated',
+                'label' => "تقييم صنف «{$name}» — {$fb->rating}/5",
+                'user' => $fb->recorder ? [
+                    'id' => $fb->recorder->id,
+                    'name' => $fb->recorder->name,
+                ] : null,
+                'timestamp' => ($fb->updated_at ?? $fb->created_at)?->toISOString(),
+                'details' => [
+                    'item_id' => $item->id,
+                    'item_name' => $name,
+                    'rating' => $fb->rating,
+                    'notes' => $fb->notes,
+                ],
+            ];
+        }
+
+        // 6. تقييم الطلب العام (طعام / خدمة / سرعة توصيل)
+        if ($order->feedback) {
+            $fb = $order->feedback;
+            $parts = ["طعام {$fb->food_quality}/5", "خدمة {$fb->service_quality}/5"];
+            if ($fb->delivery_speed) {
+                $parts[] = "توصيل {$fb->delivery_speed}/5";
+            }
+            $events[] = [
+                'type' => 'order_rated',
+                'label' => 'تقييم الطلب — ' . implode(' · ', $parts),
+                'user' => $fb->recorder ? [
+                    'id' => $fb->recorder->id,
+                    'name' => $fb->recorder->name,
+                ] : null,
+                'timestamp' => ($fb->updated_at ?? $fb->created_at)?->toISOString(),
+                'details' => [
+                    'food_quality' => $fb->food_quality,
+                    'service_quality' => $fb->service_quality,
+                    'delivery_speed' => $fb->delivery_speed,
+                    'notes' => $fb->notes,
                 ],
             ];
         }
