@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\Crm;
 
 use App\Http\Controllers\Controller;
 use App\Models\CustomerComplaint;
-use App\Models\Employee;
 use App\Models\Scopes\BranchScope;
 use App\Models\User;
 use App\Services\CallCenter\CallCenterService;
@@ -151,44 +150,13 @@ class ComplaintController extends Controller
     }
 
     /**
-     * GET /api/crm/complaints/assignable-employees
-     *
-     * Everyone a complaint may be assigned to, across every branch.
-     *
-     * Assignment is a central function: a complaint raised at one branch is
-     * routinely worked by call-centre staff sitting at another, so the picker
-     * cannot be limited to the viewer's own branch the way operational
-     * employee screens are. Employee carries a global BranchScope, which is
-     * why the general /employees endpoint returns only the viewer's branch —
-     * that endpoint is left exactly as it is; the scope is lifted here alone.
-     *
-     * Filtering by CRM role is not possible: assigned_to is a foreign key to
-     * `employees`, and that table has no link to `users`, so Spatie roles and
-     * permissions cannot be read from it. Its own `role` column carries only
-     * MANAGER/EMPLOYEE, which says nothing about call-centre or CRM duties.
-     * Active employees are therefore the widest set the data model supports.
-     */
-    public function assignableEmployees(Request $request): JsonResponse
-    {
-        $employees = Employee::withoutGlobalScope(BranchScope::class)
-            ->where('status', 'ACTIVE')
-            ->with('branch:id,name')
-            ->orderBy('name')
-            ->get(['id', 'name', 'branch_id', 'role']);
-
-        return response()->json(['data' => $employees]);
-    }
-
-    /**
      * GET /api/crm/complaints/assignable-users
      *
      * The real login accounts a CRM complaint may be assigned to — anyone
      * holding crm.complaints.update (the permission to work a complaint at
-     * all). Branch scope lifted, exactly like assignableEmployees(): a
-     * complaint filed at one branch is regularly worked by staff at another.
-     *
-     * This is the picker the CRM screens use; assignableEmployees() stays for
-     * the Call Center's own assigned_to field.
+     * all). Branch scope lifted: a complaint filed at one branch is regularly
+     * worked by staff at another, so the picker cannot be limited to the
+     * viewer's own branch the way operational screens are.
      */
     public function assignableUsers(Request $request): JsonResponse
     {

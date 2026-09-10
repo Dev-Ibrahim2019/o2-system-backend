@@ -445,10 +445,8 @@ Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->gro
     // literal and "summary" is looked up as a complaint id.
     Route::get('complaints', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'index'])->middleware('permission:crm.complaints.view');
     Route::get('complaints/summary', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'summary'])->middleware('permission:crm.complaints.view');
+    // The CRM assignee picker — real login accounts that may work a complaint.
     // Literal, so it must precede the {complaint} wildcard below.
-    Route::get('complaints/assignable-employees', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'assignableEmployees'])->middleware('permission:crm.complaints.update');
-    // The CRM assignee picker — real login accounts that may work a complaint,
-    // not the legacy employees list. Literal, so above the {complaint} wildcard.
     Route::get('complaints/assignable-users', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'assignableUsers'])->middleware('permission:crm.complaints.update');
     Route::get('complaints/{complaint}', [\App\Http\Controllers\Api\Crm\ComplaintController::class, 'show'])->middleware('permission:crm.complaints.view');
     // Appending to the trail is a write on the complaint, so it rides on
