@@ -11,6 +11,7 @@ use App\Models\CustomerGroup;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\CustomerNote;
 use App\Models\CustomerOccasion;
+use App\Models\LoyaltyTransaction;
 use App\Models\Order;
 use App\Models\OrderFeedback;
 use App\Services\Accounting\CustomerAccountingService;
@@ -322,17 +323,38 @@ class CrmController extends Controller
             ->sortByDesc('count')
             ->values();
 
+        // A customer's loyalty balance is the signed sum of their confirmed
+        // loyalty_transactions rows — never customers.loyalty_points, a column
+        // added in 2026-07 for a points model that predates the ledger and
+        // that nothing has written since (see LoyaltyTransaction's docblock).
+        // Reading that column made every loyalty figure on this dashboard show
+        // zero. Aggregated once here and reused for all three below.
+        $loyaltyBalances = LoyaltyTransaction::query()
+            ->where('owner_type', 'customer')
+            ->where('status', 'confirmed')
+            ->whereIn('owner_id', $customerIds)
+            ->groupBy('owner_id')
+            ->selectRaw('owner_id, SUM(points) as balance')
+            ->pluck('balance', 'owner_id');
+
         $topCustomersByLoyalty = (clone $baseCustomers)
-            ->where('loyalty_points', '>', 0)
-            ->orderByDesc('loyalty_points')
-            ->limit(5)
-            ->get(['id', 'name', 'code', 'loyalty_points']);
+            ->whereIn('id', $loyaltyBalances->keys())
+            ->get(['id', 'name', 'code'])
+            ->map(function ($customer) use ($loyaltyBalances) {
+                $customer->setAttribute('loyalty_points', round((float) $loyaltyBalances->get($customer->id, 0), 3));
+
+                return $customer;
+            })
+            ->filter(fn ($customer) => $customer->loyalty_points > 0)
+            ->sortByDesc('loyalty_points')
+            ->take(5)
+            ->values();
 
         $recentCustomers = (clone $baseCustomers)
             ->with('branch:id,name')
             ->latest()
             ->limit(5)
-            ->get(['id', 'code', 'name', 'phone', 'mobile', 'email', 'engagement_status', 'status', 'loyalty_points', 'branch_id', 'created_at']);
+            ->get(['id', 'code', 'name', 'phone', 'mobile', 'email', 'engagement_status', 'status', 'branch_id', 'created_at']);
 
         // Each recent-customer row shows their nearest/most recent occasion
         // (birthday, anniversary, ...) — real per-customer data, not their
@@ -345,10 +367,11 @@ class CrmController extends Controller
             ->get(['occasionable_id', 'occasion_type', 'date'])
             ->unique('occasionable_id')
             ->keyBy('occasionable_id');
-        $recentCustomers = $recentCustomers->map(function ($customer) use ($latestOccasionByCustomer) {
+        $recentCustomers = $recentCustomers->map(function ($customer) use ($latestOccasionByCustomer, $loyaltyBalances) {
             $occasion = $latestOccasionByCustomer->get($customer->id);
             $customer->setAttribute('occasion_type', $occasion?->occasion_type);
             $customer->setAttribute('occasion_label', $occasion ? (self::OCCASION_LABELS[$occasion->occasion_type] ?? $occasion->occasion_type) : null);
+            $customer->setAttribute('loyalty_points', round((float) $loyaltyBalances->get($customer->id, 0), 3));
 
             return $customer;
         });
@@ -362,7 +385,7 @@ class CrmController extends Controller
             'new_customers_count' => $newInPeriod,
             'open_complaints_count' => $openComplaints,
             'orders_count' => $ordersCount,
-            'loyalty_points_total' => (int) (clone $baseCustomers)->sum('loyalty_points'),
+            'loyalty_points_total' => (int) round($loyaltyBalances->sum()),
             'trends' => [
                 'customers_count' => $trendPct($customersCount, $customersCount30dAgo),
                 'active_customers_count' => $trendPct($activeCount, $activeCount30dAgo),
