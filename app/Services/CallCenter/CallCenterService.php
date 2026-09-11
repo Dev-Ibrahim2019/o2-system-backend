@@ -11,6 +11,7 @@ use App\Models\ComplaintFollowup;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\User;
+use App\Services\Crm\ComplaintNotificationService;
 use App\Services\CustomerIdentityService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -24,6 +25,7 @@ class CallCenterService
 {
     public function __construct(
         private readonly CustomerIdentityService $customerIdentity,
+        private readonly ComplaintNotificationService $complaintNotifications,
     ) {}
 
     public function getActiveOrders(?int $branchId = null): array
@@ -611,6 +613,22 @@ class CallCenterService
         ]);
 
         $this->addFollowup($complaint->id, $userId, 'created', 'تم إنشاء الشكوى', 'system');
+
+        // A high/critical-priority or critical-severity arrival gets broadcast
+        // to everyone who can work a complaint immediately — regardless of
+        // which channel filed it — instead of waiting its turn in the queue.
+        if ($complaint->isUrgent()) {
+            $actor = User::withoutGlobalScopes()->find($userId);
+            if ($actor) {
+                $priority = CustomerComplaint::PRIORITY_LABELS[$complaint->priority] ?? $complaint->priority;
+                $severity = CustomerComplaint::SEVERITY_LABELS[$complaint->severity] ?? $complaint->severity;
+                $this->complaintNotifications->notifyUrgent(
+                    $complaint,
+                    $actor,
+                    "شكوى بأولوية {$priority} وخطورة {$severity} تحتاج استجابة سريعة — #{$complaint->id}: {$complaint->title}",
+                );
+            }
+        }
 
         return $complaint;
     }

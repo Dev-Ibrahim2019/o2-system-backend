@@ -116,6 +116,13 @@ class CustomerComplaint extends Model
     const PRIORITY_HIGH = 'high';
     const PRIORITY_CRITICAL = 'critical';
 
+    public const PRIORITY_LABELS = [
+        self::PRIORITY_LOW => 'منخفضة',
+        self::PRIORITY_NORMAL => 'عادية',
+        self::PRIORITY_HIGH => 'مرتفعة',
+        self::PRIORITY_CRITICAL => 'حرجة',
+    ];
+
     /**
      * Which status can follow which.
      *
@@ -154,6 +161,25 @@ class CustomerComplaint extends Model
     const SEVERITY_INFO = 'info';
     const SEVERITY_WARNING = 'warning';
     const SEVERITY_CRITICAL = 'critical';
+
+    public const SEVERITY_LABELS = [
+        self::SEVERITY_INFO => 'معلومة',
+        self::SEVERITY_WARNING => 'تحذير',
+        self::SEVERITY_CRITICAL => 'حرجة',
+    ];
+
+    /**
+     * High/critical priority, or critical severity — an arrival (or an
+     * escalation into one of these) deserves an immediate broadcast to
+     * everyone who can work a complaint, not just its slot in the normal
+     * queue. Used to decide whether to fire ComplaintNotificationService::
+     * notifyUrgent() on create, and on an update that crosses into this set.
+     */
+    public function isUrgent(): bool
+    {
+        return in_array($this->priority, [self::PRIORITY_HIGH, self::PRIORITY_CRITICAL], true)
+            || $this->severity === self::SEVERITY_CRITICAL;
+    }
 
     public function customer(): BelongsTo
     {

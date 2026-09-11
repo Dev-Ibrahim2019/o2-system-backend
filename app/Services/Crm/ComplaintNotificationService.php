@@ -37,6 +37,31 @@ class ComplaintNotificationService
     }
 
     /**
+     * Broadcast an urgent complaint — high/critical priority, or critical
+     * severity — to everyone who can work one, so whoever is free grabs it
+     * immediately instead of it waiting its turn in the normal queue.
+     *
+     * Company-wide, not branch-scoped: customer_complaints.branch_id is
+     * frequently null even for a real per-customer complaint (the per-
+     * customer creation path never sets it), so scoping this by branch would
+     * silently under-notify on the common case.
+     */
+    public function notifyUrgent(CustomerComplaint $complaint, User $actor, string $message): void
+    {
+        User::withoutGlobalScope(BranchScope::class)
+            ->permission('crm.complaints.update')
+            ->get()
+            ->reject(fn (User $u) => $u->id === $actor->id)
+            ->each(fn (User $u) => $u->notify(new ComplaintActivityNotification(
+                (int) $complaint->id,
+                (string) $complaint->title,
+                'urgent',
+                $actor->name,
+                $message,
+            )));
+    }
+
+    /**
      * Notify the people who watch complaints regardless of who works them:
      * every CRM manager, plus whoever filed this one — never the actor.
      */

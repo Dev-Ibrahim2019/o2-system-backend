@@ -777,13 +777,18 @@ class CrmController extends Controller
         }
 
         // Managers see every new complaint land, not only the ones they
-        // filed themselves — this is the "new" queue's arrival bell.
-        $this->notifications->notifyOversight(
-            $complaint,
-            $request->user(),
-            'created',
-            "سجّل {$request->user()->name} شكوى جديدة #{$complaint->id}: {$complaint->title}",
-        );
+        // filed themselves — this is the "new" queue's arrival bell. Skipped
+        // when the complaint is urgent: CallCenterService::createComplaint()
+        // already broadcast that to every agent, managers included — a
+        // second "created" notification on top would just be noise.
+        if (! $complaint->isUrgent()) {
+            $this->notifications->notifyOversight(
+                $complaint,
+                $request->user(),
+                'created',
+                "سجّل {$request->user()->name} شكوى جديدة #{$complaint->id}: {$complaint->title}",
+            );
+        }
 
         return response()->json([
             'data' => $complaint->load(['customer:id,name,phone', 'order:id,order_number']),
@@ -842,12 +847,14 @@ class CrmController extends Controller
             $this->recordAssigneeChange($complaint->fresh(), $actor, null, (int) $complaint->assigned_user_id);
         }
 
-        $this->notifications->notifyOversight(
-            $complaint,
-            $actor,
-            'created',
-            "سجّل {$actor->name} شكوى عامة جديدة #{$complaint->id}: {$complaint->title}",
-        );
+        if (! $complaint->isUrgent()) {
+            $this->notifications->notifyOversight(
+                $complaint,
+                $actor,
+                'created',
+                "سجّل {$actor->name} شكوى عامة جديدة #{$complaint->id}: {$complaint->title}",
+            );
+        }
 
         return response()->json([
             'data' => $complaint->load(['order:id,order_number']),
@@ -956,6 +963,7 @@ class CrmController extends Controller
         }
 
         $sensitiveWas = (bool) $complaint->is_sensitive;
+        $wasUrgent = $complaint->isUrgent();
 
         if (isset($data['status'])) {
             $resolutionNotes = $data['resolution_notes'] ?? null;
@@ -1001,6 +1009,19 @@ class CrmController extends Controller
             $complaint->assigned_user_id = $actor->id;
             $complaint->save();
             $this->recordAssigneeChange($complaint, $actor, null, $actor->id, auto: true);
+        }
+
+        // ── Escalated into urgent territory: broadcast, same as on arrival ──
+        // Fires once, at the crossing — a complaint already urgent that gets
+        // touched again (a note, a status move) does not re-broadcast.
+        if (! $wasUrgent && $complaint->isUrgent()) {
+            $priority = CustomerComplaint::PRIORITY_LABELS[$complaint->priority] ?? $complaint->priority;
+            $severity = CustomerComplaint::SEVERITY_LABELS[$complaint->severity] ?? $complaint->severity;
+            $this->notifications->notifyUrgent(
+                $complaint,
+                $actor,
+                "صعّد {$actor->name} الشكوى #{$complaint->id} إلى أولوية {$priority} وخطورة {$severity}: {$complaint->title}",
+            );
         }
 
         // ── Sensitivity toggle leaves a line in the trail ──
