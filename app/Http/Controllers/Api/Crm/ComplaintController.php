@@ -178,8 +178,12 @@ class ComplaintController extends Controller
      * piece of logic. Only the guard differs: crm.complaints.update instead of
      * the call-centre role group.
      */
-    public function addFollowup(Request $request, CustomerComplaint $complaint, CallCenterService $callCenter): JsonResponse
-    {
+    public function addFollowup(
+        Request $request,
+        CustomerComplaint $complaint,
+        CallCenterService $callCenter,
+        \App\Services\Crm\ComplaintNotificationService $notifications,
+    ): JsonResponse {
         // Resolved through the scoped builder, exactly as show() does: a
         // complaint the viewer could not open must not be one they can append
         // to, and a 404 keeps a sensitive record's existence unconfirmed.
@@ -203,6 +207,19 @@ class ComplaintController extends Controller
             $data['followup_type'] ?? 'note',
         );
 
+        // Tell the assignee someone else wrote on their ticket — the one
+        // follow-up scenario worth a bell: a manager or a colleague added
+        // context the assignee has not seen yet.
+        if ($found->assigned_user_id && (int) $found->assigned_user_id !== $request->user()->id) {
+            $notifications->notifyUser(
+                (int) $found->assigned_user_id,
+                $found,
+                $request->user(),
+                'followup_added',
+                "أضاف {$request->user()->name} متابعة على الشكوى #{$found->id}: {$found->title}",
+            );
+        }
+
         return response()->json(['data' => $followup->load('user:id,name')], 201);
     }
 
@@ -214,10 +231,31 @@ class ComplaintController extends Controller
     {
         $filters = $applyFilters ? $this->validateFilters($request) : [];
 
+        $user = $request->user();
+
         return CustomerComplaint::query()
-            ->visibleTo($request->user())
-            ->whereIn('customer_id', $this->access->visibleCustomers($request->user())->select('id'))
+            ->visibleTo($user)
+            // A row is visible either through its customer (the normal case)
+            // or, for a "شكوى عامة" with no customer_id, through its own
+            // branch_id — the same two paths updateComplaint()'s authorization
+            // checks below.
+            ->where(function (Builder $q) use ($user) {
+                $q->whereIn('customer_id', $this->access->visibleCustomers($user)->select('id'))
+                    ->orWhere(function (Builder $general) use ($user) {
+                        $general->whereNull('customer_id');
+                        if (! $this->access->isGlobal($user)) {
+                            $general->where(function (Builder $b) use ($user) {
+                                $b->whereNull('branch_id')->orWhere('branch_id', (string) $user->branch_id);
+                            });
+                        }
+                    });
+            })
             ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            // "الشكاوى المفتوحة" view — the happy-path statuses CustomerComplaint
+            // ::scopeOpen() already defines, reused so this can never drift
+            // from what the "شكاوى مفتوحة" KPI card counts.
+            ->when(($filters['view'] ?? null) === 'open', fn ($q) => $q->open())
+            ->when(($filters['view'] ?? null) === 'general', fn ($q) => $q->whereNull('customer_id'))
             ->when($filters['priority'] ?? null, fn ($q, $v) => $q->where('priority', $v))
             ->when($filters['channel'] ?? null, fn ($q, $v) => $q->where('channel', $v))
             ->when($filters['department'] ?? null, fn ($q, $v) => $q->where('department', $v))
@@ -267,6 +305,10 @@ class ComplaintController extends Controller
                 CustomerComplaint::PRIORITY_HIGH,
                 CustomerComplaint::PRIORITY_CRITICAL,
             ])],
+            // "open": the happy-path statuses (new/open/in_progress/waiting_
+            // customer) — what /admin/crm/complaints/open shows. "general":
+            // complaints with no customer_id.
+            'view' => ['nullable', Rule::in(['open', 'general'])],
             'channel' => ['nullable', Rule::in(CustomerComplaint::CHANNELS)],
             'department' => ['nullable', Rule::in(CustomerComplaint::DEPARTMENTS)],
             'assigned_to' => ['nullable', 'integer', 'exists:employees,id'],

@@ -585,7 +585,8 @@ class CallCenterService
         }
 
         $complaint = CustomerComplaint::create([
-            'customer_id' => $data['customer_id'],
+            // Nullable: a "شكوى عامة" is not about any one customer.
+            'customer_id' => $data['customer_id'] ?? null,
             'order_id' => $data['order_id'] ?? null,
             'invoice_id' => $data['invoice_id'] ?? null,
             'assigned_to' => $data['assigned_to'] ?? null,

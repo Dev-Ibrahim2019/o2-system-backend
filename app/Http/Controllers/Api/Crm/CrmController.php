@@ -42,6 +42,7 @@ class CrmController extends Controller
         // equivalents below (favorites(), orderDetails()).
         private readonly CallCenterService $callCenter,
         private readonly CrmOrdersQueryService $orders,
+        private readonly \App\Services\Crm\ComplaintNotificationService $notifications,
     ) {}
 
     /**
@@ -775,8 +776,81 @@ class CrmController extends Controller
             $this->recordAssigneeChange($complaint->fresh(), $request->user(), null, (int) $complaint->assigned_user_id);
         }
 
+        // Managers see every new complaint land, not only the ones they
+        // filed themselves — this is the "new" queue's arrival bell.
+        $this->notifications->notifyOversight(
+            $complaint,
+            $request->user(),
+            'created',
+            "سجّل {$request->user()->name} شكوى جديدة #{$complaint->id}: {$complaint->title}",
+        );
+
         return response()->json([
             'data' => $complaint->load(['customer:id,name,phone', 'order:id,order_number']),
+        ], 201);
+    }
+
+    /**
+     * POST /api/crm/complaints
+     *
+     * A complaint that is not about any one customer — "شكوى عامة": a
+     * recurring process failure, a branch-wide note, anything the per-
+     * customer form has no subject for. customer_id is left null.
+     *
+     * There is no Customer to authorize against, so the record is scoped to
+     * the actor's own branch instead (null for a global user who does not
+     * belong to one) — authorizeBranch() below is the same check updateComplaint()
+     * applies when it later finds a general complaint.
+     */
+    public function createGeneralComplaint(Request $request): JsonResponse
+    {
+        $actor = $request->user();
+
+        $data = $request->validate([
+            'title'        => ['required', 'string', 'max:255'],
+            'description'  => ['nullable', 'string'],
+            'assigned_user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'type'         => ['nullable', 'string', 'max:50'],
+            'priority'     => ['nullable', 'in:low,normal,high,critical'],
+            'severity'     => ['nullable', 'in:info,warning,critical'],
+            'is_sensitive' => ['nullable', 'boolean'],
+            // Required here, unlike the per-customer form: with no customer to
+            // imply who should see it, the department is the only routing
+            // signal a general complaint carries.
+            'department'   => ['required', Rule::in(CustomerComplaint::DEPARTMENTS)],
+        ]);
+
+        if ($request->boolean('is_sensitive')) {
+            abort_unless($actor->can('crm.view-sensitive-notes'), 403, 'لا تملك صلاحية إنشاء شكوى حساسة.');
+        }
+
+        if (($data['assigned_user_id'] ?? null) !== null && (int) $data['assigned_user_id'] !== $actor->id) {
+            abort_unless(
+                $actor->can('crm.complaints.assign'),
+                403,
+                'إسناد الشكوى لموظف آخر من صلاحية مدير قسم CRM.',
+            );
+        }
+
+        $complaint = $this->callCenter->createComplaint(
+            [...$data, 'customer_id' => null, 'branch_id' => $actor->branch_id],
+            $actor->id,
+            CustomerComplaint::CHANNEL_CRM,
+        );
+
+        if ($complaint->assigned_user_id) {
+            $this->recordAssigneeChange($complaint->fresh(), $actor, null, (int) $complaint->assigned_user_id);
+        }
+
+        $this->notifications->notifyOversight(
+            $complaint,
+            $actor,
+            'created',
+            "سجّل {$actor->name} شكوى عامة جديدة #{$complaint->id}: {$complaint->title}",
+        );
+
+        return response()->json([
+            'data' => $complaint->load(['order:id,order_number']),
         ], 201);
     }
 
@@ -790,7 +864,13 @@ class CrmController extends Controller
     public function updateComplaint(Request $request, CustomerComplaint $complaint): JsonResponse
     {
         $actor = $request->user();
-        $this->access->authorize($actor, $complaint->customer);
+        // A general complaint (no customer_id) has nothing to authorize
+        // against but its own branch.
+        if ($complaint->customer_id) {
+            $this->access->authorize($actor, $complaint->customer);
+        } else {
+            $this->access->authorizeBranch($actor, $complaint->branch_id);
+        }
 
         if ($complaint->is_sensitive) {
             abort_unless($actor->can('crm.view-sensitive-notes'), 403, 'لا تملك صلاحية تعديل شكوى حساسة.');
@@ -1044,45 +1124,17 @@ class CrmController extends Controller
         }
     }
 
-    /** Notify one user about a complaint (branch scope lifted to find them). */
+    /** Thin wrappers over ComplaintNotificationService — kept so every call
+     *  site above reads "notify the complaint" without importing the service
+     *  type itself. */
     private function notifyComplaintUser(int $userId, CustomerComplaint $complaint, User $actor, string $action, string $message): void
     {
-        $user = User::withoutGlobalScope(BranchScope::class)->find($userId);
-        $user?->notify(new ComplaintActivityNotification(
-            (int) $complaint->id,
-            (string) $complaint->title,
-            $action,
-            $actor->name,
-            $message,
-        ));
+        $this->notifications->notifyUser($userId, $complaint, $actor, $action, $message);
     }
 
-    /**
-     * Notify the people who watch complaints regardless of who works them:
-     * every CRM manager, plus whoever filed this one — never the actor.
-     */
     private function notifyComplaintOversight(CustomerComplaint $complaint, User $actor, string $action, string $message): void
     {
-        $recipients = User::withoutGlobalScope(BranchScope::class)
-            ->role('crm-manager')
-            ->get();
-
-        if ($complaint->created_by && ! $recipients->contains('id', (int) $complaint->created_by)) {
-            $creator = User::withoutGlobalScope(BranchScope::class)->find($complaint->created_by);
-            if ($creator) {
-                $recipients->push($creator);
-            }
-        }
-
-        $recipients
-            ->reject(fn (User $u) => $u->id === $actor->id)
-            ->each(fn (User $u) => $u->notify(new ComplaintActivityNotification(
-                (int) $complaint->id,
-                (string) $complaint->title,
-                $action,
-                $actor->name,
-                $message,
-            )));
+        $this->notifications->notifyOversight($complaint, $actor, $action, $message);
     }
 
     public function notes(Request $request, Customer $customer): JsonResponse

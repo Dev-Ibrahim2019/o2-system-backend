@@ -439,6 +439,9 @@ Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->gro
     // CRM's own write path onto the same complaint lifecycle the Call Center
     // uses. No delete: a complaint is closed or cancelled, never erased.
     Route::post('customers/{customer}/complaints', [$crm, 'createComplaint'])->middleware('permission:crm.complaints.create');
+    // "شكوى عامة" — a complaint not about any one customer. Literal path, no
+    // conflict with the GET listing at the same URL.
+    Route::post('complaints', [$crm, 'createGeneralComplaint'])->middleware('permission:crm.complaints.create');
     Route::put('complaints/{complaint}', [$crm, 'updateComplaint'])->middleware('permission:crm.complaints.update');
     // Cross-customer complaint reads. `summary` is declared before the
     // `{complaint}` wildcard on purpose — below it, the wildcard swallows the

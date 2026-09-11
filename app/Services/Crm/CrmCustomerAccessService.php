@@ -28,6 +28,21 @@ class CrmCustomerAccessService
         );
     }
 
+    /**
+     * The same branch check as authorize(), for a record with no customer to
+     * key off — a general complaint (customer_id IS NULL). A null branch_id
+     * (unclassified) is left to whoever can reach the record at all: there is
+     * no branch to compare against, so this is not a place to invent a rule.
+     */
+    public function authorizeBranch(User $user, ?string $branchId): void
+    {
+        abort_unless(
+            $this->isGlobal($user) || $branchId === null || (int) $branchId === (int) $user->branch_id,
+            403,
+            'لا تملك صلاحية الوصول إلى سجل من فرع آخر.'
+        );
+    }
+
     public function isGlobal(User $user): bool
     {
         return $user->hasRole('super-admin') || is_null($user->branch_id);
