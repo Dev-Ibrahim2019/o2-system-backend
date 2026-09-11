@@ -77,6 +77,27 @@ class Employee extends Model
         return $this->hasMany(EmployeeLoan::class);
     }
 
+    public function driverShifts(): HasMany
+    {
+        return $this->hasMany(DriverShift::class);
+    }
+
+    /** هل الموظف بشفت مفتوح ومتاح الآن (آخر سجل driver_shifts بلا shift_end وis_available=true) */
+    public function isAvailableNow(): bool
+    {
+        return $this->driverShifts()
+            ->whereNull('shift_end')
+            ->where('is_available', true)
+            ->exists();
+    }
+
+    /** هل الموظف بشفت مفتوح حاليًا (بغض النظر عن is_available) — يميّز "غير متاح مؤقتًا/استراحة"
+     * (شفت مفتوح لكن is_available=false) عن "غير متصل" (ما في شفت مفتوح أصلاً). */
+    public function onShiftNow(): bool
+    {
+        return $this->driverShifts()->whereNull('shift_end')->exists();
+    }
+
     // ── Subledger Financial Accessors ─────────────────────────────────────────
     // هذه الـ Accessors تحسب مباشرة من entries بدون حسابات مستقلة
 

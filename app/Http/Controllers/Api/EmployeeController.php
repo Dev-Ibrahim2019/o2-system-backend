@@ -47,6 +47,11 @@ class EmployeeController extends ApiController
             ->when($request->branch_id,     fn($q) => $q->where('branch_id',     $request->branch_id))
             ->when($request->department_id, fn($q) => $q->where('department_id', $request->department_id))
             ->when($request->status,        fn($q) => $q->where('status',        $request->status))
+            ->when($request->operational_role, fn($q) => $q->where('operational_role', $request->operational_role))
+            ->when($request->boolean('available_only'), fn($q) => $q->whereHas(
+                'driverShifts',
+                fn($qb) => $qb->whereNull('shift_end')->where('is_available', true)
+            ))
             ->when($request->search,        fn($q) => $q->where(
                 fn($qb) =>
                 $qb->where('name',       'like', "%{$request->search}%")

@@ -64,6 +64,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
         Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
         Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
+        Route::post('orders/{order}/assign-delivery', [OrderController::class, 'assignDelivery']);
+        Route::post('orders/{order}/deliver', [OrderController::class, 'markDelivered']);
     Route::post('orders/{order}/defer', [OrderController::class, 'deferOrder']);
     Route::post('orders/{order}/transfer', [OrderController::class, 'transfer']);
         Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
@@ -145,6 +147,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post("/{employee}/loan-repayment", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordLoanRepayment"]);
         Route::get("/{employee}/loans", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "getLoans"]);
         Route::post("/{employee}/settlement", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordSettlement"]);
+        Route::post("/{employee}/shifts/start", [\App\Http\Controllers\Api\DriverShiftController::class, "start"]);
+        Route::post("/{employee}/shifts/end", [\App\Http\Controllers\Api\DriverShiftController::class, "end"]);
     });
     Route::apiResource('employees', EmployeeController::class);
 

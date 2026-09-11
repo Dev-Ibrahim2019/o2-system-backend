@@ -62,6 +62,12 @@ class Order extends Model
         'total',
         'cancellation_reason',
         'cancelled_at',
+        'driver_id',
+        'delivery_assigned_at',
+        'delivered_at',
+        'executed_at',
+        'execution_attempts',
+        'execution_failed_reason',
     ];
 
     protected $casts = [
@@ -79,6 +85,10 @@ class Order extends Model
         'delivery_fee' => 'decimal:3',
         'delivery_address_snapshot' => 'array',
         'cancelled_at' => 'datetime',
+        'delivery_assigned_at' => 'datetime',
+        'delivered_at' => 'datetime',
+        'executed_at' => 'datetime',
+        'execution_attempts' => 'integer',
     ];
 
     public function branch(): BelongsTo
@@ -89,6 +99,12 @@ class Order extends Model
     public function cashier(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'cashier_id');
+    }
+
+    /** موظف التوصيل المُسنَد للطلب (عمود driver_id — كان موجودًا بلا استخدام قبل هذه الميزة) */
+    public function driver(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'driver_id');
     }
 
     public function items(): HasMany

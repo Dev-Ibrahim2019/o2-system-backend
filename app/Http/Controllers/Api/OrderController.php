@@ -11,6 +11,7 @@ use App\Http\Resources\OrderItemResource;
 use App\Http\Resources\OrderResource;
 use App\Models\DiningTable;
 use App\Models\Customer;
+use App\Models\Employee;
 use App\Models\Item;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -169,6 +170,7 @@ class OrderController extends ApiController
                 'tickets.department',
                 'cashier',
                 'branch',
+                'driver',
                 'invoice.items',
                 'invoice.payments',
             ]))
@@ -332,98 +334,13 @@ class OrderController extends ApiController
      * يدعم: pending → confirmed و pending_confirmation → confirmed
      * يرسل فقط العناصر بحالة pending (الجديدة) — لا يعيد إرسال القديمة.
      */
-    public function confirm(Order $order): JsonResponse
+    public function confirm(Order $order, \App\Services\CallCenter\OrderConfirmationService $confirmationService): JsonResponse
     {
-        if ($order->source === 'call_center' && $order->status !== 'paid') {
-            return $this->error('لا يمكن إرسال طلب الكول سنتر للمطبخ قبل اكتمال الفاتورة والدفع.', 422);
-        }
-
-        if (! in_array($order->status, ['pending', 'pending_confirmation', 'paid'], true)) {
-            return $this->error('لا يمكن تأكيد هذا الطلب في حالته الحالية.', 422);
-        }
-
-        // تعديل: جلب العلاقة هنا مع الاستعلام الأساسي لتجنب مشكلة الـ with اللاحقة
-        $unsentItems = $order->items()
-            ->with('department')
-            ->where('status', 'pending')
-            ->get();
-
-        if ($unsentItems->isEmpty()) {
-            return $this->error('لا توجد عناصر جديدة لإرسالها.', 422);
-        }
-
-        DB::beginTransaction();
         try {
-            // تعديل: التجميع مباشرة الآن بعد أن جلبنا العلاقات بالأعلى
-            $itemsByDept = $unsentItems->groupBy('department_id');
-
-            foreach ($itemsByDept as $deptId => $deptItems) {
-                if (! $deptId) {
-                    continue;
-                }
-
-                // البحث عن تذكرة نشطة موجودة للقسم نفسه في نفس الطلب
-                $ticket = $order->tickets()
-                    ->where('department_id', $deptId)
-                    ->whereIn('status', ['pending', 'preparing'])
-                    ->first();
-
-                if (! $ticket) {
-                    $ticket = ProductionTicket::create([
-                        'order_id' => $order->id,
-                        'department_id' => $deptId,
-                        'ticket_number' => ProductionTicket::generateTicketNumber((int) $deptId),
-                        'status' => 'pending',
-                        'sent_at' => now(),
-                        'notes' => $order->note,
-                    ]);
-                }
-
-                foreach ($deptItems as $orderItem) {
-                    // تجنب التكرار — لا تُضاف إذا لها ticketItem مسبقاً
-                    if ($orderItem->ticketItem) {
-                        continue;
-                    }
-
-                    ProductionTicketItem::create([
-                        'production_ticket_id' => $ticket->id,
-                        'order_item_id' => $orderItem->id,
-                        'quantity' => (int) ceil((float) $orderItem->quantity),
-                        'notes' => $orderItem->notes,
-                        'status' => 'pending',
-                    ]);
-
-                    $orderItem->update(['sent_to_kitchen_at' => now()]);
-                }
-            }
-
-            // A call-center order may be financially closed before kitchen
-            // submission. Preserve its paid state while creating production
-            // tickets instead of reopening the financial lifecycle.
-            if ($order->status !== 'paid') {
-                $order->update(['status' => 'confirmed']);
-            }
-
-            // تحديث الطاولة إلى HAS_ORDER (عليها طلب)
-            if ($order->dining_table_id) {
-                $table = DiningTable::find($order->dining_table_id);
-                if ($table) {
-                    $table->update(['status' => 'HAS_ORDER']);
-                }
-            }
-
-            DB::commit();
-
-            return $this->success(
-                'تم إرسال الطلب للأقسام',
-                new OrderResource($order->fresh()->load([
-                    'items.department',
-                    'tickets.ticketItems.orderItem',
-                    'tickets.department',
-                ]))
-            );
+            $order = $confirmationService->confirmOrder($order);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
         } catch (\Throwable $e) {
-            DB::rollBack();
             \Log::error('فشل تأكيد الطلب #' . $order->id, [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),
@@ -433,6 +350,8 @@ class OrderController extends ApiController
 
             return $this->error('فشل تأكيد الطلب: ' . $e->getMessage(), 500);
         }
+
+        return $this->success('تم إرسال الطلب للأقسام', new OrderResource($order));
     }
 
     public function cancel(Request $request, Order $order): JsonResponse
@@ -494,6 +413,59 @@ class OrderController extends ApiController
         } catch (\Throwable $e) {
             return $this->error('فشل تسليم الطلب: ' . $e->getMessage(), 500);
         }
+    }
+
+    /**
+     * تعيين موظف توصيل لطلب جاهز (order_type=delivery فقط) — يستخدم عمود orders.driver_id
+     * الموجود أصلاً (كان بلا استخدام)، وينقل الطلب لحالة OUT_FOR_DELIVERY.
+     */
+    public function assignDelivery(Request $request, Order $order): JsonResponse
+    {
+        if ($order->order_type !== 'delivery') {
+            return $this->error('تعيين موظف توصيل متاح فقط لطلبات التوصيل.', 422);
+        }
+
+        if ($order->status !== 'ready') {
+            return $this->error('لا يمكن تعيين موظف توصيل قبل أن يصبح الطلب جاهزًا.', 422);
+        }
+
+        $data = $request->validate([
+            'driver_id' => ['required', 'integer', 'exists:employees,id'],
+        ]);
+
+        $driver = Employee::find($data['driver_id']);
+        if ($driver->operational_role !== 'delivery_driver') {
+            return $this->error('الموظف المحدد ليس سائق توصيل.', 422);
+        }
+
+        $order->update([
+            'driver_id' => $driver->id,
+            'status' => 'OUT_FOR_DELIVERY',
+            'delivery_assigned_at' => now(),
+        ]);
+
+        return $this->success(
+            'تم تعيين موظف التوصيل',
+            new OrderResource($order->fresh()->load(['items.department', 'driver']))
+        );
+    }
+
+    /** تسليم طلب توصيل مُسنَد لسائق (OUT_FOR_DELIVERY → DELIVERED) */
+    public function markDelivered(Order $order): JsonResponse
+    {
+        if ($order->status !== 'OUT_FOR_DELIVERY') {
+            return $this->error('لا يمكن تسليم الطلب قبل تعيينه لموظف توصيل.', 422);
+        }
+
+        $order->update([
+            'status' => 'DELIVERED',
+            'delivered_at' => now(),
+        ]);
+
+        return $this->success(
+            'تم تسليم الطلب',
+            new OrderResource($order->fresh()->load(['items.department', 'driver']))
+        );
     }
 
     /**

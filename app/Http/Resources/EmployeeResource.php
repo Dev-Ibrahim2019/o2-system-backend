@@ -33,6 +33,16 @@ class EmployeeResource extends JsonResource
             'role'          => $this->role,
             'operational_role' => $this->operational_role,
             'vehicle_type'  => $this->vehicle_type,
+            // متاح الآن فعليًا لسائقي التوصيل فقط (شفت مفتوح بـ driver_shifts) — يُستخدم لفلترة
+            // قائمة "تعيين موظف توصيل" بصفحة الطلب. null لغير السائقين (لا معنى للحقل لهم).
+            'available_now' => $this->when(
+                $this->operational_role === 'delivery_driver',
+                fn () => $this->isAvailableNow()
+            ),
+            'on_shift_now' => $this->when(
+                $this->operational_role === 'delivery_driver',
+                fn () => $this->onShiftNow()
+            ),
             'status'        => $this->status,
             'username'      => $this->username,
             'permissions'   => $this->permissions ?? [],

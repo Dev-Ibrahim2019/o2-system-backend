@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -11,6 +12,11 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__ . '/../routes/console.php',
         health: '/up',
     )
+    // أول Schedule:: بهذا المشروع — يحتاج crontab فعلي على السيرفر
+    // (`* * * * * php artisan schedule:run`) عشان يعمل فعليًا، خارج نطاق الكود.
+    ->withSchedule(function (Schedule $schedule): void {
+        $schedule->command('orders:execute-scheduled')->everyMinute();
+    })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();
         $middleware->validateCsrfTokens(except: [

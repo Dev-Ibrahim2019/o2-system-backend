@@ -50,6 +50,8 @@ class OrderResource extends JsonResource
             'scheduled_at'              => $this->scheduled_at?->toIso8601String(),
             'cancellation_reason'       => $this->cancellation_reason,
             'cancelled_at'              => $this->cancelled_at?->toIso8601String(),
+            'delivery_assigned_at'      => $this->delivery_assigned_at?->toIso8601String(),
+            'delivered_at'              => $this->delivered_at?->toIso8601String(),
 
             // مستقلة تمامًا عن حالة الطلب أعلاه — الدفع وحده لا يغلق الطلب أبدًا (راجع
             // CallCenterService::derivePaymentStatus لتفاصيل القاعدة). is_closed الفعلي يُحسم
@@ -69,6 +71,11 @@ class OrderResource extends JsonResource
                 'id'   => $this->cashier->id,
                 'name' => $this->cashier->name,
             ]),
+            'driver'  => $this->whenLoaded('driver', fn() => $this->driver ? [
+                'id'    => $this->driver->id,
+                'name'  => $this->driver->name,
+                'phone' => $this->driver->phone,
+            ] : null),
 
             'has_unsent_items' => $this->hasUnsentItems(),
 

@@ -30,7 +30,7 @@ class CallCenterService
             ->where('source', 'call_center')
             ->when($branchId, fn (Builder $query) => $query->where('branch_id', $branchId))
             ->withCount('tickets')
-            ->with(['branch:id,name', 'invoice:id,order_id,status'])
+            ->with(['branch:id,name', 'invoice:id,order_id,status', 'driver:id,name,phone'])
             ->latest()
             ->limit(100)
             ->get()
@@ -124,6 +124,10 @@ class CallCenterService
             'scheduled_at' => $order->scheduled_at,
             'payments' => $order->payments,
             'payment_status' => self::derivePaymentStatus($order->invoice?->status),
+            'execution_failed_reason' => $order->execution_failed_reason,
+            'driver' => $order->driver ? ['id' => $order->driver->id, 'name' => $order->driver->name, 'phone' => $order->driver->phone] : null,
+            'delivery_assigned_at' => $order->delivery_assigned_at,
+            'delivered_at' => $order->delivered_at,
             'scopes' => $scopes,
         ];
     }
@@ -193,7 +197,7 @@ class CallCenterService
         if (in_array($status, ['confirmed', 'in_progress', 'ready'], true) || ($status === 'paid' && $ticketCount > 0)) {
             $scopes[] = 'kitchen_active';
         }
-        if ($orderType === 'delivery' && in_array($status, ['paid', 'confirmed', 'in_progress', 'ready'], true)) {
+        if ($orderType === 'delivery' && in_array($status, ['paid', 'confirmed', 'in_progress', 'ready', 'OUT_FOR_DELIVERY'], true)) {
             $scopes[] = 'delivery_active';
         }
 
@@ -345,7 +349,7 @@ class CallCenterService
     public function getCustomerOrders(int $customerId, int $perPage = 20, ?string $cursor = null): array
     {
         $query = Order::where('customer_id', $customerId)
-            ->with(['branch:id,name', 'cashier:id,name'])
+            ->with(['branch:id,name', 'cashier:id,name', 'driver:id,name,phone'])
             ->orderByDesc('created_at');
 
         if ($cursor) {
@@ -371,6 +375,7 @@ class CallCenterService
                 'note' => $o->note,
                 'branch' => $o->branch ? ['id' => $o->branch->id, 'name' => $o->branch->name] : null,
                 'cashier' => $o->cashier ? ['id' => $o->cashier->id, 'name' => $o->cashier->name] : null,
+                'driver' => $o->driver ? ['id' => $o->driver->id, 'name' => $o->driver->name, 'phone' => $o->driver->phone] : null,
                 'created_at' => $o->created_at,
                 'customer_name' => $o->customer_name,
                 'customer_phone' => $o->customer_phone,
