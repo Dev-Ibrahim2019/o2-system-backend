@@ -37,5 +37,10 @@ class DatabaseSeeder extends Seeder
             PaymentMethodSeeder::class,
             PrinterSeeder::class,
         ]);
+
+        // 5. استيراد فهارس الزبائن/الموردين/الموظفين القديمة
+        $this->call([
+            LegacyDirectoryImportSeeder::class,
+        ]);
     }
 }

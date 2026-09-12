@@ -34,12 +34,14 @@ class Supplier extends Model
         'notes',
         'gps_link',
         'branch_id',
+        'meta',
     ];
 
     protected $casts = [
         'credit_limit'              => 'decimal:3',
         'opening_balance'           => 'decimal:3',
         'is_opening_balance_posted' => 'boolean',
+        'meta'                      => 'array',
     ];
 
     public function branch(): BelongsTo

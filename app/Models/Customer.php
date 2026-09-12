@@ -40,6 +40,7 @@ class Customer extends Model
         'branch_id',
         'salesperson_id',
         'loyalty_points',
+        'meta',
     ];
 
     protected $casts = [
@@ -48,6 +49,7 @@ class Customer extends Model
         'is_opening_balance_posted' => 'boolean',
         'credit_days'               => 'integer',
         'loyalty_points'            => 'integer',
+        'meta'                      => 'array',
     ];
 
     public function branch(): BelongsTo
