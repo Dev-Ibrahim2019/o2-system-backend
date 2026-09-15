@@ -35,6 +35,7 @@ class EmployeeController extends ApiController
                 'role',
                 'operational_role',
                 'vehicle_type',
+                'employee_code',
                 'status',
                 'hireDate',
                 'salary',
@@ -77,6 +78,17 @@ class EmployeeController extends ApiController
 
         if (!empty($data['password'])) {
             $data['password'] = bcrypt($data['password']);
+        }
+
+        // كود سائق فريد (DR-###) — يُولَّد تلقائيًا لسائقي التوصيل فقط، ما لم يُرسَل صراحة
+        if (($data['operational_role'] ?? null) === 'delivery_driver' && empty($data['employee_code'])) {
+            $data['employee_code'] = Employee::generateDriverCode();
+        }
+
+        // hireDate عمود NOT NULL بقاعدة البيانات لكن أصبح nullable بالتحقق (نموذج إضافة السائق
+        // المبسّط لا يعرضه) — نضبطه لتاريخ اليوم افتراضيًا لو غير مُرسَل.
+        if (empty($data['hireDate'])) {
+            $data['hireDate'] = now()->toDateString();
         }
 
         // ✅ إنشاء الموظف فقط — EmployeeObserver سيُنشئ حسابي السلف والراتب تلقائياً

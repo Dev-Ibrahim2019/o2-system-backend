@@ -7,6 +7,7 @@ use App\Services\CallCenter\OrderConfirmationService;
 use App\Services\Printing\OrderPrintingService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 
 /**
@@ -59,9 +60,13 @@ class ExecuteScheduledOrders extends Command
                 // عليه تلقائيًا بالتشغيلة القادمة حتى الحد الأقصى.
                 $isBusinessRuleFailure = $e instanceof InvalidArgumentException;
 
+                // execution_failed_reason عمود VARCHAR(255) — بعض الاستثناءات (مثلاً فشل
+                // Browsershot عند الطباعة) رسالتها أطول من ذلك بكثير، وحفظها كما هي يرمي
+                // SQLSTATE[22001] من داخل catch نفسه ويُسقط تشغيلة الأمر كلها (exit code 1)
+                // بدل التعامل مع فشل طلب واحد بمعزل عن الباقي. النص الكامل يبقى بالـ Log أدناه.
                 $order->update([
                     'execution_attempts' => $isBusinessRuleFailure ? 3 : $order->execution_attempts + 1,
-                    'execution_failed_reason' => $e->getMessage(),
+                    'execution_failed_reason' => Str::limit($e->getMessage(), 250, ''),
                 ]);
 
                 Log::error('فشل التنفيذ التلقائي للطلب المجدول #' . $order->id, [

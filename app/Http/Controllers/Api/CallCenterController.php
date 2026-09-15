@@ -23,6 +23,10 @@ class CallCenterController extends ApiController
 
     public function activeOrders(Request $request): JsonResponse
     {
+        if (! $this->agentCan('call-center.view-active-orders')) {
+            return $this->error('لا تملك صلاحية عرض الطلبات النشطة.', 403);
+        }
+
         $data = $request->validate(['branch_id' => ['nullable', 'integer', 'exists:branches,id']]);
 
         return $this->success(
@@ -37,6 +41,10 @@ class CallCenterController extends ApiController
      */
     public function closedOrders(Request $request): JsonResponse
     {
+        if (! $this->agentCan('call-center.view-closed-orders')) {
+            return $this->error('لا تملك صلاحية عرض الطلبات المغلقة.', 403);
+        }
+
         $data = $request->validate([
             'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
             'search' => ['nullable', 'string', 'max:255'],
@@ -357,6 +365,10 @@ class CallCenterController extends ApiController
      */
     public function operationsSnapshot(Request $request): JsonResponse
     {
+        if (! $this->agentCan('call-center.view-dashboard')) {
+            return $this->error('لا تملك صلاحية عرض لوحة العمليات.', 403);
+        }
+
         $data = $request->validate([
             'branch_id' => 'nullable|integer|exists:branches,id',
         ]);

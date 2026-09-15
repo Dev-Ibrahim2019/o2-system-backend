@@ -20,6 +20,7 @@ use App\Models\Transaction;
 use App\Services\AccountingService;
 use App\Services\Accounting\RegisterResolver;
 use App\Services\Invoice\InvoiceFromOrderService;
+use App\Services\CallCenter\OrderStatusService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,6 +30,7 @@ class InvoiceController extends ApiController
     public function __construct(
         private readonly InvoiceFromOrderService $invoiceFromOrderService,
         private readonly RegisterResolver $registerResolver,
+        private readonly OrderStatusService $orderStatusService,
     ) {}
 
     /**
@@ -171,6 +173,14 @@ $invoice = $this->invoiceFromOrderService->createFromOrder(
                     ->createJournalEntryForInvoice($invoice->fresh());
             } elseif ($newPaid > 0) {
                 $invoice->update(['status' => 'partial']);
+            }
+
+            if ($invoice->order_id) {
+                $order = $invoice->order()->first();
+                if ($order) {
+                    $this->orderStatusService->logPayment($order, $amount, $data['method']);
+                    $this->orderStatusService->maybeAutoClose($order);
+                }
             }
 
             DB::commit();

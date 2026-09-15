@@ -68,6 +68,10 @@ class Order extends Model
         'executed_at',
         'execution_attempts',
         'execution_failed_reason',
+        'closed_at',
+        'closed_by',
+        'reopened_at',
+        'reopen_reason',
     ];
 
     protected $casts = [
@@ -89,6 +93,8 @@ class Order extends Model
         'delivered_at' => 'datetime',
         'executed_at' => 'datetime',
         'execution_attempts' => 'integer',
+        'closed_at' => 'datetime',
+        'reopened_at' => 'datetime',
     ];
 
     public function branch(): BelongsTo

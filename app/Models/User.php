@@ -11,12 +11,13 @@ use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 use App\Models\Branch;
 use App\Models\Scopes\BranchScope;
+use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Builder;
 
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable, HasApiTokens, HasRoles, SoftDeletes;
+    use HasFactory, Notifiable, HasApiTokens, HasRoles, SoftDeletes, Auditable;
 
     // تطبيق BranchScope على جميع الاستعلامات
     protected static function booted(): void

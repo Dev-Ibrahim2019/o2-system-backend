@@ -20,11 +20,14 @@ class OrderConfirmationService
 {
     public function confirmOrder(Order $order): Order
     {
-        if ($order->source === 'call_center' && $order->status !== 'paid') {
+        // طلب كول سنتر مجدول (status=scheduled) يتجاوز شرط الدفع عمدًا — القرار: الدفع عند
+        // الاستلام، فوصول موعد الجدولة يُرسله للمطبخ تلقائيًا بغض النظر عن حالة الدفع. الطلب
+        // الفوري (غير المجدول) يبقى محكومًا بنفس الشرط الأصلي — زر "-" اليدوي لا يتأثر بهذا.
+        if ($order->source === 'call_center' && $order->status !== 'paid' && $order->status !== 'scheduled') {
             throw new InvalidArgumentException('لا يمكن إرسال طلب الكول سنتر للمطبخ قبل اكتمال الفاتورة والدفع.');
         }
 
-        if (! in_array($order->status, ['pending', 'pending_confirmation', 'paid'], true)) {
+        if (! in_array($order->status, ['pending', 'pending_confirmation', 'paid', 'scheduled'], true)) {
             throw new InvalidArgumentException('لا يمكن تأكيد هذا الطلب في حالته الحالية.');
         }
 

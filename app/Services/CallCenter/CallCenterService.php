@@ -28,12 +28,14 @@ class CallCenterService
     {
         $orders = Order::query()
             ->where('source', 'call_center')
+            ->whereNotIn('status', ['closed', 'cancelled', 'canceled', 'CANCELLED'])
             ->when($branchId, fn (Builder $query) => $query->where('branch_id', $branchId))
             ->withCount('tickets')
             ->with(['branch:id,name', 'invoice:id,order_id,status', 'driver:id,name,phone'])
             ->latest()
             ->limit(100)
             ->get()
+            // شبكة أمان لبيانات قديمة لم تُحدَّث بعد لقيمة closed الصريحة (راجع تعليق determineLifecycle)
             ->filter(fn (Order $order) => self::determineLifecycle($order->status, $order->invoice?->status) === 'active');
 
         $rows = $orders->map(fn (Order $order) => $this->toActiveOrderRow($order))
@@ -122,6 +124,7 @@ class CallCenterService
             'branch' => $order->branch,
             'created_at' => $order->created_at,
             'scheduled_at' => $order->scheduled_at,
+            'executed_at' => $order->executed_at,
             'payments' => $order->payments,
             'payment_status' => self::derivePaymentStatus($order->invoice?->status),
             'execution_failed_reason' => $order->execution_failed_reason,
@@ -158,7 +161,10 @@ class CallCenterService
      */
     public static function determineLifecycle(string $status, ?string $invoiceStatus): string
     {
-        if (in_array($status, ['cancelled', 'canceled', 'CANCELLED'], true)) {
+        // status='closed' هي القيمة الصريحة الجديدة (OrderStatusService::maybeAutoClose) — تُحسم
+        // هون مباشرة بدون أي اشتقاق. الشرطان تحت يبقيان كشبكة أمان لبيانات قديمة لم تُحدَّث بعد
+        // لهذه القيمة الصريحة (طلبات served/DELIVERED+paid من قبل إضافة الإغلاق الصريح).
+        if (in_array($status, ['closed', 'cancelled', 'canceled', 'CANCELLED'], true)) {
             return 'closed';
         }
 

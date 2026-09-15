@@ -13,6 +13,8 @@ class CallCenterOrderController extends ApiController
 {
     public function store(StoreCallCenterOrderRequest $request, CallCenterOrderCreationService $service): JsonResponse
     {
+        // فحص صلاحية create-order موجود بـ StoreCallCenterOrderRequest::authorize() — قبل هذه
+        // النقطة بمرحلة Laravel، لأن جسم الكنترولر لا يُنفَّذ إطلاقاً لو فشل الفحص هناك.
         try {
             return $this->success(
                 'تم حفظ طلب الكول سنتر',
