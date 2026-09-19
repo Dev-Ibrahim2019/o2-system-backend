@@ -132,7 +132,7 @@ return new class extends Migration
             // === From 2026_09_29_000001 (status check constraint) ===
             // Fix the CHECK constraint to use uppercase values matching the code
             try {
-                DB::statement('ALTER TABLE orders DROP CHECK orders_status_check');
+                DB::statement('ALTER TABLE orders DROP CONSTRAINT orders_status_check');
             } catch (\Throwable $e) {
                 // May not exist
             }

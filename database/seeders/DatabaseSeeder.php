@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
         // 1. إنشاء الصلاحيات والأدوار أولاً
         $this->call([
             RolesAndPermissionsSeeder::class,
+            CallCenterManagerSeeder::class,
         ]);
 
         // 2. إنشاء المستخدمين التجريبيين وتعيين الأدوار

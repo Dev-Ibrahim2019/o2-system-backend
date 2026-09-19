@@ -12,7 +12,8 @@ class AuditObserver
 
     public function created(Model $model): void
     {
-        $this->log($model, 'created', [], $model->getAttributes());
+        $attributes = array_diff_key($model->getAttributes(), array_flip($this->excluded));
+        $this->log($model, 'created', [], $attributes);
     }
 
     public function updated(Model $model): void
@@ -30,6 +31,11 @@ class AuditObserver
     public function deleted(Model $model): void
     {
         $this->log($model, 'deleted', $model->getOriginal(), []);
+    }
+
+    public function restored(Model $model): void
+    {
+        $this->log($model, 'restored', [], []);
     }
 
     private function log(Model $model, string $event, array $old, array $new): void

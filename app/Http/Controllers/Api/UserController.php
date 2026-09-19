@@ -65,7 +65,10 @@ class UserController extends ApiController
         }
 
         $user->syncRoles([$request->role]);
-        $user->update(['branch_id' => $request->branch_id]);
+        // رئيس الكول سنتر دور مركزي يخدم كل الفروع — Department يُقفل على null دائماً
+        // ولا يُترك لاختيار المستخدم (راجع BranchScope: أي branch_id غير null يحجب موظفي
+        // الكول سنتر ذوي branch_id=null عن هذا الحساب بالكامل).
+        $user->update(['branch_id' => $request->role === 'call-center-manager' ? null : $request->branch_id]);
 
         return $this->success('Role & branch updated', [
             'id'        => $user->id,
@@ -92,7 +95,8 @@ class UserController extends ApiController
             'username'  => $request->username,
             'email'     => $request->email,
             'password'  => bcrypt($request->password),
-            'branch_id' => $request->branch_id,
+            // رئيس الكول سنتر دور مركزي يخدم كل الفروع — Department يُقفل على null دائماً
+            'branch_id' => $request->role === 'call-center-manager' ? null : $request->branch_id,
         ]);
 
         $user->syncRoles([$request->role]);
@@ -125,7 +129,8 @@ class UserController extends ApiController
             'name'      => $request->name,
             'username'  => $request->username,
             'email'     => $request->email,
-            'branch_id' => $request->branch_id,
+            // رئيس الكول سنتر دور مركزي يخدم كل الفروع — Department يُقفل على null دائماً
+            'branch_id' => $request->role === 'call-center-manager' ? null : $request->branch_id,
         ];
 
         if ($request->password) {

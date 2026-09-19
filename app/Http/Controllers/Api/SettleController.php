@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\ApiController;
 use App\Models\FiscalYear;
 use App\Models\Order;
+use App\Services\Accounting\RegisterResolver;
 use App\Services\Accounting\SettlementEngine;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +20,7 @@ class SettleController extends ApiController
 {
     public function __construct(
         private readonly SettlementEngine $settlementEngine,
+        private readonly RegisterResolver $registerResolver,
     ) {}
 
     /**
@@ -70,8 +72,10 @@ class SettleController extends ApiController
             'payments.*.entity_id'           => 'nullable|integer|min:1',
         ]);
 
+        $register = $this->registerResolver->resolveFromRequest($request);
+
         try {
-            $result = $this->settlementEngine->settle($order, $validated['payments']);
+            $result = $this->settlementEngine->settle($order, $validated['payments'], $register);
 
             // تسجيل من أغلق الطلب (الدفع)
             $order->update([

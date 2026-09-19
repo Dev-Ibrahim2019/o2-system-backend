@@ -24,7 +24,10 @@ class CallCenterOrderCreationService
             $ticket = ! empty($data['call_ticket_id'])
                 ? CallTicket::lockForUpdate()->findOrFail($data['call_ticket_id'])
                 : null;
-            if (! $agent->hasRole('super-admin') && (int) $agent->branch_id !== (int) $data['branch_id']) {
+            // branch_id = null يعني "يخدم كل الفروع" (نفس اصطلاح BranchScope) — لموظفي/مدير
+            // الكول سنتر تحديدًا، الحساب دائمًا بلا فرع مفروض عمدًا (دور مركزي)، فليس تقييدًا.
+            $agentServesAllBranches = $agent->hasRole('super-admin') || is_null($agent->branch_id);
+            if (! $agentServesAllBranches && (int) $agent->branch_id !== (int) $data['branch_id']) {
                 throw ValidationException::withMessages(['branch_id' => 'الفرع المحدد غير مسموح لهذا المستخدم.']);
             }
 

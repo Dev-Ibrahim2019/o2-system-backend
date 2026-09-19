@@ -11,6 +11,7 @@ use App\Http\Resources\OrderItemResource;
 use App\Http\Resources\OrderResource;
 use App\Models\DiningTable;
 use App\Models\Customer;
+use App\Models\Employee;
 use App\Models\FiscalYear;
 use App\Models\Item;
 use App\Models\Order;
@@ -26,16 +27,47 @@ use App\Services\Printing\OrderPrintingService;
 
 class OrderController extends ApiController
 {
+    /**
+     * هل يمكن للمستخدم تعديل طلب مغلق؟
+     * المسموح: super-admin, branch-manager, accountant فقط
+     */
+    private function canEditClosedOrder(): bool
+    {
+        $user = auth()->user();
+        if (!$user) return false;
+        return $user->hasRole(['super-admin', 'branch-manager', 'accountant']);
+    }
+
     public function index(Request $request): JsonResponse
     {
-        $orders = Order::with(['items.department', 'tickets.department', 'cashier'])
+        $query = Order::with(['items.department', 'tickets.department', 'cashier'])
             ->when($request->branch_id, fn($q) => $q->where('branch_id', $request->branch_id))
             ->when($request->status, fn($q) => $q->where('status', $request->status))
+            ->when($request->statuses, fn($q) => $q->whereIn('status', explode(',', $request->statuses)))
+            ->when($request->driver_id, fn($q) => $q->where('driver_id', $request->driver_id))
             ->when($request->date, fn($q) => $q->whereDate('created_at', $request->date))
             ->when($request->table_number, fn($q) => $q->where('table_number', $request->table_number))
-            ->orderByDesc('id')
-            ->get();
+            ->when($request->search, fn($q) => $q->where(function ($q2) use ($request) {
+                $q2->where('order_number', 'like', "%{$request->search}%")
+                    ->orWhere('customer_name', 'like', "%{$request->search}%")
+                    ->orWhere('customer_phone', 'like', "%{$request->search}%");
+            }))
+            ->orderByDesc('id');
 
+        if ($request->per_page) {
+            $orders = $query->paginate($request->per_page);
+            return $this->success('Orders fetched', [
+                'data' => OrderResource::collection($orders),
+                'meta' => [
+                    'current_page' => $orders->currentPage(),
+                    'last_page' => $orders->lastPage(),
+                    'per_page' => $orders->perPage(),
+                    'total' => $orders->total(),
+                ],
+            ]);
+        }
+
+        $orders = $query->get();
         return $this->success('Orders fetched', OrderResource::collection($orders));
     }
 
@@ -68,7 +100,7 @@ class OrderController extends ApiController
         }
 
         $authUser = auth()->user();
-        $branchId = $authUser->branch_id ?? $data['branch_id'] ?? \App\Models\Branch::value('id');
+        $branchId = $authUser->branch_id ?? $data['branch_id'] ?? null;
 
         // Resolve the typed name/phone into a real customer BEFORE opening the
         // order transaction. Deliberate: identity work must never be able to
@@ -92,6 +124,12 @@ class OrderController extends ApiController
         try {
             $customer = isset($data['customer_id']) ? Customer::find($data['customer_id']) : null;
 
+            if (! $branchId) {
+                DB::rollBack();
+
+                return $this->error('لا يوجد فرع محدد لحسابك — يجب ربط حسابك بفرع قبل إنشاء طلب.', 422);
+            }
+
             // التأكد من وجود shift مفتوح للفرع (إنشاء تلقائي إذا لم يوجد)
             $shift = Shift::getOrCreateToday($branchId, $authUser->id);
 
@@ -109,11 +147,12 @@ class OrderController extends ApiController
                 'dining_table_id' => $data['dining_table_id'] ?? null,
                 'branch_id' => $branchId,
                 'cashier_id' => $data['cashier_id'] ?? null,
+                'call_center_agent_id' => $data['call_center_agent_id'] ?? null,
                 'shift_id' => $shift->id,
                 'opened_by' => $authUser->id,
                 'order_type' => $data['order_type'],
                 'source' => $data['source'] ?? 'pos',
-                'status' => 'pending',
+                'status' => ! empty($data['scheduled_at']) ? 'scheduled' : 'pending',
                 'table_number' => $data['table_number'] ?? null,
                 'customer_name' => $customer?->name ?? ($data['customer_name'] ?? null),
                 // Keeps the typed name when it lost to the stored one — the
@@ -138,6 +177,10 @@ class OrderController extends ApiController
                 'discount_type' => $data['discount_type'] ?? 'amount',
                 'discount_amount' => 0,
                 'engine_discount_amount' => 0,
+                'tax_rate' => $data['tax_rate'] ?? 0,
+                'tax_amount' => 0,
+                'scheduled_at' => $data['scheduled_at'] ?? null,
+                'payments' => $data['payments'] ?? null,
                 'total' => 0,
             ]);
 
@@ -236,6 +279,8 @@ class OrderController extends ApiController
                 'tickets.ticketItems.orderItem',
                 'tickets.department',
                 'cashier',
+                'branch',
+                'driver',
                 'invoice.items',
                 'invoice.payments',
             ]))
@@ -260,7 +305,9 @@ class OrderController extends ApiController
         \App\Services\Crm\IdentityConflictService $conflicts,
     ): JsonResponse {
         if (in_array($order->status, ['paid', 'cancelled'], true)) {
-            return $this->error('لا يمكن تعديل طلب مغلق أو ملغى.', 422);
+            if (!$this->canEditClosedOrder()) {
+                return $this->error('لا يمكن تعديل طلب مغلق أو ملغى. الصلاحية مخصصة للمحاسب أو مدير الفرع فقط.', 422);
+            }
         }
 
         // A deferred/held order reaches this method when the cashier resumes
@@ -379,7 +426,9 @@ class OrderController extends ApiController
     public function syncPricing(UpdateOrderRequest $request, Order $order): JsonResponse
     {
         if (in_array($order->status, ['paid', 'cancelled'], true)) {
-            return $this->error('لا يمكن تعديل تسعير طلب مغلق أو ملغى.', 422);
+            if (!$this->canEditClosedOrder()) {
+                return $this->error('لا يمكن تعديل تسعير طلب مغلق أو ملغى. الصلاحية مخصصة للمحاسب أو مدير الفرع فقط.', 422);
+            }
         }
 
         try {
@@ -399,7 +448,9 @@ class OrderController extends ApiController
     {
         // يسمح الإضافة على: pending, pending_confirmation, confirmed, in_progress
         if (in_array($order->status, ['paid', 'cancelled', 'served', 'ready'])) {
-            return $this->error('لا يمكن إضافة أصناف لهذا الطلب.', 422);
+            if (!$this->canEditClosedOrder()) {
+                return $this->error('لا يمكن إضافة أصناف لهذا الطلب. الصلاحية مخصصة للمحاسب أو مدير الفرع فقط.', 422);
+            }
         }
 
         $data = $request->validated();
@@ -438,7 +489,9 @@ class OrderController extends ApiController
     public function removeItem(Order $order, OrderItem $orderItem): JsonResponse
     {
         if (in_array($order->status, ['paid', 'cancelled', 'served'])) {
-            return $this->error('لا يمكن حذف أصناف من هذا الطلب.', 422);
+            if (!$this->canEditClosedOrder()) {
+                return $this->error('لا يمكن حذف أصناف من هذا الطلب. الصلاحية مخصصة للمحاسب أو مدير الفرع فقط.', 422);
+            }
         }
 
         if ($orderItem->order_id !== $order->id) {
@@ -467,98 +520,29 @@ class OrderController extends ApiController
      * يدعم: pending → confirmed و pending_confirmation → confirmed
      * يرسل فقط العناصر بحالة pending (الجديدة) — لا يعيد إرسال القديمة.
      */
+    // Resolved via app() rather than method-injected params: several regression tests
+    // predating the call-center merge call this endpoint directly
+    // (app(OrderController::class)->confirm($order)), bypassing the router's own
+    // dependency injection — that calling convention must keep working.
     public function confirm(Order $order): JsonResponse
     {
-        if ($order->source === 'call_center' && $order->payment_status !== 'paid') {
-            return $this->error('لا يمكن إرسال طلب الكول سنتر للمطبخ قبل اكتمال الفاتورة والدفع.', 422);
+        $confirmationService = app(\App\Services\CallCenter\OrderConfirmationService::class);
+        $statusService = app(\App\Services\CallCenter\OrderStatusService::class);
+
+        // محصور بطلبات الكول سنتر فقط (راجع ملاحظة cancel()/serve() المطابقة) — endpoint مشترك
+        // مع الكاشير/الضيافة عبر useOrders.ts، وموظفي POS العاديين ما إلهم صلاحيات كول سنتر
+        // ولا يجب يُطلب منهم ذلك لبدء تجهيز طلب محلي/فوري عادي ("-" اليدوي كما هو).
+        if ($order->source === 'call_center' && ! $this->agentCan('call-center.change-order-status')) {
+            return $this->error('لا تملك صلاحية تغيير حالة الطلب.', 403);
         }
 
-        // الأصناف التي لم تُرسل للمطبخ بعد (لا يوجد لها ticketItem) — نفس المعيار
-        // المستخدم في InvoiceController::createFromOrder لإنشاء التذاكر عند
-        // إغلاق الفاتورة، حتى تتطابق الحالتان.
-        $unsentItems = $order->items()
-            ->with('department')
-            ->whereDoesntHave('ticketItem')
-            ->get();
+        $fromStatus = $order->status;
 
-        if ($unsentItems->isEmpty()) {
-            return $this->error('لا توجد عناصر جديدة لإرسالها.', 422);
-        }
-
-        DB::beginTransaction();
         try {
-            $itemsByDept = $unsentItems->groupBy('department_id');
-
-            foreach ($itemsByDept as $deptId => $deptItems) {
-                if (! $deptId) {
-                    continue;
-                }
-
-                // البحث عن تذكرة نشطة موجودة للقسم نفسه في نفس الطلب
-                $ticket = $order->tickets()
-                    ->where('department_id', $deptId)
-                    ->whereIn('status', ['pending', 'preparing'])
-                    ->first();
-
-                if (! $ticket) {
-                    $ticket = ProductionTicket::create([
-                        'order_id' => $order->id,
-                        'department_id' => $deptId,
-                        'ticket_number' => ProductionTicket::generateTicketNumber((int) $deptId),
-                        'status' => 'pending',
-                        'sent_at' => now(),
-                        'notes' => $order->note,
-                    ]);
-                }
-
-                foreach ($deptItems as $orderItem) {
-                    // تجنب التكرار — لا تُضاف إذا لها ticketItem مسبقاً
-                    if ($orderItem->ticketItem) {
-                        continue;
-                    }
-
-                    ProductionTicketItem::create([
-                        'production_ticket_id' => $ticket->id,
-                        'order_item_id' => $orderItem->id,
-                        'quantity' => (int) ceil((float) $orderItem->quantity),
-                        'notes' => $orderItem->notes,
-                        'status' => 'pending',
-                    ]);
-
-                    $orderItem->update([
-                        'sent_to_kitchen_at' => now(),
-                        'is_printed_direct' => true,
-                    ]);
-                }
-            }
-
-            $order->update(['status' => 'confirmed']);
-
-            // تحديث الطاولة إلى OCCUPIED (عليها طلب)
-            if ($order->dining_table_id) {
-                $table = DiningTable::find($order->dining_table_id);
-                if ($table) {
-                    $table->update(['status' => 'OCCUPIED']);
-                }
-            }
-
-            DB::commit();
-
-            return $this->success(
-                'تم إرسال الطلب للأقسام',
-                new OrderResource($order->fresh()->load([
-                    'items.department',
-                    'tickets.ticketItems.orderItem',
-                    'tickets.department',
-                ]))
-            );
-        } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
-            DB::rollBack();
-
-            return $this->error($e->getMessage(), $e->getStatusCode());
+            $order = $confirmationService->confirmOrder($order);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
         } catch (\Throwable $e) {
-            DB::rollBack();
-
             \Log::error('فشل تأكيد الطلب #' . $order->id, [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),
@@ -568,19 +552,53 @@ class OrderController extends ApiController
 
             return $this->error('فشل تأكيد الطلب: ' . $e->getMessage(), 500);
         }
+
+        // action_type مخصّص (مو status_change العام) لأن confirmOrder() يُبقي status='paid' كما
+        // هي عمدًا لطلب مدفوع مسبقًا (لا ينقلها لـ confirmed) — لولا هذا النوع المخصّص ما كان
+        // "بدء التجهيز" رح يُسجَّل إطلاقًا لهذه الحالة رغم إنه فعليًا صار (تذاكر انبعتت للمطبخ).
+        $statusService->logStatusChange($order, $fromStatus, $order->status, 'preparation_started');
+
+        return $this->success('تم إرسال الطلب للأقسام', new OrderResource($order));
     }
 
-    public function cancel(Order $order): JsonResponse
+    public function cancel(
+        Request $request,
+        Order $order,
+        \App\Services\CallCenter\OrderStatusService $statusService,
+        \App\Services\CallCenter\DeliveryAssignmentService $assignmentService,
+    ): JsonResponse
     {
+        // الفحص محصور بطلبات الكول سنتر فقط — هذا الـ endpoint مشترك مع الكاشير/الضيافة عبر
+        // useOrders.ts وDeferredTables.tsx، وموظفي POS العاديين ما إلهم صلاحيات كول سنتر أصلاً
+        // ولا يجب يُطلب منهم ذلك لإلغاء طلب محلي/فوري عادي.
+        if ($order->source === 'call_center' && ! $this->agentCan('call-center.cancel-order')) {
+            return $this->error('لا تملك صلاحية إلغاء الطلبات.', 403);
+        }
         if (! in_array($order->status, ['pending', 'pending_confirmation', 'confirmed'], true)) {
             return $this->error('لا يمكن إلغاء هذا الطلب في حالته الحالية.', 422);
         }
 
+        $reason = $request->validate(['reason' => ['nullable', 'string', 'max:1000']])['reason'] ?? null;
+        $fromStatus = $order->status;
+
         try {
-            DB::transaction(function () use ($order) {
-                $order->update(['status' => 'cancelled']);
+            $statusService->assertTransition($order, 'cancelled');
+
+            DB::transaction(function () use ($order, $reason, $assignmentService) {
+                $order->update([
+                    'status' => 'cancelled',
+                    'cancellation_reason' => $reason,
+                    'cancelled_at' => now(),
+                ]);
                 $order->tickets()->update(['status' => 'cancelled']);
                 $order->items()->update(['status' => 'cancelled']);
+
+                // تحرير سائق مُسنَد لو وُجد — غير قابل للحدوث فعليًا اليوم (الحالات المسموح
+                // الإلغاء منها أعلاه تسبق تعيين السائق دومًا) لكنها شبكة أمان صحيحة لو تغيّرت
+                // شروط الإلغاء مستقبلاً (القسم 14 بالبرومبت).
+                if ($order->driver_id) {
+                    $assignmentService->release($order, 'released');
+                }
 
                 // تحرير الطاولة إذا كانت مرتبطة
                 if ($order->dining_table_id) {
@@ -591,19 +609,32 @@ class OrderController extends ApiController
                 }
             });
 
+            $statusService->logStatusChange($order->fresh(), $fromStatus, 'cancelled', 'status_change', $reason);
+
             return $this->success('تم إلغاء الطلب', new OrderResource($order->fresh()));
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
         } catch (\Throwable $e) {
             return $this->error('فشل إلغاء الطلب: ' . $e->getMessage(), 500);
         }
     }
 
-    public function serve(Order $order): JsonResponse
+    public function serve(Order $order, \App\Services\CallCenter\OrderStatusService $statusService): JsonResponse
     {
+        // نفس النطاق المحصور بطلبات الكول سنتر فقط (راجع ملاحظة cancel() أعلاه) — endpoint مشترك
+        // مع الكاشير/الضيافة، وموظفي POS العاديين ما إلهم صلاحيات كول سنتر لتسليم طلب محلي/فوري.
+        if ($order->source === 'call_center' && ! $this->agentCan('call-center.change-order-status')) {
+            return $this->error('لا تملك صلاحية تغيير حالة الطلب.', 403);
+        }
         if (! in_array($order->status, ['ready', 'in_progress'], true)) {
             return $this->error('يجب أن يكون الطلب جاهزاً قبل التسليم.', 422);
         }
 
+        $fromStatus = $order->status;
+
         try {
+            $statusService->assertTransition($order, 'served');
+
             DB::transaction(function () use ($order) {
                 $order->tickets()
                     ->whereIn('status', ['ready', 'preparing', 'pending'])
@@ -616,13 +647,229 @@ class OrderController extends ApiController
                 $order->items()->whereIn('status', ['ready', 'pending', 'preparing'])->update(['status' => 'served']);
             });
 
+            $statusService->logStatusChange($order->fresh(), $fromStatus, 'served');
+            // طلبات محلي/فوري تُغلق مباشرة هون لو مدفوعة بالكامل أصلاً (لا خطوة توصيل وسيطة لها).
+            $statusService->maybeAutoClose($order);
+
             return $this->success(
                 'تم تسليم الطلب',
                 new OrderResource($order->fresh()->load(['items.department', 'tickets.department']))
             );
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
         } catch (\Throwable $e) {
             return $this->error('فشل تسليم الطلب: ' . $e->getMessage(), 500);
         }
+    }
+
+    /**
+     * "الطلب جاهز" — مرحلة PREPARING → READY بنظام تتبع حالة الطلب (NEW→PREPARING→READY→
+     * WITH_DRIVER→DELIVERED/PICKED_UP). confirmed وin_progress كلاهما PREPARING هون (راجع
+     * ملاحظة OrderStatusService::CALL_CENTER_TRANSITIONS)؛ paid مُضافة لأن confirmOrder() يُبقي
+     * طلبًا مدفوعًا مسبقًا على status='paid' بعد إرساله للمطبخ (لا ينقله لـ confirmed).
+     */
+    public function markReady(Order $order, \App\Services\CallCenter\OrderStatusService $statusService): JsonResponse
+    {
+        if ($order->source === 'call_center' && ! $this->agentCan('call-center.change-order-status')) {
+            return $this->error('لا تملك صلاحية تغيير حالة الطلب.', 403);
+        }
+        if (! in_array($order->status, ['confirmed', 'in_progress', 'paid'], true)) {
+            return $this->error('يجب أن يكون الطلب قيد التجهيز أولاً.', 422);
+        }
+
+        $fromStatus = $order->status;
+
+        try {
+            $statusService->assertTransition($order, 'ready');
+
+            $order->update(['status' => 'ready']);
+            $order->tickets()->whereIn('status', ['pending', 'preparing'])->update(['status' => 'ready']);
+            $order->items()->whereIn('status', ['pending', 'preparing'])->update(['status' => 'ready']);
+
+            $fresh = $order->fresh();
+            $statusService->logStatusChange($fresh, $fromStatus, 'ready');
+
+            return $this->success(
+                'الطلب جاهز',
+                new OrderResource($fresh->load(['items.department', 'tickets.department']))
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            return $this->error('فشل تحديث حالة الطلب: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * تعيين موظف توصيل لطلب جاهز (order_type=delivery فقط) — منطق التحقق/الذرّية/سجل التاريخ
+     * بالكامل بـ DeliveryAssignmentService (يحمي من تعارض موظفَي كول سنتر على نفس السائق).
+     */
+    public function assignDelivery(Request $request, Order $order, \App\Services\CallCenter\DeliveryAssignmentService $assignmentService): JsonResponse
+    {
+        if (! $this->agentCan('call-center.assign-driver')) {
+            return $this->error('لا تملك صلاحية تعيين موظف توصيل.', 403);
+        }
+
+        $data = $request->validate([
+            'driver_id' => ['required', 'integer', 'exists:employees,id'],
+        ]);
+
+        try {
+            $order = $assignmentService->assign($order, (int) $data['driver_id']);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('تم تعيين موظف التوصيل', new OrderResource($order));
+    }
+
+    /** تغيير السائق المُسنَد لطلب OUT_FOR_DELIVERY — يحافظ على تاريخ التعيين القديم بدل حذفه. */
+    public function changeDriver(Request $request, Order $order, \App\Services\CallCenter\DeliveryAssignmentService $assignmentService): JsonResponse
+    {
+        if (! $this->agentCan('call-center.assign-driver')) {
+            return $this->error('لا تملك صلاحية تغيير موظف التوصيل.', 403);
+        }
+
+        $data = $request->validate([
+            'driver_id' => ['required', 'integer', 'exists:employees,id'],
+        ]);
+
+        try {
+            $order = $assignmentService->reassign($order, (int) $data['driver_id']);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('تم تغيير السائق', new OrderResource($order));
+    }
+
+    /** إلغاء تعيين السائق (Unassign) — يرجّع الطلب لحالة "جاهز" بدون سائق، محمي بنفس صلاحية تعديل الطلبات المغلقة */
+    public function unassignDelivery(Order $order, \App\Services\CallCenter\DeliveryAssignmentService $assignmentService): JsonResponse
+    {
+        if (! $this->agentCan('call-center.assign-driver')) {
+            return $this->error('لا تملك صلاحية إلغاء تعيين موظف التوصيل.', 403);
+        }
+
+        try {
+            $order = $assignmentService->unassign($order);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('تم إلغاء تعيين السائق', new OrderResource($order));
+    }
+
+    /** تسليم طلب توصيل مُسنَد لسائق (OUT_FOR_DELIVERY → DELIVERED) */
+    public function markDelivered(
+        Order $order,
+        \App\Services\CallCenter\OrderStatusService $statusService,
+        \App\Services\CallCenter\DeliveryAssignmentService $assignmentService,
+    ): JsonResponse
+    {
+        if (! $this->agentCan('call-center.assign-driver')) {
+            return $this->error('لا تملك صلاحية تسليم طلبات التوصيل.', 403);
+        }
+        if ($order->status !== 'OUT_FOR_DELIVERY') {
+            return $this->error('لا يمكن تسليم الطلب قبل تعيينه لموظف توصيل.', 422);
+        }
+
+        try {
+            $statusService->assertTransition($order, 'DELIVERED');
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        $order->update([
+            'status' => 'DELIVERED',
+            'delivered_at' => now(),
+        ]);
+
+        // اكتمل دور السائق التشغيلي بالتسليم — يُحرَّر عبء العمل لديه فورًا (لا ينتظر closed).
+        $assignmentService->release($order, 'completed');
+
+        $statusService->logStatusChange($order->fresh(), 'OUT_FOR_DELIVERY', 'DELIVERED');
+        $statusService->maybeAutoClose($order);
+
+        return $this->success(
+            'تم تسليم الطلب',
+            new OrderResource($order->fresh()->load(['items.department', 'driver']))
+        );
+    }
+
+    /** إعادة فتح طلب مغلق — إجراء إداري صريح، يتطلب سبب، محمي بنفس صلاحية تعديل الطلبات المغلقة */
+    public function reopen(Request $request, Order $order, \App\Services\CallCenter\OrderStatusService $statusService): JsonResponse
+    {
+        if (! $this->canEditClosedOrder()) {
+            return $this->error('إعادة فتح الطلب تحتاج صلاحية محاسب/مدير فرع.', 403);
+        }
+
+        $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']]);
+
+        try {
+            $reopened = $statusService->reopen($order, $data['reason']);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('تم إعادة فتح الطلب', new OrderResource($reopened));
+    }
+
+    /**
+     * إتمام قسري (Force Complete) — استثناء إداري لحالات حدّية (القسم 7)، يحرّر السائق المُسنَد
+     * لو وُجد كجزء من نفس المعاملة الذرّية. يتطلب سبب إلزامي ولا يتخطى شرط الدفع الكامل أبدًا.
+     */
+    public function forceComplete(
+        Request $request,
+        Order $order,
+        \App\Services\CallCenter\OrderStatusService $statusService,
+        \App\Services\CallCenter\DeliveryAssignmentService $assignmentService,
+    ): JsonResponse
+    {
+        // مستويان: manual-complete-order يعطي نفس صلاحية الإتمام القسري الإدارية الكاملة (أي حالة
+        // نشطة)؛ complete-order وحدها أضيق — تعمل فقط لطلب وصل بالفعل DELIVERED (السائق أكّد
+        // التسليم)، لا تتيح تخطي التسلسل الطبيعي كليًا مثل الصلاحية الأولى.
+        $hasFullAccess = $this->agentCan('call-center.manual-complete-order');
+        $hasBasicAccess = $this->agentCan('call-center.complete-order') && $order->status === 'DELIVERED';
+
+        if (! $hasFullAccess && ! $hasBasicAccess) {
+            return $this->error('لا تملك صلاحية إتمام هذا الطلب في حالته الحالية.', 403);
+        }
+
+        $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']]);
+
+        try {
+            $completed = DB::transaction(function () use ($order, $data, $statusService, $assignmentService) {
+                if ($order->driver_id) {
+                    $assignmentService->release($order, 'completed');
+                }
+
+                return $statusService->forceComplete($order, $data['reason']);
+            });
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('تم إتمام الطلب', new OrderResource($completed->load(['items.department', 'driver'])));
+    }
+
+    /** سجل نشاط الطلب (Timeline) — كل تغييرات الحالة/الدفع/تعيين السائق مرتبة زمنيًا */
+    public function activityLog(Order $order): JsonResponse
+    {
+        $log = \App\Models\OrderActivityLog::where('order_id', $order->id)
+            ->with('actor:id,name')
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn ($entry) => [
+                'id' => $entry->id,
+                'action_type' => $entry->action_type,
+                'from_status' => $entry->from_status,
+                'to_status' => $entry->to_status,
+                'note' => $entry->note,
+                'actor' => $entry->actor?->name,
+                'created_at' => $entry->created_at?->toIso8601String(),
+            ]);
+
+        return $this->success('سجل نشاط الطلب', $log);
     }
 
     /**

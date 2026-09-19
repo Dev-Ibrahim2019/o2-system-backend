@@ -83,6 +83,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
         Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
         Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
+        Route::post('orders/{order}/mark-ready', [OrderController::class, 'markReady']);
+        Route::post('orders/{order}/assign-delivery', [OrderController::class, 'assignDelivery']);
+        Route::post('orders/{order}/change-driver', [OrderController::class, 'changeDriver']);
+        Route::post('orders/{order}/unassign-delivery', [OrderController::class, 'unassignDelivery']);
+        Route::post('orders/{order}/deliver', [OrderController::class, 'markDelivered']);
+        Route::post('orders/{order}/reopen', [OrderController::class, 'reopen']);
+        Route::post('orders/{order}/force-complete', [OrderController::class, 'forceComplete']);
+        Route::get('orders/{order}/activity-log', [OrderController::class, 'activityLog']);
     Route::post('orders/{order}/defer', [OrderController::class, 'deferOrder']);
     Route::post('orders/{order}/transfer', [OrderController::class, 'transfer']);
         Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
@@ -175,6 +183,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post("/{employee}/loan-repayment", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordLoanRepayment"]);
         Route::get("/{employee}/loans", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "getLoans"]);
         Route::post("/{employee}/settlement", [\App\Http\Controllers\Api\EmployeeFinancialController::class, "recordSettlement"]);
+        Route::post("/{employee}/shifts/start", [\App\Http\Controllers\Api\DriverShiftController::class, "start"]);
+        Route::post("/{employee}/shifts/end", [\App\Http\Controllers\Api\DriverShiftController::class, "end"]);
     });
     Route::apiResource('employees', EmployeeController::class);
 
@@ -186,6 +196,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('orders/{order}/items/{orderItem}', [OrderController::class, 'removeItem']);
     Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
     Route::post('orders/{order}/serve', [OrderController::class, 'serve']);
+    Route::post('orders/{order}/mark-ready', [OrderController::class, 'markReady']);
+        Route::post('orders/{order}/assign-delivery', [OrderController::class, 'assignDelivery']);
+        Route::post('orders/{order}/change-driver', [OrderController::class, 'changeDriver']);
+        Route::post('orders/{order}/unassign-delivery', [OrderController::class, 'unassignDelivery']);
+        Route::post('orders/{order}/deliver', [OrderController::class, 'markDelivered']);
+        Route::post('orders/{order}/reopen', [OrderController::class, 'reopen']);
+        Route::post('orders/{order}/force-complete', [OrderController::class, 'forceComplete']);
+        Route::get('orders/{order}/activity-log', [OrderController::class, 'activityLog']);
     Route::post('orders/{order}/defer', [OrderController::class, 'deferOrder']);
     Route::post('orders/{order}/transfer', [OrderController::class, 'transfer']);
     Route::get('orders/{order}/journal-entry', [OrderController::class, 'journalEntry']);
@@ -207,6 +225,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('invoices', [InvoiceController::class, 'index']);
     Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'addPayment']);
     Route::get('invoices/{invoice}/journal-entry', [InvoiceController::class, 'journalEntry']);
+
+    // ── Settlement & Payment Routing (نسخة غير محمية بشبكة الفرع — لاستخدام الكول سنتر) ──
+    Route::post('orders/{order}/settle', [\App\Http\Controllers\Api\SettleController::class, 'settle']);
+    Route::get('orders/{order}/settlement', [\App\Http\Controllers\Api\SettleController::class, 'show']);
+    Route::get('payment-methods', [\App\Http\Controllers\Api\PaymentMethodController::class, 'index']);
 
     // â”€â”€ Invoice Details Drawer (lazy-load endpoints) â”€â”€
     Route::prefix('invoices/{invoice}')->group(function () {
@@ -708,12 +731,14 @@ Route::middleware('auth:sanctum')->prefix('pbx')->group(function () {
 Route::post('call-center/activate', [CallCenterController::class, 'activate']);
 Route::middleware('auth:sanctum')->post('call-center/check-status', [CallCenterController::class, 'checkStatus']);
 
-Route::middleware(['auth:sanctum', 'role_or_permission:call-center|super-admin|accountant|branch-manager|access-call-center-interface|manage-call-center'])->prefix('call-center')->group(function () {
+Route::middleware(['auth:sanctum', 'role_or_permission:call-center|call-center-manager|super-admin|accountant|branch-manager|access-call-center-interface|manage-call-center'])->prefix('call-center')->group(function () {
     Route::get('customers/resolve-by-phone', \App\Http\Controllers\Api\CustomerResolutionController::class);
     Route::post('orders', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'store']);
     Route::post('orders/{order}/confirm-transfer', [\App\Http\Controllers\Api\CallCenterPaymentController::class, 'confirmTransfer']);
     Route::post('orders/{order}/debit-entity', [\App\Http\Controllers\Api\CallCenterPaymentController::class, 'debitEntity']);
     Route::get('active-orders', [CallCenterController::class, 'activeOrders']);
+    Route::get('closed-orders', [CallCenterController::class, 'closedOrders']);
+    Route::get('menu/top-items', [CallCenterController::class, 'topSellingItems']);
     Route::get('customers/search', [CallCenterController::class, 'searchCustomers']);
     Route::get('customers/directory', [CallCenterController::class, 'customerDirectory']);
     Route::post('customers', [CallCenterController::class, 'storeCustomer']);
@@ -736,6 +761,16 @@ Route::middleware(['auth:sanctum', 'role_or_permission:call-center|super-admin|a
     Route::post('customer-addresses/{address}/use', [CallCenterController::class, 'markAddressUsed']);
     Route::get('customers/{customer}/complaints', [CallCenterController::class, 'customerComplaints']);
     Route::get('customers/{customer}/alerts', [CallCenterController::class, 'customerAlerts']);
+    Route::get('customers/{customer}/timeline', [CallCenterController::class, 'customerTimeline']);
+    Route::get('reports/performance', [CallCenterController::class, 'agentPerformance']);
+    Route::get('reports/operations-snapshot', [CallCenterController::class, 'operationsSnapshot']);
+    // my-credentials فقط تبقى هون — كل موظف كول سنتر (حتى العادي) يحتاجها يوميًا لجلب امتداده
+    // الشخصي لتشغيل الهاتف اللين، بعكس إدارة كل الخطوط (index/store/update/destroy تحتها).
+    Route::get('sip-accounts/my-credentials', [\App\Http\Controllers\Api\SipAccountController::class, 'myCredentials']);
+    Route::get('canned-responses', [\App\Http\Controllers\Api\CannedResponseController::class, 'index']);
+    Route::post('canned-responses', [\App\Http\Controllers\Api\CannedResponseController::class, 'store']);
+    Route::patch('canned-responses/{cannedResponse}', [\App\Http\Controllers\Api\CannedResponseController::class, 'update']);
+    Route::delete('canned-responses/{cannedResponse}', [\App\Http\Controllers\Api\CannedResponseController::class, 'destroy']);
     Route::get('customers/{customer}/occasions', [CallCenterController::class, 'customerOccasions']);
     Route::post('customers/{customer}/occasions', [CallCenterController::class, 'storeOccasion']);
     Route::patch('customer-occasions/{occasion}', [CallCenterController::class, 'updateOccasion']);
@@ -753,9 +788,30 @@ Route::middleware(['auth:sanctum', 'role_or_permission:call-center|super-admin|a
     Route::get('complaints/{complaint}/timeline', [CallCenterController::class, 'complaintTimeline']);
 });
 
+// ── فريق الكول سنتر — إدارة حسابات موظفي الكول سنتر (User + Spatie roles/permissions) —
+// محصورة بصلاحية manage-call-center-employees (لدور call-center-manager فقط، و super-admin
+// ضمنيًا لامتلاكه كل الصلاحيات). ملاحظة معمارية مهمة: Employee وUser نموذجان منفصلان تمامًا
+// بهذا المشروع (Employee لا يملك Authenticatable/HasRoles ولا يقدر يسجّل دخول أصلاً) — موظف
+// الكول سنتر هون هو User حقيقي قادر على الدخول وحمل صلاحيات مباشرة، وليس سجل Employee إداري.
+Route::middleware(['auth:sanctum', 'permission:manage-call-center-employees'])->prefix('call-center/team')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\CallCenterTeamController::class, 'index']);
+    Route::post('/', [\App\Http\Controllers\Api\CallCenterTeamController::class, 'store']);
+    Route::post('/{user}/toggle-status', [\App\Http\Controllers\Api\CallCenterTeamController::class, 'toggleStatus']);
+    Route::put('/{user}/permissions', [\App\Http\Controllers\Api\CallCenterTeamController::class, 'updatePermissions']);
+});
+
+// ── إدارة خطوط/أجهزة الكول سنتر (SIP Extensions) — غير متاحة لموظف الكول سنتر العادي إطلاقاً،
+// بعكس my-credentials أعلاه (شخصية لكل موظف). نفس مجموعة أدوار DELIVERY_SIP_ROLES بالفرونت اند. ──
+Route::middleware(['auth:sanctum', 'role_or_permission:call-center-manager|super-admin|accountant|branch-manager'])->prefix('call-center')->group(function () {
+    Route::get('sip-accounts', [\App\Http\Controllers\Api\SipAccountController::class, 'index']);
+    Route::post('sip-accounts', [\App\Http\Controllers\Api\SipAccountController::class, 'store']);
+    Route::put('sip-accounts/{sipAccount}', [\App\Http\Controllers\Api\SipAccountController::class, 'update']);
+    Route::delete('sip-accounts/{sipAccount}', [\App\Http\Controllers\Api\SipAccountController::class, 'destroy']);
+});
+
 // ── Call Tickets (inbound webhook + manual) ──
 Route::post('call-center/webhook/incoming', [CallTicketController::class, 'webhook']);
-Route::middleware(['auth:sanctum', 'role_or_permission:call-center|super-admin|accountant|branch-manager|access-call-center-interface|manage-call-center'])->prefix('call-center')->group(function () {
+Route::middleware(['auth:sanctum', 'role_or_permission:call-center|call-center-manager|super-admin|accountant|branch-manager|access-call-center-interface|manage-call-center'])->prefix('call-center')->group(function () {
     Route::get('tickets', [CallTicketController::class, 'index']);
     Route::post('tickets/manual', [CallTicketController::class, 'manual']);
     Route::post('tickets/{ticket}/accept', [CallTicketController::class, 'accept']);
@@ -763,6 +819,8 @@ Route::middleware(['auth:sanctum', 'role_or_permission:call-center|super-admin|a
     Route::post('tickets/{ticket}/order', [CallTicketController::class, 'linkOrder']);
     Route::post('tickets/{ticket}/notes', [CallTicketController::class, 'note']);
     Route::post('tickets/{ticket}/complete', [CallTicketController::class, 'complete']);
+    Route::patch('tickets/{ticket}/classify', [CallTicketController::class, 'classify']);
+    Route::post('tickets/{ticket}/rate', [CallTicketController::class, 'rate']);
     Route::get('tickets/{ticket}/workspace', [CallTicketController::class, 'workspace']);
     Route::get('agent/breaks/today', [\App\Http\Controllers\Api\EmployeeBreakController::class, 'today']);
     Route::post('agent/breaks', [\App\Http\Controllers\Api\EmployeeBreakController::class, 'start']);

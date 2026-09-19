@@ -45,6 +45,11 @@ class StoreOrderRequest extends FormRequest
             'delivery_address_snapshot' => 'nullable|array',
             'delivery_notes' => 'nullable|string|max:4000',
             'call_notes' => 'nullable|string|max:4000',
+            'tax_rate' => 'nullable|numeric|min:0|max:100',
+            'scheduled_at' => 'nullable|date|after_or_equal:now',
+            'payments' => 'nullable|array|max:2',
+            'payments.*.method' => 'required_with:payments|in:cash,card,wallet',
+            'payments.*.amount' => 'required_with:payments|numeric|min:0',
 
             // اختياري تمامًا — إذا أرسله الـ frontend، تُمنع إعادة إنشاء الطلب
             // عند تكرار نفس الطلب (نقر مزدوج / إعادة محاولة الشبكة). لا يغيّر
@@ -117,6 +122,8 @@ class StoreOrderRequest extends FormRequest
             'delivery_address_snapshot' => $this->input('delivery_address_snapshot'),
             'delivery_notes' => $this->input('delivery_notes'),
             'call_notes' => $this->input('call_notes'),
+            'tax_rate' => $this->input('tax_rate'),
+            'scheduled_at' => $this->input('scheduled_at'),
         ];
 
         if ($this->has('items')) {

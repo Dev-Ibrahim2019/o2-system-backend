@@ -11,4 +11,9 @@ return [
      */
     'delivery_zones' => is_array($zones) ? $zones : [],
     'quote_ttl_minutes' => (int) env('CALL_CENTER_DELIVERY_QUOTE_TTL', 15),
+
+    // الحد الأقصى الافتراضي لعدد التوصيلات النشطة المتزامنة لكل سائق — يُقرأ من هون بدل قيمة
+    // مكتوبة صراحة بالكود، حتى يمكن رفعه لاحقًا (مثلاً لـ 2) بدون إعادة تصميم. يمكن تجاوزه لسائق
+    // معيّن عبر employees.max_active_deliveries (Employee::maxActiveDeliveries()).
+    'max_active_deliveries_per_driver' => (int) env('CALL_CENTER_MAX_ACTIVE_DELIVERIES_PER_DRIVER', 1),
 ];

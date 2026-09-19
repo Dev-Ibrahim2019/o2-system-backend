@@ -12,6 +12,7 @@ class Payment extends Model
 {
     protected $fillable = [
         'invoice_id',
+        'customer_id',
         'number',
         'method',
         'payment_method_id',
@@ -21,6 +22,8 @@ class Payment extends Model
         'notes',
         'branch_id',
         'user_id',
+        'register_type',
+        'register_id',
         'entity_type',
         'entity_id',
         'subledger_type',
@@ -32,11 +35,17 @@ class Payment extends Model
         'amount' => 'decimal:2',
         'entity_id' => 'integer',
         'subledger_id' => 'integer',
+        'register_id' => 'integer',
     ];
 
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
+    }
+
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class);
     }
 
     public function branch(): BelongsTo
@@ -47,6 +56,16 @@ class Payment extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** الصندوق (POS أو كول سنتر) الذي حُصِّلت عليه هذه الدفعة */
+    public function register(): PosRegister|CallCenterRegister|null
+    {
+        return match ($this->register_type) {
+            'pos_register' => PosRegister::find($this->register_id),
+            'call_center_register' => CallCenterRegister::find($this->register_id),
+            default => null,
+        };
     }
 
     public static function generateNumber(): string

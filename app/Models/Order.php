@@ -121,7 +121,23 @@ class Order extends Model
         'discount_type',
         'discount_amount',
         'engine_discount_amount',
+        'tax_rate',
+        'tax_amount',
+        'scheduled_at',
+        'payments',
         'total',
+        'cancellation_reason',
+        'cancelled_at',
+        'driver_id',
+        'delivery_assigned_at',
+        'delivered_at',
+        'executed_at',
+        'execution_attempts',
+        'execution_failed_reason',
+        'closed_at',
+        'closed_by',
+        'reopened_at',
+        'reopen_reason',
     ];
 
     protected $casts = [
@@ -129,6 +145,10 @@ class Order extends Model
         'discount_value' => 'decimal:3',
         'discount_amount' => 'decimal:3',
         'engine_discount_amount' => 'decimal:3',
+        'tax_rate' => 'decimal:2',
+        'tax_amount' => 'decimal:3',
+        'scheduled_at' => 'datetime',
+        'payments' => 'array',
         'total' => 'decimal:3',
         'seated_at' => 'datetime',
         'printed_at' => 'datetime',
@@ -142,6 +162,13 @@ class Order extends Model
         // OrderController@update's mass assignment, which is how 'paid'
         // became a fourth, unguarded payment path in the first place.
         'paid_at' => 'datetime',
+        'cancelled_at' => 'datetime',
+        'delivery_assigned_at' => 'datetime',
+        'delivered_at' => 'datetime',
+        'executed_at' => 'datetime',
+        'execution_attempts' => 'integer',
+        'closed_at' => 'datetime',
+        'reopened_at' => 'datetime',
     ];
 
     public function branch(): BelongsTo
@@ -183,6 +210,12 @@ class Order extends Model
     public function printer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'printed_by');
+    }
+
+    /** موظف التوصيل المُسنَد للطلب (عمود driver_id — كان موجودًا بلا استخدام قبل هذه الميزة) */
+    public function driver(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'driver_id');
     }
 
     public function items(): HasMany

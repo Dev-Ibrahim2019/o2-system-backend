@@ -24,11 +24,39 @@ class CallCenterController extends ApiController
 
     public function activeOrders(Request $request): JsonResponse
     {
+        if (! $this->agentCan('call-center.view-active-orders')) {
+            return $this->error('لا تملك صلاحية عرض الطلبات النشطة.', 403);
+        }
+
         $data = $request->validate(['branch_id' => ['nullable', 'integer', 'exists:branches,id']]);
 
         return $this->success(
             'تم تحميل الطلبات النشطة',
             $this->callCenterService->getActiveOrders($data['branch_id'] ?? null),
+        );
+    }
+
+    /**
+     * GET /api/call-center/closed-orders — طلبات كول سنتر المغلقة فقط (نفس نطاق source
+     * الخاص بـ activeOrders، بعكس /api/orders العام الذي يرجّع كل مصادر الطلبات).
+     */
+    public function closedOrders(Request $request): JsonResponse
+    {
+        if (! $this->agentCan('call-center.view-closed-orders')) {
+            return $this->error('لا تملك صلاحية عرض الطلبات المغلقة.', 403);
+        }
+
+        $data = $request->validate([
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'status' => ['nullable', 'string', 'max:30'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ]);
+
+        return $this->success(
+            'تم تحميل الطلبات المغلقة',
+            $this->callCenterService->getClosedOrders($data['branch_id'] ?? null, $data),
         );
     }
 
@@ -177,6 +205,22 @@ class CallCenterController extends ApiController
     /**
      * GET /api/call-center/customers/{customer}/favorites
      */
+    /**
+     * GET /api/call-center/menu/top-items — الأصناف الأكثر طلبًا عمومًا (all-time)، fallback لما
+     * ما يكون عند العميل مفضّلات خاصة به بعد.
+     */
+    public function topSellingItems(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:50'],
+        ]);
+
+        $items = $this->callCenterService->getTopSellingItems($data['branch_id'] ?? null, $data['limit'] ?? 12);
+
+        return $this->success('الأصناف الأكثر طلبًا', $items);
+    }
+
     public function customerFavorites(Request $request, Customer $customer): JsonResponse
     {
         $limit = $request->input('limit', 20);
@@ -289,6 +333,65 @@ class CallCenterController extends ApiController
         $alerts = $this->callCenterService->getCustomerAlerts($customer->id, $request->user());
 
         return $this->success('تنبيهات العميل', $alerts);
+    }
+
+    /**
+     * GET /api/call-center/customers/{customer}/timeline
+     * Unified feed of calls, complaints, and orders for one customer.
+     */
+    public function customerTimeline(Request $request, Customer $customer): JsonResponse
+    {
+        $data = $request->validate(['limit' => 'nullable|integer|min:1|max:100']);
+
+        return $this->success(
+            'Customer interaction timeline',
+            $this->callCenterService->getCustomerTimeline($customer->id, $data['limit'] ?? 30),
+        );
+    }
+
+    /**
+     * GET /api/call-center/reports/performance
+     * Real per-agent call metrics computed from call_tickets (not the static employee.performance JSON).
+     */
+    public function agentPerformance(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'branch_id' => 'nullable|integer|exists:branches,id',
+            'from' => 'nullable|date',
+            'to' => 'nullable|date',
+        ]);
+
+        $user = $request->user();
+        $branchId = $user?->hasRole('super-admin') ? ($data['branch_id'] ?? null) : $user?->branch_id;
+
+        return $this->success(
+            'Call center agent performance report',
+            $this->callCenterService->getAgentPerformance($branchId, $data['from'] ?? null, $data['to'] ?? null),
+        );
+    }
+
+    /**
+     * GET /api/call-center/reports/operations-snapshot
+     * لقطة موحدة لكل أرقام "لوحة العمليات" — طلبات/مبيعات اليوم مقابل أمس،
+     * حالة الطلبات، نشاط الساعات، أفضل الأصناف، توزيع الفروع (لغير المقيّد بفرع)، وأدائي.
+     */
+    public function operationsSnapshot(Request $request): JsonResponse
+    {
+        if (! $this->agentCan('call-center.view-dashboard')) {
+            return $this->error('لا تملك صلاحية عرض لوحة العمليات.', 403);
+        }
+
+        $data = $request->validate([
+            'branch_id' => 'nullable|integer|exists:branches,id',
+        ]);
+
+        $user = $request->user();
+        $branchId = $user?->hasRole('super-admin') ? ($data['branch_id'] ?? null) : $user?->branch_id;
+
+        return $this->success(
+            'Operations dashboard snapshot',
+            $this->callCenterService->getOperationsSnapshot($branchId, $user?->id),
+        );
     }
 
     /**

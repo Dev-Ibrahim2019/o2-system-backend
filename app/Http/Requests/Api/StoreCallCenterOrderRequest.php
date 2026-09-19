@@ -9,7 +9,19 @@ class StoreCallCenterOrderRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        // الفحص هنا (وليس بجسم الكنترولر) لأن Laravel يشغّل FormRequest::rules() قبل تنفيذ
+        // جسم الكنترولر — فحص الصلاحية بالكنترولر لن يُصل إليه أصلاً مع أي حمولة ناقصة (422
+        // يسبقه دائمًا). موظف كول سنتر بلا صلاحية create-order يجب أن يُرفض بـ 403 بغض النظر
+        // عن صحة الحمولة.
+        $user = $this->user();
+        if (! $user) {
+            return false;
+        }
+        if ($user->hasRole(['call-center-manager', 'super-admin', 'branch-manager', 'accountant'])) {
+            return true;
+        }
+
+        return $user->can('call-center.create-order');
     }
 
     public function rules(): array

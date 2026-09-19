@@ -35,6 +35,8 @@ class Employee extends Model
         'hireDate',
         'salary',
         'role',
+        'operational_role',
+        'vehicle_type',
         'status',
         'username',
         'password',
@@ -43,6 +45,8 @@ class Employee extends Model
         'notes',
         'rating',
         'performance',
+        'employee_code',
+        'max_active_deliveries',
         // ملاحظة: advance_account_id و salary_account_id حُذفا في النظام الجديد
         // الحسابات تُعرَّف عبر Control Accounts + subledger في entries
     ];
@@ -56,6 +60,7 @@ class Employee extends Model
         'hireDate' => 'date',
         'salary' => 'decimal:2',
         'rating' => 'decimal:1',
+        'max_active_deliveries' => 'integer',
     ];
 
     // ── Relations ─────────────────────────────────────────────────────────────
@@ -73,6 +78,85 @@ class Employee extends Model
     public function loans(): HasMany
     {
         return $this->hasMany(EmployeeLoan::class);
+    }
+
+    public function driverShifts(): HasMany
+    {
+        return $this->hasMany(DriverShift::class);
+    }
+
+    /** الطلبات المُسنَدة لهذا الموظف كسائق توصيل (orders.driver_id) — لصفحة إدارة الديليفري */
+    public function driverOrders(): HasMany
+    {
+        return $this->hasMany(Order::class, 'driver_id');
+    }
+
+    /** "مع التوصيل الآن" — محسوبة دائمًا من وجود طلب OUT_FOR_DELIVERY مُسنَد فعليًا، لا تُضبط يدويًا أبدًا */
+    public function hasActiveDelivery(): bool
+    {
+        return $this->driverOrders()->where('status', 'OUT_FOR_DELIVERY')->exists();
+    }
+
+    public function deliveryAssignments(): HasMany
+    {
+        return $this->hasMany(DeliveryAssignment::class, 'driver_id');
+    }
+
+    /** عدد التعيينات النشطة الآن (status=active بجدول delivery_assignments — مصدر الحقيقة للـ
+     * workload، وليس عدّ الطلبات OUT_FOR_DELIVERY مباشرة، حتى يبقى متسقًا مع سجل التاريخ الكامل). */
+    public function activeDeliveryAssignmentsCount(): int
+    {
+        return $this->deliveryAssignments()->where('status', 'active')->count();
+    }
+
+    /** الحد الأقصى الفعلي لهذا السائق — تجاوز فردي (employees.max_active_deliveries) إن وُجد،
+     * وإلا القيمة العامة بـ config('call-center.max_active_deliveries_per_driver') (افتراضي 1). */
+    public function maxActiveDeliveries(): int
+    {
+        return $this->max_active_deliveries ?? (int) config('call-center.max_active_deliveries_per_driver', 1);
+    }
+
+    /** هل السائق مؤهّل لتعيين جديد الآن؟ نشط + بشفت مفتوح + دون الحد الأقصى — لا تعتمد على أي
+     * حالة "متاح" مُدخَلة يدويًا (القسم 10/19 بالبرومبت: التوفر يُحسب من النشاط التشغيلي فقط). */
+    public function isEligibleForNewAssignment(): bool
+    {
+        return $this->operational_role === 'delivery_driver'
+            && $this->status === 'ACTIVE'
+            && $this->onShiftNow()
+            && $this->activeDeliveryAssignmentsCount() < $this->maxActiveDeliveries();
+    }
+
+    /** كود سائق فريد بصيغة DR-### — تسلسل عام (بدون نطاق تاريخي)، نفس نمط generateNumber
+     * بالنماذج الأخرى (Invoice/Payment/Order) لكن بدون بادئة تاريخ لأنه معرّف دائم للموظف لا مستند. */
+    public static function generateDriverCode(): string
+    {
+        $last = static::withTrashed()
+            ->where('employee_code', 'like', 'DR-%')
+            ->orderByDesc('id')
+            ->value('employee_code');
+
+        $seq = 1;
+        if ($last && preg_match('/(\d+)$/', $last, $m)) {
+            $seq = (int) $m[1] + 1;
+        }
+
+        return 'DR-' . str_pad((string) $seq, 3, '0', STR_PAD_LEFT);
+    }
+
+    /** هل الموظف بشفت مفتوح ومتاح الآن (آخر سجل driver_shifts بلا shift_end وis_available=true) */
+    public function isAvailableNow(): bool
+    {
+        return $this->driverShifts()
+            ->whereNull('shift_end')
+            ->where('is_available', true)
+            ->exists();
+    }
+
+    /** هل الموظف بشفت مفتوح حاليًا (بغض النظر عن is_available) — يميّز "غير متاح مؤقتًا/استراحة"
+     * (شفت مفتوح لكن is_available=false) عن "غير متصل" (ما في شفت مفتوح أصلاً). */
+    public function onShiftNow(): bool
+    {
+        return $this->driverShifts()->whereNull('shift_end')->exists();
     }
 
     // ── Subledger Financial Accessors ─────────────────────────────────────────

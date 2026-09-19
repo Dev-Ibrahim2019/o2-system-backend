@@ -2,6 +2,7 @@
 
 namespace App\Services\CallCenter;
 
+use App\Models\CallTicket;
 use App\Models\Customer;
 use App\Models\CustomerAddress;
 use App\Models\CustomerComplaint;
@@ -32,43 +33,162 @@ class CallCenterService
     {
         $orders = Order::query()
             ->where('source', 'call_center')
+            ->whereNotIn('status', ['closed', 'cancelled', 'canceled', 'CANCELLED'])
             ->when($branchId, fn (Builder $query) => $query->where('branch_id', $branchId))
-            ->whereNotIn('status', ['cancelled', 'canceled'])
-            ->where(function (Builder $query) {
-                $query->where('status', '!=', 'served')->orWhere('updated_at', '>=', now()->subDay());
-            })
             ->withCount('tickets')
-            ->with('branch:id,name')
+            ->with(['branch:id,name', 'invoice:id,order_id,status', 'driver:id,name,phone'])
             ->latest()
             ->limit(100)
-            ->get();
+            ->get()
+            // شبكة أمان لبيانات قديمة لم تُحدَّث بعد لقيمة closed الصريحة (راجع تعليق determineLifecycle)
+            ->filter(fn (Order $order) => self::determineLifecycle($order->status, $order->invoice?->status) === 'active');
 
-        $rows = $orders->map(function (Order $order) {
-            $scopes = self::classifyActiveOrder(
-                $order->status,
-                $order->order_type,
-                (int) $order->tickets_count,
-            );
-
-            return [
-                'id' => $order->id,
-                'order_number' => $order->order_number,
-                'status' => $order->status,
-                'order_type' => $order->order_type,
-                'customer_name' => $order->customer_name,
-                'total' => (float) $order->total,
-                'branch' => $order->branch,
-                'created_at' => $order->created_at,
-                'scopes' => $scopes,
-            ];
-        })->filter(fn (array $row) => $row['scopes'] !== [])->values();
+        $rows = $orders->map(fn (Order $order) => $this->toActiveOrderRow($order))
+            ->filter(fn (array $row) => $row['scopes'] !== [])
+            ->values();
 
         return [
             'awaiting_payment' => $rows->filter(fn ($row) => in_array('awaiting_payment', $row['scopes'], true))->values(),
             'kitchen_active' => $rows->filter(fn ($row) => in_array('kitchen_active', $row['scopes'], true))->values(),
             'delivery_active' => $rows->filter(fn ($row) => in_array('delivery_active', $row['scopes'], true))->values(),
-            'fulfilled_recent' => $rows->filter(fn ($row) => in_array('fulfilled_recent', $row['scopes'], true))->values(),
+            // طلبات بلا فرع (حالات قديمة/طارئة — إنشاء الطلب صار يمنع هذا الآن) تبقى ظاهرة
+            // في نطاقها الطبيعي (awaiting_payment مثلاً) وتُضاف هنا أيضاً كتبويب مخصص واضح
+            'no_branch' => $rows->filter(fn ($row) => in_array('no_branch', $row['scopes'], true))->values(),
         ];
+    }
+
+    /**
+     * الطلبات المغلقة (source=call_center فقط — نفس نطاق getActiveOrders، وليس /orders العام
+     * الذي يرجّع كل الطلبات بغض النظر عن مصدرها). طلب "مغلق" فقط لما determineLifecycle ترجّعه
+     * closed: حالة الطلب اكتملت (served/DELIVERED) والفاتورة مدفوعة بالكامل، أو الطلب ملغي.
+     * الدفع وحده لا يغلق الطلب أبداً.
+     */
+    public function getClosedOrders(?int $branchId = null, array $filters = []): array
+    {
+        $query = Order::query()
+            ->where('source', 'call_center')
+            ->when($branchId, fn (Builder $q) => $q->where('branch_id', $branchId))
+            ->when($filters['search'] ?? null, fn (Builder $q, $search) => $q->where(function (Builder $q2) use ($search) {
+                $q2->where('order_number', 'like', "%{$search}%")
+                    ->orWhere('customer_name', 'like', "%{$search}%")
+                    ->orWhere('customer_phone', 'like', "%{$search}%");
+            }))
+            ->with(['branch:id,name', 'invoice:id,order_id,status'])
+            ->latest();
+
+        // ما في عمود "أُغلق بتاريخ" جاهز بالطلب، فبنفلتر بالـ lifecycle بعد الجلب (نفس أسلوب
+        // getActiveOrders) — الحجم بالممارسة صغير (طلبات كول سنتر فقط) فمقبول أداءً.
+        $perPage = (int) ($filters['per_page'] ?? 20);
+        $page = (int) ($filters['page'] ?? 1);
+
+        $all = $query->get()->filter(
+            fn (Order $order) => self::determineLifecycle($order->status, $order->invoice?->status) === 'closed'
+        )->values();
+
+        if (($filters['status'] ?? null) && $filters['status'] !== 'all') {
+            $all = $all->filter(fn (Order $order) => $order->status === $filters['status'])->values();
+        }
+
+        $total = $all->count();
+        $paged = $all->slice(($page - 1) * $perPage, $perPage)->values();
+
+        return [
+            'data' => $paged->map(fn (Order $order) => $this->toClosedOrderRow($order))->values(),
+            'meta' => [
+                'current_page' => $page,
+                'last_page' => max(1, (int) ceil($total / max(1, $perPage))),
+                'per_page' => $perPage,
+                'total' => $total,
+            ],
+        ];
+    }
+
+    private function toActiveOrderRow(Order $order): array
+    {
+        $scopes = self::classifyActiveOrder(
+            $order->status,
+            $order->order_type,
+            (int) $order->tickets_count,
+        );
+        // "بلا فرع" محسوبة هنا (وليست في classifyActiveOrder المشترك) لتفادي كسر
+        // المستدعين الآخرين لهذه الدالة الذين لا يمرّرون فرعاً أصلاً ولا يعنيهم الأمر
+        if ($scopes !== [] && ! $order->branch_id) {
+            $scopes[] = 'no_branch';
+        }
+
+        return [
+            'id' => $order->id,
+            'order_number' => $order->order_number,
+            'status' => $order->status,
+            'order_type' => $order->order_type,
+            'customer_id' => $order->customer_id,
+            'customer_name' => $order->customer_name,
+            'customer_phone' => $order->customer_phone,
+            'total' => (float) $order->total,
+            'branch' => $order->branch,
+            'created_at' => $order->created_at,
+            'scheduled_at' => $order->scheduled_at,
+            'executed_at' => $order->executed_at,
+            'payments' => $order->payments,
+            'payment_status' => self::derivePaymentStatus($order->invoice?->status),
+            'execution_failed_reason' => $order->execution_failed_reason,
+            'driver' => $order->driver ? ['id' => $order->driver->id, 'name' => $order->driver->name, 'phone' => $order->driver->phone] : null,
+            'delivery_assigned_at' => $order->delivery_assigned_at,
+            'delivered_at' => $order->delivered_at,
+            'scopes' => $scopes,
+        ];
+    }
+
+    private function toClosedOrderRow(Order $order): array
+    {
+        return [
+            'id' => $order->id,
+            'order_number' => $order->order_number,
+            'status' => $order->status,
+            'order_type' => $order->order_type,
+            'customer_id' => $order->customer_id,
+            'customer_name' => $order->customer_name,
+            'customer_phone' => $order->customer_phone,
+            'total' => (float) $order->total,
+            'branch' => $order->branch,
+            'created_at' => $order->created_at,
+            'updated_at' => $order->updated_at,
+            'payment_status' => self::derivePaymentStatus($order->invoice?->status),
+        ];
+    }
+
+    /**
+     * مصدر الحقيقة الوحيد لتحديد Active/Closed — الدفع وحده لا يُغلق الطلب أبداً؛ الإغلاق فقط
+     * لما تكتمل حالة الطلب (served/DELIVERED) والفاتورة مدفوعة بالكامل معاً، أو يكون الطلب ملغي.
+     * $invoiceStatus: حالة Invoice الحقيقية (paid/partial/awaiting_approval/draft/cancelled) أو
+     * null لو ما في فاتورة أصلاً بعد — Invoice::resolveAutoStatus() هو من يحسم "paid" فعليًا.
+     */
+    public static function determineLifecycle(string $status, ?string $invoiceStatus): string
+    {
+        // status='closed' هي القيمة الصريحة الجديدة (OrderStatusService::maybeAutoClose) — تُحسم
+        // هون مباشرة بدون أي اشتقاق. الشرطان تحت يبقيان كشبكة أمان لبيانات قديمة لم تُحدَّث بعد
+        // لهذه القيمة الصريحة (طلبات served/DELIVERED+paid من قبل إضافة الإغلاق الصريح).
+        if (in_array($status, ['closed', 'cancelled', 'canceled', 'CANCELLED'], true)) {
+            return 'closed';
+        }
+
+        $isCompleted = in_array($status, ['served', 'DELIVERED'], true);
+        $isFullyPaid = $invoiceStatus === 'paid';
+
+        return ($isCompleted && $isFullyPaid) ? 'closed' : 'active';
+    }
+
+    /**
+     * حالة الدفع المعروضة للواجهة، مستقلة تمامًا عن حالة الطلب — مبنية على Invoice::status
+     * الحقيقي (المصدر الوحيد الموثوق لـ"هل تم الدفع فعلاً" بالمشروع)، مش على status الطلب نفسه.
+     */
+    public static function derivePaymentStatus(?string $invoiceStatus): string
+    {
+        return match ($invoiceStatus) {
+            'paid' => 'paid',
+            'partial' => 'pending',
+            default => 'unpaid', // لا فاتورة بعد، أو awaiting_approval/draft/cancelled — ما تحصّل شي
+        };
     }
 
     public static function classifyActiveOrder(string $status, ?string $orderType, int $ticketCount = 0): array
@@ -76,16 +196,18 @@ class CallCenterService
         if (in_array($status, ['cancelled', 'canceled'], true)) {
             return [];
         }
-        if ($status === 'served') return ['fulfilled_recent'];
 
+        // ملاحظة: هاي الدالة ما بتوصلها إلا الطلبات اللي determineLifecycle حسمها active أصلاً —
+        // يعني لو status هون served/DELIVERED فهذا معناه الطلب لسا مو مدفوع بالكامل (وإلا كان
+        // انصنّف closed قبل ما نوصل هون)، فمنطقي نحطه ضمن "بانتظار الدفع".
         $scopes = ['operational_active'];
-        if (in_array($status, ['pending', 'pending_confirmation', 'pending_payment'], true)) {
+        if (in_array($status, ['pending', 'pending_confirmation', 'pending_payment', 'served', 'DELIVERED'], true)) {
             $scopes[] = 'awaiting_payment';
         }
         if (in_array($status, ['confirmed', 'in_progress', 'ready'], true) || ($status === 'paid' && $ticketCount > 0)) {
             $scopes[] = 'kitchen_active';
         }
-        if ($orderType === 'delivery' && in_array($status, ['paid', 'confirmed', 'in_progress', 'ready'], true)) {
+        if ($orderType === 'delivery' && in_array($status, ['paid', 'confirmed', 'in_progress', 'ready', 'OUT_FOR_DELIVERY'], true)) {
             $scopes[] = 'delivery_active';
         }
 
@@ -230,7 +352,7 @@ class CallCenterService
     public function getCustomerOrders(int $customerId, int $perPage = 20, ?string $cursor = null): array
     {
         $query = Order::where('customer_id', $customerId)
-            ->with(['branch:id,name', 'cashier:id,name'])
+            ->with(['branch:id,name', 'cashier:id,name', 'driver:id,name,phone'])
             ->orderByDesc('created_at');
 
         if ($cursor) {
@@ -256,9 +378,15 @@ class CallCenterService
                 'note' => $o->note,
                 'branch' => $o->branch ? ['id' => $o->branch->id, 'name' => $o->branch->name] : null,
                 'cashier' => $o->cashier ? ['id' => $o->cashier->id, 'name' => $o->cashier->name] : null,
+                'driver' => $o->driver ? ['id' => $o->driver->id, 'name' => $o->driver->name, 'phone' => $o->driver->phone] : null,
                 'created_at' => $o->created_at,
                 'customer_name' => $o->customer_name,
                 'customer_phone' => $o->customer_phone,
+                'delivery_fee' => (float) ($o->delivery_fee ?? 0),
+                'delivery_address_snapshot' => $o->delivery_address_snapshot,
+                'tax_rate' => (float) ($o->tax_rate ?? 0),
+                'tax_amount' => (float) ($o->tax_amount ?? 0),
+                'scheduled_at' => $o->scheduled_at,
             ])->values()->toArray(),
             'next_cursor' => $nextCursor,
             'has_more' => $hasMore,
@@ -303,6 +431,10 @@ class CallCenterService
             'discount_type' => $order->discount_type,
             'discount_amount' => (float) $order->discount_amount,
             'engine_discount_amount' => (float) $order->engine_discount_amount,
+            'delivery_fee' => (float) ($order->delivery_fee ?? 0),
+            'tax_rate' => (float) ($order->tax_rate ?? 0),
+            'tax_amount' => (float) ($order->tax_amount ?? 0),
+            'scheduled_at' => $order->scheduled_at,
             'total' => (float) $order->total,
             'note' => $order->note,
             'customer_name' => $order->customer_name,
@@ -373,6 +505,36 @@ class CallCenterService
     }
 
     /**
+     * الأصناف الأكثر طلبًا عمومًا (كل العملاء) — fallback لما ما يكون في مفضّلات لعميل محدد.
+     * بدون نافذة زمنية (all-time)، بنفس نمط getCustomerFavorites، عشان يبقى مفيد حتى بنظام حديث الاستخدام.
+     */
+    public function getTopSellingItems(?int $branchId = null, int $limit = 12): array
+    {
+        return OrderItem::select(
+                'item_id',
+                'item_name',
+                'item_name_ar',
+                DB::raw('SUM(quantity) as quantity_sum')
+            )
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->whereNull('orders.deleted_at')
+            ->where('orders.status', '!=', 'cancelled')
+            ->when($branchId, fn (Builder $q) => $q->where('orders.branch_id', $branchId))
+            ->whereNotNull('item_id')
+            ->groupBy('item_id', 'item_name', 'item_name_ar')
+            ->orderByDesc('quantity_sum')
+            ->limit($limit)
+            ->get()
+            ->map(fn ($r) => [
+                'item_id' => (int) $r->item_id,
+                'name' => $r->item_name,
+                'name_ar' => $r->item_name_ar,
+                'quantity' => (float) $r->quantity_sum,
+            ])
+            ->all();
+    }
+
+    /**
      * Get customer addresses from CustomerAddress model
      */
     public function getCustomerAddresses(int $customerId): array
@@ -407,6 +569,250 @@ class CallCenterService
             ->paginate($perPage);
 
         return $complaints->toArray();
+    }
+
+    /**
+     * Unified chronological feed of a customer's calls, complaints, and orders.
+     */
+    public function getCustomerTimeline(int $customerId, int $limit = 30): array
+    {
+        $calls = CallTicket::where('customer_id', $customerId)
+            ->with('agent:id,name')
+            ->orderByDesc('started_at')
+            ->limit($limit)
+            ->get()
+            ->map(fn (CallTicket $ticket) => [
+                'type' => 'call',
+                'id' => $ticket->id,
+                'occurred_at' => $ticket->started_at,
+                'status' => $ticket->status,
+                'call_type' => $ticket->call_type,
+                'disposition' => $ticket->disposition,
+                'duration_seconds' => $ticket->duration_seconds,
+                'satisfaction_rating' => $ticket->satisfaction_rating,
+                'agent' => $ticket->agent ? ['id' => $ticket->agent->id, 'name' => $ticket->agent->name] : null,
+                'linked_order_id' => $ticket->linked_order_id,
+            ]);
+
+        $complaints = CustomerComplaint::where('customer_id', $customerId)
+            ->orderByDesc('created_at')
+            ->limit($limit)
+            ->get()
+            ->map(fn (CustomerComplaint $complaint) => [
+                'type' => 'complaint',
+                'id' => $complaint->id,
+                'occurred_at' => $complaint->created_at,
+                'status' => $complaint->status,
+                'title' => $complaint->title,
+                'priority' => $complaint->priority,
+            ]);
+
+        $orders = Order::where('customer_id', $customerId)
+            ->orderByDesc('created_at')
+            ->limit($limit)
+            ->get(['id', 'order_number', 'status', 'order_type', 'total', 'created_at'])
+            ->map(fn (Order $order) => [
+                'type' => 'order',
+                'id' => $order->id,
+                'occurred_at' => $order->created_at,
+                'status' => $order->status,
+                'order_number' => $order->order_number,
+                'order_type' => $order->order_type,
+                'total' => (float) $order->total,
+            ]);
+
+        return $calls->concat($complaints)->concat($orders)
+            ->sortByDesc(fn ($row) => $row['occurred_at'])
+            ->values()
+            ->take($limit)
+            ->all();
+    }
+
+    /**
+     * Real per-agent call-center performance, computed from call_tickets.
+     */
+    public function getAgentPerformance(?int $branchId = null, ?string $from = null, ?string $to = null): array
+    {
+        $from = $from ? Carbon::parse($from)->startOfDay() : now()->startOfDay();
+        $to = $to ? Carbon::parse($to)->endOfDay() : now()->endOfDay();
+
+        $baseQuery = fn () => CallTicket::whereBetween('started_at', [$from, $to])
+            ->when($branchId, fn (Builder $q) => $q->where('branch_id', $branchId));
+
+        $missedCallsTotal = (clone $baseQuery())->where('status', 'missed')->count();
+
+        $agents = CallTicket::whereBetween('call_tickets.started_at', [$from, $to])
+            ->when($branchId, fn (Builder $q) => $q->where('branch_id', $branchId))
+            ->whereNotNull('agent_id')
+            ->join('users', 'users.id', '=', 'call_tickets.agent_id')
+            ->groupBy('call_tickets.agent_id', 'users.name')
+            ->select(
+                'call_tickets.agent_id',
+                'users.name as agent_name',
+                DB::raw('COUNT(*) as total_calls'),
+                DB::raw("SUM(CASE WHEN call_tickets.status = 'completed' THEN 1 ELSE 0 END) as completed_calls"),
+                DB::raw('AVG(CASE WHEN call_tickets.duration_seconds IS NOT NULL THEN call_tickets.duration_seconds ELSE NULL END) as avg_duration_seconds'),
+                DB::raw("SUM(CASE WHEN call_tickets.call_type = 'complaint' THEN 1 ELSE 0 END) as complaint_calls"),
+                DB::raw('AVG(call_tickets.satisfaction_rating) as avg_satisfaction'),
+            )
+            ->orderByDesc('total_calls')
+            ->get()
+            ->map(function ($row) {
+                $totalCalls = (int) $row->total_calls;
+                return [
+                    'agent_id' => (int) $row->agent_id,
+                    'agent_name' => $row->agent_name,
+                    'total_calls' => $totalCalls,
+                    'completed_calls' => (int) $row->completed_calls,
+                    'average_handle_time_minutes' => $row->avg_duration_seconds !== null ? round($row->avg_duration_seconds / 60, 1) : null,
+                    'complaint_calls' => (int) $row->complaint_calls,
+                    'complaint_rate' => $totalCalls > 0 ? round(($row->complaint_calls / $totalCalls) * 100, 1) : 0.0,
+                    'avg_satisfaction' => $row->avg_satisfaction !== null ? round((float) $row->avg_satisfaction, 2) : null,
+                ];
+            })
+            ->all();
+
+        return [
+            'period' => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+            'missed_calls_total' => $missedCallsTotal,
+            'agents' => $agents,
+        ];
+    }
+
+    /**
+     * لقطة شاملة لـ "لوحة العمليات" — كل الأرقام محسوبة من orders + call_tickets
+     * الحقيقية (نفس المصادر المستخدمة في بقية الوحدة)، بدون بيانات وهمية.
+     */
+    public function getOperationsSnapshot(?int $branchId = null, ?int $agentId = null): array
+    {
+        $todayStart = now()->startOfDay();
+        $todayEnd = now()->endOfDay();
+        $yesterdayStart = now()->copy()->subDay()->startOfDay();
+        $yesterdayEnd = now()->copy()->subDay()->endOfDay();
+
+        // مُقيَّد بـ source='call_center' ليطابق تماماً نفس مجموعة الطلبات التي تعرضها
+        // "الطلبات النشطة" — قبل هذا كانت اللوحة تحسب كل طلبات المطعم (POS + كول سنتر)
+        // بينما تلك الصفحة تعرض طلبات الكول سنتر فقط، فيظهر هنا رقم لا يقابله شيء هناك.
+        $ordersTodayQuery = fn () => Order::where('orders.source', 'call_center')
+            ->whereBetween('orders.created_at', [$todayStart, $todayEnd])
+            ->when($branchId, fn (Builder $q) => $q->where('branch_id', $branchId));
+
+        $ordersTodayCount = (clone $ordersTodayQuery())->count();
+        $salesToday = (float) (clone $ordersTodayQuery())->where('status', '!=', 'cancelled')->sum('total');
+
+        $ordersYesterdayQuery = fn () => Order::where('orders.source', 'call_center')
+            ->whereBetween('orders.created_at', [$yesterdayStart, $yesterdayEnd])
+            ->when($branchId, fn (Builder $q) => $q->where('branch_id', $branchId));
+        $ordersYesterdayCount = (clone $ordersYesterdayQuery())->count();
+        $salesYesterday = (float) (clone $ordersYesterdayQuery())->where('status', '!=', 'cancelled')->sum('total');
+
+        $statusCounts = (clone $ordersTodayQuery())
+            ->select('status', DB::raw('COUNT(*) as c'))
+            ->groupBy('status')
+            ->pluck('c', 'status');
+        $completed = (int) ($statusCounts['paid'] ?? 0);
+        $cancelled = (int) ($statusCounts['cancelled'] ?? 0);
+        $pendingBranch = (int) (($statusCounts['pending'] ?? 0) + ($statusCounts['pending_confirmation'] ?? 0));
+        $preparing = max(0, $ordersTodayCount - $completed - $cancelled - $pendingBranch);
+
+        $callsQuery = fn () => CallTicket::whereBetween('started_at', [$todayStart, $todayEnd])
+            ->when($branchId, fn (Builder $q) => $q->where('branch_id', $branchId));
+        $callsTotal = (clone $callsQuery())->count();
+        $callsCompleted = (clone $callsQuery())->where('status', 'completed')->count();
+        $callsMissed = (clone $callsQuery())->where('status', 'missed')->count();
+        $callsConverted = (clone $callsQuery())->whereNotNull('linked_order_id')->count();
+        $conversionRate = $callsTotal > 0 ? round(($callsConverted / $callsTotal) * 100, 1) : 0.0;
+
+        $lastCall = (clone $callsQuery())->with('customer:id,name')->orderByDesc('started_at')->first();
+
+        $ordersHourly = (clone $ordersTodayQuery())
+            ->selectRaw('HOUR(orders.created_at) as hour, COUNT(*) as c')
+            ->groupBy('hour')->pluck('c', 'hour');
+        $callsHourly = (clone $callsQuery())
+            ->selectRaw('HOUR(started_at) as hour, COUNT(*) as c')
+            ->groupBy('hour')->pluck('c', 'hour');
+        $currentHour = (int) now()->hour;
+        $activeHours = collect($ordersHourly->keys())->merge($callsHourly->keys())->map(fn ($h) => (int) $h);
+        $startHour = $activeHours->isNotEmpty() ? min($activeHours->min(), $currentHour) : $currentHour;
+        $hourly = [];
+        for ($h = $startHour; $h <= $currentHour; $h++) {
+            $hourly[] = ['hour' => $h, 'orders' => (int) ($ordersHourly[$h] ?? 0), 'calls' => (int) ($callsHourly[$h] ?? 0)];
+        }
+
+        $topItems = OrderItem::join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->where('orders.source', 'call_center')
+            ->whereBetween('orders.created_at', [$todayStart, $todayEnd])
+            ->when($branchId, fn (Builder $q) => $q->where('orders.branch_id', $branchId))
+            ->where('orders.status', '!=', 'cancelled')
+            ->select('order_items.item_name_ar', 'order_items.item_name', DB::raw('SUM(order_items.quantity) as qty'))
+            ->groupBy('order_items.item_name_ar', 'order_items.item_name')
+            ->orderByDesc('qty')
+            ->limit(5)
+            ->get()
+            ->map(fn ($r) => ['name' => $r->item_name_ar ?: $r->item_name, 'quantity' => (int) $r->qty])
+            ->all();
+
+        $branchDistribution = [];
+        if (! $branchId) {
+            $branchDistribution = Order::where('orders.source', 'call_center')
+                ->whereBetween('orders.created_at', [$todayStart, $todayEnd])
+                ->join('branches', 'branches.id', '=', 'orders.branch_id')
+                ->select('branches.id', 'branches.name', DB::raw('COUNT(*) as c'))
+                ->groupBy('branches.id', 'branches.name')
+                ->orderByDesc('c')
+                ->get()
+                ->map(fn ($r) => ['branch_id' => (int) $r->id, 'branch_name' => $r->name, 'orders_count' => (int) $r->c])
+                ->all();
+        }
+
+        $myPerformance = null;
+        if ($agentId) {
+            $myOrdersQuery = fn () => (clone $ordersTodayQuery())->where('call_center_agent_id', $agentId);
+            $myOrders = (clone $myOrdersQuery())->count();
+            $mySales = (float) (clone $myOrdersQuery())->where('status', '!=', 'cancelled')->sum('total');
+            $myCallsQuery = fn () => CallTicket::whereBetween('started_at', [$todayStart, $todayEnd])->where('agent_id', $agentId);
+            $myPerformance = [
+                'orders' => $myOrders,
+                'sales' => round($mySales, 2),
+                'calls_total' => (clone $myCallsQuery())->count(),
+                'calls_completed' => (clone $myCallsQuery())->where('status', 'completed')->count(),
+            ];
+        }
+
+        return [
+            'today' => [
+                'orders_count' => $ordersTodayCount,
+                'sales_total' => round($salesToday, 2),
+                'avg_order_value' => $ordersTodayCount > 0 ? round($salesToday / $ordersTodayCount, 2) : 0.0,
+                'calls_total' => $callsTotal,
+                'calls_completed' => $callsCompleted,
+                'calls_missed' => $callsMissed,
+                'conversion_rate' => $conversionRate,
+            ],
+            'yesterday' => [
+                'orders_count' => $ordersYesterdayCount,
+                'sales_total' => round($salesYesterday, 2),
+            ],
+            'order_status_breakdown' => [
+                'completed' => $completed,
+                'preparing' => $preparing,
+                'cancelled' => $cancelled,
+                'pending_branch' => $pendingBranch,
+            ],
+            'hourly' => $hourly,
+            'top_items' => $topItems,
+            'branch_distribution' => $branchDistribution,
+            'last_call' => $lastCall ? [
+                'id' => $lastCall->id,
+                'customer_name' => $lastCall->customer?->name,
+                'phone' => $lastCall->incoming_phone,
+                'started_at' => optional($lastCall->started_at)->toIso8601String(),
+                'duration_seconds' => $lastCall->duration_seconds,
+                'status' => $lastCall->status,
+                'linked_order_id' => $lastCall->linked_order_id,
+            ] : null,
+            'my_performance' => $myPerformance,
+        ];
     }
 
     /**

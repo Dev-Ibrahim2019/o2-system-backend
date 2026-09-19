@@ -24,6 +24,7 @@ use App\Services\Invoice\InvoiceFromOrderService;
 use App\Services\Invoice\InvoicePaymentService;
 use App\Services\Order\OrderPaymentService;
 use App\Services\Order\OrderConfirmationService;
+use App\Services\CallCenter\OrderStatusService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -35,6 +36,7 @@ class InvoiceController extends ApiController
         private readonly InvoicePaymentService $invoicePaymentService,
         private readonly OrderConfirmationService $orderConfirmationService,
         private readonly OrderPaymentService $orderPayments,
+        private readonly OrderStatusService $orderStatusService,
     ) {}
 
     /**
@@ -50,62 +52,69 @@ class InvoiceController extends ApiController
             return $this->error('لا يمكن إنشاء فاتورة لهذا الطلب.', 422);
         }
 
-        if (! $order->tickets()->exists()) {
-            // جلب الأصناف التي ليس لها ticketItem (أي لم يتم إرسالها فعلياً للأقسام)
-            $unsentItems = $order->items()
-                ->with('department')
-                ->whereDoesntHave('ticketItem')
-                ->get();
+        // طلبات الكول سنتر تُدفع قبل تقسيمها لتذاكر الأقسام (التذاكر تُنشأ بعد الدفع عند إرسالها للمطبخ)
+        if ($order->source !== 'call_center') {
+            if (! $order->tickets()->exists()) {
+                // جلب الأصناف التي ليس لها ticketItem (أي لم يتم إرسالها فعلياً للأقسام)
+                $unsentItems = $order->items()
+                    ->with('department')
+                    ->whereDoesntHave('ticketItem')
+                    ->get();
 
-            if ($unsentItems->isNotEmpty()) {
-                $itemsByDept = $unsentItems->groupBy('department_id');
+                if ($unsentItems->isNotEmpty()) {
+                    $itemsByDept = $unsentItems->groupBy('department_id');
 
-                foreach ($itemsByDept as $deptId => $deptItems) {
-                    if (! $deptId) {
-                        continue;
-                    }
-
-                    $ticket = $order->tickets()
-                        ->where('department_id', $deptId)
-                        ->whereIn('status', ['pending', 'preparing'])
-                        ->first();
-
-                    if (! $ticket) {
-                        $ticket = ProductionTicket::create([
-                            'order_id' => $order->id,
-                            'department_id' => $deptId,
-                            'ticket_number' => ProductionTicket::generateTicketNumber((int) $deptId),
-                            'status' => 'pending',
-                            'sent_at' => now(),
-                            'notes' => $order->note,
-                        ]);
-                    }
-
-                    foreach ($deptItems as $orderItem) {
-                        if ($orderItem->ticketItem) {
+                    foreach ($itemsByDept as $deptId => $deptItems) {
+                        if (! $deptId) {
                             continue;
                         }
 
-                        ProductionTicketItem::create([
-                            'production_ticket_id' => $ticket->id,
-                            'order_item_id' => $orderItem->id,
-                            'quantity' => (int) ceil((float) $orderItem->quantity),
-                            'notes' => $orderItem->notes,
-                            'status' => 'pending',
-                        ]);
+                        $ticket = $order->tickets()
+                            ->where('department_id', $deptId)
+                            ->whereIn('status', ['pending', 'preparing'])
+                            ->first();
 
-                        $orderItem->update([
-                            'sent_to_kitchen_at' => now(),
-                            'is_printed_direct' => true,
-                        ]);
+                        if (! $ticket) {
+                            $ticket = ProductionTicket::create([
+                                'order_id' => $order->id,
+                                'department_id' => $deptId,
+                                'ticket_number' => ProductionTicket::generateTicketNumber((int) $deptId),
+                                'status' => 'pending',
+                                'sent_at' => now(),
+                                'notes' => $order->note,
+                            ]);
+                        }
+
+                        foreach ($deptItems as $orderItem) {
+                            if ($orderItem->ticketItem) {
+                                continue;
+                            }
+
+                            ProductionTicketItem::create([
+                                'production_ticket_id' => $ticket->id,
+                                'order_item_id' => $orderItem->id,
+                                'quantity' => (int) ceil((float) $orderItem->quantity),
+                                'notes' => $orderItem->notes,
+                                'status' => 'pending',
+                            ]);
+
+                            $orderItem->update([
+                                'sent_to_kitchen_at' => now(),
+                                'is_printed_direct' => true,
+                            ]);
+                        }
+                    }
+
+                    if (in_array($order->status, ['pending', 'pending_confirmation'])) {
+                        $order->update(['status' => 'confirmed']);
                     }
                 }
-
-                if (in_array($order->status, ['pending', 'pending_confirmation'])) {
-                    $order->update(['status' => 'confirmed']);
-                }
+                // إذا لا توجد أصناف جديدة — المتابعة لإنشاء الفاتورة
             }
-            // إذا لا توجد أصناف جديدة — المتابعة لإنشاء الفاتورة
+
+            if ($order->status === 'pending') {
+                $order->update(['status' => 'confirmed']);
+            }
         }
 
         if ($order->invoice()->exists()) {
@@ -255,6 +264,14 @@ class InvoiceController extends ApiController
                         'channel' => 'invoice_payment',
                         'invoice_id' => $invoice->id,
                     ]);
+                }
+            }
+
+            if ($invoice->order_id) {
+                $order = $invoice->order()->first();
+                if ($order) {
+                    $this->orderStatusService->logPayment($order, $amount, $data['method']);
+                    $this->orderStatusService->maybeAutoClose($order);
                 }
             }
 

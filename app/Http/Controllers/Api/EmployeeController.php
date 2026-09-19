@@ -33,6 +33,9 @@ class EmployeeController extends ApiController
                 'department_id',
                 'jobTitleId',
                 'role',
+                'operational_role',
+                'vehicle_type',
+                'employee_code',
                 'status',
                 'hireDate',
                 'salary',
@@ -45,6 +48,11 @@ class EmployeeController extends ApiController
             ->when($request->branch_id,     fn($q) => $q->where('branch_id',     $request->branch_id))
             ->when($request->department_id, fn($q) => $q->where('department_id', $request->department_id))
             ->when($request->status,        fn($q) => $q->where('status',        $request->status))
+            ->when($request->operational_role, fn($q) => $q->where('operational_role', $request->operational_role))
+            ->when($request->boolean('available_only'), fn($q) => $q->whereHas(
+                'driverShifts',
+                fn($qb) => $qb->whereNull('shift_end')->where('is_available', true)
+            ))
             ->when($request->search,        fn($q) => $q->where(
                 fn($qb) =>
                 $qb->where('name',       'like', "%{$request->search}%")
@@ -70,6 +78,17 @@ class EmployeeController extends ApiController
 
         if (!empty($data['password'])) {
             $data['password'] = bcrypt($data['password']);
+        }
+
+        // كود سائق فريد (DR-###) — يُولَّد تلقائيًا لسائقي التوصيل فقط، ما لم يُرسَل صراحة
+        if (($data['operational_role'] ?? null) === 'delivery_driver' && empty($data['employee_code'])) {
+            $data['employee_code'] = Employee::generateDriverCode();
+        }
+
+        // hireDate عمود NOT NULL بقاعدة البيانات لكن أصبح nullable بالتحقق (نموذج إضافة السائق
+        // المبسّط لا يعرضه) — نضبطه لتاريخ اليوم افتراضيًا لو غير مُرسَل.
+        if (empty($data['hireDate'])) {
+            $data['hireDate'] = now()->toDateString();
         }
 
         // ✅ إنشاء الموظف فقط — EmployeeObserver سيُنشئ حسابي السلف والراتب تلقائياً

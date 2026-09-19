@@ -19,8 +19,8 @@ class BranchDepartmentItemEmployeeSeeder extends Seeder
         $mainBranch = Branch::firstOrCreate(
             ['code' => 'MAIN'],
             Branch::factory()->main()->raw([
-                'name' => 'Main Street',
-                'address' => '1 City Center',
+                'name' => 'فرع المدينة',
+                'address' => 'وسط المدينة',
                 'phone' => '0210000001',
                 'openingTime' => '07:00:00',
                 'closingTime' => '23:30:00',
@@ -30,8 +30,8 @@ class BranchDepartmentItemEmployeeSeeder extends Seeder
         $secondBranch = Branch::firstOrCreate(
             ['code' => 'NORTH'],
             Branch::factory()->raw([
-                'name' => 'North Mall',
-                'address' => '200 Mall Road',
+                'name' => 'فرع الشمال',
+                'address' => 'المول الشمالي',
                 'phone' => '0210000002',
                 'openingTime' => '09:00:00',
                 'closingTime' => '22:00:00',
