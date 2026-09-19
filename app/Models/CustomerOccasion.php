@@ -24,6 +24,7 @@ class CustomerOccasion extends Model
         'preferred_contact_method',
         'is_active',
         'created_by',
+        'assigned_user_id',
     ];
 
     protected $casts = [
@@ -103,6 +104,20 @@ class CustomerOccasion extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * Who follows up on this occasion — a CRM user, same distinction
+     * customer_complaints.assigned_user_id already draws over its older,
+     * Employee-based assigned_to column. Named assignedUser() (not
+     * assignedTo()) for the same reason creator() isn't createdBy(): Laravel
+     * serializes an eager-loaded relation under the snake_case of its own
+     * method name, and assignedTo() would collide with and overwrite the
+     * assigned_user_id integer column in the JSON.
+     */
+    public function assignedUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_user_id');
     }
 
     /**

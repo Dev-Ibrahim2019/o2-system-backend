@@ -80,6 +80,11 @@ class OrderController extends ApiController
             name: $data['customer_name'] ?? null,
             phone: $data['customer_phone'] ?? null,
             branchId: $branchId,
+            // Only the shared POS screen's own "محلي/فوري" toggle means
+            // "عائلات"/"فوري" — Hospitality creates dine_in orders through
+            // this same endpoint for an unrelated reason and must not be
+            // tagged as the Families-hall cashier because of it.
+            orderType: $authUser->hasRole('hospitality') ? null : ($data['order_type'] ?? null),
         );
         $data['customer_id'] = $link->customerId;
 
@@ -273,6 +278,8 @@ class OrderController extends ApiController
                 name: $validated['customer_name'] ?? $order->customer_name,
                 phone: $validated['customer_phone'] ?? $order->customer_phone,
                 branchId: $order->branch_id,
+                // Same exclusion as store() above — see PosCustomerLinkService::resolve().
+                orderType: $request->user()?->hasRole('hospitality') ? null : $order->order_type,
             );
 
         DB::beginTransaction();

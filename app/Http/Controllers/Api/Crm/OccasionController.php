@@ -7,6 +7,7 @@ use App\Models\Customer;
 use App\Models\CustomerGroup;
 use App\Models\CustomerOccasion;
 use App\Models\OccasionFollowup;
+use App\Models\Scopes\BranchScope;
 use App\Models\User;
 use App\Services\Crm\CrmCustomerAccessService;
 use Carbon\Carbon;
@@ -56,6 +57,7 @@ class OccasionController extends Controller
             'to' => ['nullable', 'date', 'after_or_equal:from'],
             'owner_type' => ['nullable', Rule::in(['customer', 'group'])],
             'occasion_type' => ['nullable', 'string', 'max:50'],
+            'search' => ['nullable', 'string', 'max:100'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
@@ -86,12 +88,27 @@ class OccasionController extends Controller
             // The owner is loaded for its name and phone. A morphTo cannot
             // select columns per type, so the nested constraint is declared
             // through morphWith on the one type that has phones.
-            ->with(['occasionable' => fn ($morph) => $morph->morphWith([
-                Customer::class => ['primaryPhone:id,customer_id,phone,normalized_phone'],
-            ])])
+            ->with([
+                'occasionable' => fn ($morph) => $morph->morphWith([
+                    Customer::class => ['primaryPhone:id,customer_id,phone,normalized_phone'],
+                ]),
+                'assignedUser:id,name',
+            ])
             ->get()
             ->filter(fn (CustomerOccasion $o) => $this->fallsWithin($o, $start, $end))
             ->map(fn (CustomerOccasion $o) => $this->row($o, $start))
+            // Owner name or the occasion's own title — applied after row()
+            // resolves owner_name, the same place a morphTo forces every
+            // other per-owner field to be computed. The window is already a
+            // handful of rows by construction, so a PHP-side filter costs
+            // nothing extra here.
+            ->when(
+                $validated['search'] ?? null,
+                fn ($rows, $term) => $rows->filter(
+                    fn (array $row) => str_contains(mb_strtolower($row['owner_name'] ?? ''), mb_strtolower($term))
+                        || str_contains(mb_strtolower($row['title'] ?? ''), mb_strtolower($term))
+                )
+            )
             // Sorted by when it actually falls, not by the stored date — the
             // stored date is a birth year and orders the list meaninglessly.
             ->sortBy('next_occurrence')
@@ -158,6 +175,28 @@ class OccasionController extends Controller
     }
 
     /**
+     * GET /api/crm/occasions/assignable-users
+     *
+     * Declared before the {occasion} wildcard, same reason as summary()
+     * above. Mirrors ComplaintController::assignableUsers() exactly — the
+     * same "who may work this" question, asked for occasions instead of
+     * complaints: everyone holding crm.occasions.update, branch scope lifted
+     * (a manager overseeing another branch, or a company-wide role, must be
+     * assignable too).
+     */
+    public function assignableUsers(Request $request): JsonResponse
+    {
+        $users = User::withoutGlobalScope(BranchScope::class)
+            ->permission('crm.occasions.update')
+            ->with('branch:id,name')
+            ->orderBy('name')
+            ->get(['id', 'name', 'branch_id'])
+            ->values();
+
+        return response()->json(['data' => $users]);
+    }
+
+    /**
      * GET /api/crm/occasions/{occasion}
      *
      * The single-occasion read did not exist: an occasion could only be seen
@@ -167,7 +206,7 @@ class OccasionController extends Controller
     {
         $this->authorizeOccasion($request, $occasion);
 
-        $occasion->load(['occasionable', 'creator:id,name', 'followups.creator:id,name']);
+        $occasion->load(['occasionable', 'creator:id,name', 'assignedUser:id,name', 'followups.creator:id,name']);
 
         return response()->json([
             'data' => array_merge($occasion->toArray(), [
@@ -298,6 +337,8 @@ class OccasionController extends Controller
             'owner_phone' => $isCustomer
                 ? ($owner->primaryPhone?->normalized_phone ?? $owner->phone ?? $owner->mobile)
                 : null,
+            'assigned_user_id' => $occasion->assigned_user_id,
+            'assigned_user_name' => $occasion->assignedUser?->name,
         ];
     }
 

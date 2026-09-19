@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -16,11 +17,19 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
  */
 class CustomerGroup extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, Auditable;
 
     public const TYPES = ['retail', 'wholesale', 'corporate', 'government', 'service'];
 
-    protected $fillable = ['name', 'group_type'];
+    /**
+     * The fixed colour palette the redesign's swatch picker offers — matches
+     * --crmx-primary and the other brand-adjacent hues already in crmx.css,
+     * so a group's colour never clashes with the rest of the CRM's own
+     * tokens the way a free-text hex field could.
+     */
+    public const COLORS = ['rose', 'orange', 'amber', 'green', 'teal', 'blue', 'indigo', 'purple'];
+
+    protected $fillable = ['name', 'group_type', 'color'];
 
     /**
      * Occasions owned by the group itself — a founding anniversary, a contract

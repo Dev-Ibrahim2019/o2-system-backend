@@ -130,6 +130,9 @@ class InvoiceController extends ApiController
                 name: $order->customer_name,
                 phone: $order->customer_phone,
                 branchId: $order->branch_id,
+                // Same exclusion as OrderController::store()/update() — see
+                // PosCustomerLinkService::resolve()'s own doc comment.
+                orderType: $user->hasRole('hospitality') ? null : $order->order_type,
             );
             $customerId = $link->customerId;
 

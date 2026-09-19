@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
             'check.pos.network' => \App\Http\Middleware\CheckPosNetwork::class,
             'check.hospitality.network' => \App\Http\Middleware\CheckHospitalityNetwork::class,
+            'crm.enabled' => \App\Http\Middleware\EnsureCrmModuleEnabled::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

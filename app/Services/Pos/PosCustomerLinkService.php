@@ -3,6 +3,7 @@
 namespace App\Services\Pos;
 
 use App\Models\Customer;
+use App\Models\CrmSetting;
 use App\Services\CallCenter\CustomerResolutionService;
 use App\Services\CustomerIdentityService;
 use App\Services\Support\PhoneNormalizer;
@@ -45,6 +46,15 @@ class PosCustomerLinkService
         ?string $name,
         ?string $phone,
         ?int $branchId,
+        // "محلي" (dine_in, billed by table) vs "فوري" (takeaway) on the
+        // shared POS screen — confirmed directly with the business as the
+        // real, only difference between the "عائلات"/"فوري" cashiers today
+        // (see createFromCounter()/sourceFor() below). Callers acting for an
+        // unrelated flow that happens to also create dine_in orders
+        // (Hospitality's own service) must pass null here, not their real
+        // order_type, so those customers keep resolving to 'walk_in' as
+        // they always have.
+        ?string $orderType = null,
     ): PosCustomerLink {
         // Already resolved by the client (customer picked from a search) —
         // the form request has validated it exists. Nothing to do.
@@ -77,7 +87,7 @@ class PosCustomerLinkService
                 // unlinked rather than failing or guessing wrong.
                 'multiple' => PosCustomerLink::skipped(PosCustomerLink::SKIPPED_AMBIGUOUS),
 
-                'not_found' => $this->createFromCounter($name, $phone, $branchId),
+                'not_found' => $this->createFromCounter($name, $phone, $branchId, $orderType),
 
                 default => PosCustomerLink::skipped(PosCustomerLink::SKIPPED_NO_DATA),
             };
@@ -117,10 +127,18 @@ class PosCustomerLinkService
      * customer — and inventing a placeholder name would put junk in the CRM
      * that an operator then has to clean up. The order stays unlinked instead.
      */
-    private function createFromCounter(?string $name, string $phone, ?int $branchId): PosCustomerLink
+    private function createFromCounter(?string $name, string $phone, ?int $branchId, ?string $orderType): PosCustomerLink
     {
         if (blank($name)) {
             return PosCustomerLink::skipped(PosCustomerLink::SKIPPED_NO_DATA);
+        }
+
+        // crm_settings.auto_register_pos_customers — the one real, enforced
+        // CRM setting this path answers to. Off means the sale still
+        // completes, exactly like any other "skipped" outcome; it simply
+        // never creates the customer record.
+        if (! CrmSetting::current()->auto_register_pos_customers) {
+            return PosCustomerLink::skipped(PosCustomerLink::SKIPPED_AUTO_REGISTER_DISABLED);
         }
 
         return PosCustomerLink::linked($this->identity->create([
@@ -128,12 +146,26 @@ class PosCustomerLinkService
             'phone' => $phone,
             'branch_id' => $branchId,
             'status' => 'active',
-            // Both cashiers post to the same endpoint with source='pos' and
-            // neither frontend identifies itself, so 'fawri' vs 'families'
-            // cannot be told apart server-side today. 'walk_in' is true of
-            // both; narrowing it needs the two frontends to send `source`,
-            // which is a separate change.
-            'source' => 'walk_in',
+            'source' => $this->sourceFor($orderType),
         ], Customer::TYPE_OPERATIONAL)->id);
+    }
+
+    /**
+     * Both cashiers post to the same endpoint and neither identifies itself
+     * directly — but the business confirmed the one thing that DOES tell
+     * them apart: order_type on this shared POS screen. "محلي" (dine_in,
+     * billed by table) is always the "عائلات" cashier; "فوري" (takeaway) is
+     * always the "فوري" cashier. Anything else (delivery, or null when the
+     * caller deliberately withholds it for an unrelated flow — see
+     * resolve()'s own doc comment) keeps the previous, safe 'walk_in'
+     * default rather than guessing.
+     */
+    private function sourceFor(?string $orderType): string
+    {
+        return match ($orderType) {
+            'dine_in' => 'families',
+            'takeaway' => 'fawri',
+            default => 'walk_in',
+        };
     }
 }

@@ -17,6 +17,9 @@ final class PosCustomerLink
     public const SKIPPED_AMBIGUOUS = 'skipped_ambiguous';
     public const SKIPPED_NO_DATA = 'skipped_no_data';
 
+    /** crm_settings.auto_register_pos_customers is off — a deliberate admin choice, not a data or resolution problem. */
+    public const SKIPPED_AUTO_REGISTER_DISABLED = 'skipped_auto_register_disabled';
+
     /**
      * Internal failure — the resolver threw and was swallowed to protect the
      * sale. Kept distinct from the three "skipped" reasons on purpose: those

@@ -23,8 +23,14 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
+        <!-- MySQL, not SQLite: the migration chain relies on MySQL-only DDL
+             (CHECK constraints, MODIFY COLUMN, ADD COLUMN ... AFTER, DROP INDEX)
+             in at least eight migrations, so the suite could never migrate on
+             SQLite and ran zero assertions. A dedicated database also means
+             tests exercise the same engine as production. Create it once:
+             CREATE DATABASE o2_restaurant_test; -->
+        <env name="DB_CONNECTION" value="mysql"/>
+        <env name="DB_DATABASE" value="o2_restaurant_test"/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>

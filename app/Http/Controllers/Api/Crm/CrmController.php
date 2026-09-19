@@ -43,6 +43,7 @@ class CrmController extends Controller
         private readonly CallCenterService $callCenter,
         private readonly CrmOrdersQueryService $orders,
         private readonly \App\Services\Crm\ComplaintNotificationService $notifications,
+        private readonly \App\Services\Crm\CrmOrderDelayAlertService $delayAlerts,
     ) {}
 
     /**
@@ -508,24 +509,27 @@ class CrmController extends Controller
     }
 
     /**
-     * The customer's orders, shaped for the mockup's "طلبات العميل" table.
+     * The customer's orders, shaped for the "طلبات العميل" tab.
      *
-     * Two columns the mockup shows are added here as derived, read-only
-     * fields — both from tables that already exist, neither stored on the
-     * order itself:
+     * Rows are transformOrderRow() — the exact same shape ordersIndex()/
+     * ordersDelayed() return for the CRM-wide Orders screens — so the
+     * frontend can point one order-details surface (CrmOrderDetailsModal) at
+     * a row from either source instead of maintaining a second, differently-
+     * shaped row type only this tab understood. Previously this endpoint
+     * returned the raw Order model instead (a flat customer_name string, no
+     * nested customer/branch/table objects, no is_paid) — harmless to every
+     * existing reader here (each already falls back to the older field names
+     * this still doesn't carry, e.g. `r.number ?? r.order_number`), but it
+     * meant "طلبات العميل" and "الطلبات" showed the same data through two
+     * different lenses.
+     *
+     * Two extra columns this tab shows are layered on top of the shared
+     * shape — both derived, read-only, from tables that already exist:
      *  - `rating`: the mean of order_feedback's three 1–5 scores
      *    (food_quality / service_quality / delivery_speed), null when the
      *    order was never rated. Averaged rather than picking one dimension
      *    because the mockup shows a single star rating per order.
      *  - `has_complaint`: whether any customer_complaint points at this order.
-     *
-     * The mockup's "طريقة الدفع" column (نقدي / بطاقة / تحويل بنكي) is NOT
-     * added: an order's method lives in two unreconciled places — POS settles
-     * through invoices→payments while Call Center writes payment_confirmations
-     * (the same split CrmOrdersQueryService::applyPaymentFilter() documents).
-     * Picking one silently would mislabel every order settled by the other, so
-     * `payment_status`, which IS on the order, is returned instead and the
-     * column decision is left open.
      */
     public function orders(Request $request, Customer $customer): JsonResponse
     {
@@ -538,7 +542,12 @@ class CrmController extends Controller
         // display concern. CustomerComplaint's SoftDeletes scope still applies
         // because the sub-select is built from the model, not a raw table.
         $page = $customer->orders()
-            ->with('branch:id,name')
+            ->with([
+                'branch:id,name',
+                'diningTable:id,dining_zone_id,table_number',
+                'diningTable.zone:id,name',
+                'cashier:id,name',
+            ])
             ->select('orders.*')
             ->addSelect([
                 'rating' => OrderFeedback::query()
@@ -552,10 +561,19 @@ class CrmController extends Controller
             ->latest()
             ->paginate(15);
 
-        $page->getCollection()->transform(function (Order $order) {
-            $order->setAttribute('rating', $order->rating === null ? null : (float) $order->rating);
-            $order->setAttribute('has_complaint', (int) $order->complaints_count > 0);
-            return $order;
+        // Every order here already belongs to $customer, so transformOrderRow()'s
+        // customer lookup needs only this one model, keyed the same way
+        // customersFor() keys its own batch lookup for the cross-customer screens.
+        $customers = collect([$customer->getKey() => $customer]);
+
+        $page->getCollection()->transform(function (Order $order) use ($customers) {
+            $rating = $order->getAttribute('rating');
+            $hasComplaint = (int) $order->getAttribute('complaints_count') > 0;
+
+            return $this->transformOrderRow($order, null, $customers) + [
+                'rating' => $rating === null ? null : (float) $rating,
+                'has_complaint' => $hasComplaint,
+            ];
         });
 
         return response()->json(['data' => $page]);
@@ -1251,7 +1269,7 @@ class CrmController extends Controller
     public function occasions(Request $request, Customer $customer): JsonResponse
     {
         $this->access->authorize($request->user(), $customer);
-        return response()->json(['data' => $customer->occasions()->where('is_active', true)->orderBy('date')->get()]);
+        return response()->json(['data' => $customer->occasions()->with('assignedUser:id,name')->where('is_active', true)->orderBy('date')->get()]);
     }
 
 
@@ -1296,7 +1314,7 @@ class CrmController extends Controller
     public function groupOccasions(Request $request, CustomerGroup $group): JsonResponse
     {
         return response()->json([
-            'data' => $group->occasions()->where('is_active', true)->orderBy('date')->get(),
+            'data' => $group->occasions()->with('assignedUser:id,name')->where('is_active', true)->orderBy('date')->get(),
         ]);
     }
 
@@ -1346,6 +1364,10 @@ class CrmController extends Controller
             'notes' => ['nullable', 'string'],
             'preferred_contact_method' => ['nullable', Rule::in(self::CONTACT_METHOD_VALUES)],
             'is_active' => ['nullable', 'boolean'],
+            // "من المسؤول عن متابعة هذه المناسبة" — a CRM user, not an
+            // Employee row (see CustomerOccasion::assignedUser()'s own doc
+            // comment). Nullable both ways: an occasion is useful unassigned.
+            'assigned_user_id' => ['nullable', 'integer', 'exists:users,id'],
         ];
     }
 
@@ -1568,6 +1590,17 @@ class CrmController extends Controller
         ]);
 
         $minutes = (int) ($filters['minutes'] ?? 30);
+
+        // Safety net for the delay alerts. The real trigger is the scheduled
+        // crm:orders:check-delays command, but that only fires if something
+        // on the host actually runs `schedule:run` — which is exactly what
+        // silently stopped being true and left three days of delayed orders
+        // un-alerted. Opening this screen now also runs the check, so the
+        // alerts a manager expects exist by the time they look for them.
+        // Cheap and idempotent: checkAndNotify() dedupes on
+        // (order_id, threshold_minutes), so repeat visits notify no one twice.
+        $this->delayAlerts->checkAndNotify();
+
         $page = $this->orders->delayed($request->user(), $minutes, $filters);
         $customers = $this->customersFor($page->getCollection());
         $page->getCollection()->transform(fn (Order $order) => $this->transformOrderRow($order, $minutes, $customers));

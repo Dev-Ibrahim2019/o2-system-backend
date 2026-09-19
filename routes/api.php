@@ -388,7 +388,9 @@ Route::middleware('auth:sanctum')->prefix("customers")->group(function () {
 });
 
 // CRM Admin read API. Legacy customer and call-center contracts remain unchanged.
-Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->group(function () {
+// crm.enabled sits behind the auth+permission checks so a disabled module reads
+// as a clean 503 (not a permission error) for anyone who was actually allowed in.
+Route::middleware(['auth:sanctum', 'permission:crm.access', 'crm.enabled'])->prefix('crm')->group(function () {
     $crm = \App\Http\Controllers\Api\Crm\CrmController::class;
 
     // Read-only: the customer form needs to offer existing groups. Group
@@ -398,6 +400,11 @@ Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->gro
     // — is unaffected; crm.groups.view is the new, purpose-built alternative.
     $groups = \App\Http\Controllers\Api\Crm\CustomerGroupController::class;
     Route::get('customer-groups', [$groups, 'index'])->middleware('permission:crm.view-customers|crm.groups.view');
+    // Literal before the {group} wildcard, same as complaints/summary and
+    // occasions/summary above.
+    Route::get('customer-groups/analytics', [$groups, 'crossAnalytics'])->middleware('permission:crm.view-customers|crm.groups.view');
+    Route::get('customer-groups/smart-suggestions', [$groups, 'smartSuggestions'])->middleware('permission:crm.view-customers|crm.groups.view');
+    Route::post('customer-groups/smart-suggestions/apply', [$groups, 'applySmartSuggestion'])->middleware('permission:crm.groups.create');
     Route::get('customer-groups/{group}', [$groups, 'show'])->middleware('permission:crm.view-customers|crm.groups.view');
     Route::post('customer-groups', [$groups, 'store'])->middleware('permission:crm.groups.create');
     Route::put('customer-groups/{group}', [$groups, 'update'])->middleware('permission:crm.groups.update');
@@ -405,7 +412,40 @@ Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->gro
     // Membership is customers.group_id — no pivot, one source.
     Route::get('customer-groups/{group}/customers', [$groups, 'customers'])->middleware('permission:crm.view-customers|crm.groups.view');
     Route::post('customer-groups/{group}/customers', [$groups, 'addCustomer'])->middleware('permission:crm.groups.update');
+    Route::get('customer-groups/{group}/analytics', [$groups, 'analytics'])->middleware('permission:crm.view-customers|crm.groups.view');
+    Route::get('customer-groups/{group}/activity', [$groups, 'activity'])->middleware('permission:crm.view-customers|crm.groups.view');
     Route::delete('customer-groups/{group}/customers/{customer}', [$groups, 'removeCustomer'])->middleware('permission:crm.groups.update');
+
+    // Delegated CRM staff permission management — a crm-manager's own control
+    // over what their CRM staff can see/do. Every route here additionally
+    // requires crm.staff.manage-permissions (super-admin + crm-manager only by
+    // default); crm.access above just gets them into the module at all.
+    Route::middleware('permission:crm.staff.manage-permissions')->prefix('staff')->group(function () {
+        $staffPerms = \App\Http\Controllers\Api\Crm\CrmStaffPermissionController::class;
+        Route::get('permissions-catalog', [$staffPerms, 'catalog']);
+        Route::get('/', [$staffPerms, 'index']);
+        Route::get('{user}/permissions', [$staffPerms, 'show']);
+        Route::post('{user}/permissions/direct', [$staffPerms, 'syncDirect']);
+        Route::post('{user}/permissions/deny', [$staffPerms, 'syncDenied']);
+        Route::get('{user}/activity', [$staffPerms, 'activity']);
+    });
+
+    // Module-wide settings — real, enforced behavior only (EnsureCrmModuleEnabled,
+    // PosCustomerLinkService), never a cosmetic toggle. super-admin only.
+    Route::middleware('permission:crm.settings.manage')->group(function () {
+        $settings = \App\Http\Controllers\Api\Crm\CrmSettingController::class;
+        Route::get('settings', [$settings, 'show']);
+        Route::put('settings', [$settings, 'update']);
+    });
+
+    // Reports & analytics — same audience as the CRM dashboard (crm.dashboard.view),
+    // not a new permission: both surface the same kind of company-wide operational data.
+    Route::middleware('permission:crm.dashboard.view')->prefix('reports')->group(function () {
+        $reports = \App\Http\Controllers\Api\Crm\CrmReportController::class;
+        Route::get('overview', [$reports, 'overview']);
+        Route::get('revenue', [$reports, 'revenue']);
+    });
+
     Route::get('dashboard', [$crm, 'dashboard'])->middleware('permission:crm.dashboard.view');
     Route::get('customers', [$crm, 'index'])->middleware('permission:crm.view-customers');
     Route::post('customers', [$crm, 'store'])->middleware('permission:crm.create-customers');
@@ -418,6 +458,11 @@ Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->gro
     Route::get('customers/{customer}/purchase-history', [$crm, 'purchaseHistory'])->middleware('permission:crm.customer-orders.view');
     Route::get('orders', [$crm, 'ordersIndex'])->middleware('permission:crm.customer-orders.view');
     Route::get('orders/delayed', [$crm, 'ordersDelayed'])->middleware('permission:crm.customer-orders.view');
+    // The persisted delay-alert threshold behind crm:orders:check-delays —
+    // read by anyone who can see orders, changed only by crm-manager/
+    // super-admin (crm.customer-orders.manage, narrower than .view).
+    Route::get('orders/delay-settings', [\App\Http\Controllers\Api\Crm\OrderDelaySettingController::class, 'show'])->middleware('permission:crm.customer-orders.view');
+    Route::put('orders/delay-settings', [\App\Http\Controllers\Api\Crm\OrderDelaySettingController::class, 'update'])->middleware('permission:crm.customer-orders.manage');
     Route::get('orders/{order}', [$crm, 'orderDetails'])->middleware('permission:crm.customer-orders.view');
     Route::get('orders/{order}/timeline', [$crm, 'orderTimeline'])->middleware('permission:crm.customer-orders.view');
     // Per-line-item rating — same permission as the order-level feedback
@@ -491,6 +536,9 @@ Route::middleware(['auth:sanctum', 'permission:crm.access'])->prefix('crm')->gro
     $occasions = \App\Http\Controllers\Api\Crm\OccasionController::class;
     Route::get('occasions', [$occasions, 'index'])->middleware('permission:crm.occasions.view');
     Route::get('occasions/summary', [$occasions, 'summary'])->middleware('permission:crm.occasions.view');
+    // Candidates for assignment — gated on .update (the same permission
+    // actually setting assigned_user_id requires), not .view.
+    Route::get('occasions/assignable-users', [$occasions, 'assignableUsers'])->middleware('permission:crm.occasions.update');
     Route::get('occasions/{occasion}', [$occasions, 'show'])->middleware('permission:crm.occasions.view');
     // Writing the diary is a write on the occasion, so it rides on
     // crm.occasions.update — no new permission. A reader with only
