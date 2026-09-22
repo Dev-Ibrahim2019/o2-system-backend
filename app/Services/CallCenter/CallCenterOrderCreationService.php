@@ -2,7 +2,7 @@
 
 namespace App\Services\CallCenter;
 
-use App\Models\{CallTicket, Customer, CustomerAddress, Item, Order, OrderItem, User};
+use App\Models\{CallTicket, Customer, CustomerAddress, CustomerNote, Item, Order, OrderItem, User};
 use App\Services\Crm\IdentityConflictService;
 use App\Services\CustomerIdentityService;
 use App\Services\Integration\IntegrationOutboxWriter;
@@ -99,9 +99,25 @@ class CallCenterOrderCreationService
             ]);
 
             foreach ($data['items'] as $row) {
-                $this->createItem($order, $row);
+                $this->createItem($order, $row, $customer, $agent);
             }
             $order->recalculateTotals();
+
+            // What the agent typed in the order's notes field only lived on
+            // orders.note before this — invisible on the customer's own CRM
+            // profile (CrmController::notes(), a separate customer_notes
+            // table) even though it was about that same customer. Mirrored
+            // here, order_id-linked, so it shows up in both places without
+            // duplicating what the agent has to type.
+            if (filled($data['notes'] ?? null)) {
+                CustomerNote::create([
+                    'customer_id' => $customer->id,
+                    'order_id' => $order->id,
+                    'content' => $data['notes'],
+                    'type' => 'general',
+                    'created_by' => $agent->id,
+                ]);
+            }
 
             $this->outbox->record(
                 eventType: 'order.created',
@@ -145,20 +161,30 @@ class CallCenterOrderCreationService
 
     private function resolveAddress(Customer $customer, array $data, string $orderType): ?CustomerAddress
     {
-        if ($orderType !== 'delivery') {
-            return null;
-        }
         if (! empty($data['customer_address_id'])) {
             return $customer->addresses()->whereKey($data['customer_address_id'])->firstOrFail();
         }
-        if (blank($data['city'] ?? null) || blank($data['area'] ?? null)) {
+
+        // Delivery genuinely needs a resolvable address to dispatch a driver
+        // to, so city+area stay required there. Every other order type used
+        // to just drop whatever the agent typed the moment it wasn't a
+        // delivery order — an address typed while taking a takeaway/dine-in
+        // call is exactly as real as one typed for a delivery call, and
+        // should end up on the customer's saved addresses either way.
+        if ($orderType === 'delivery' && (blank($data['city'] ?? null) || blank($data['area'] ?? null))) {
             throw ValidationException::withMessages(['address' => 'المدينة والمنطقة مطلوبتان لطلب التوصيل.']);
+        }
+
+        $hasLocation = filled($data['city'] ?? null) || filled($data['area'] ?? null)
+            || filled($data['street'] ?? null) || filled($data['landmark'] ?? null);
+        if (! $hasLocation) {
+            return null;
         }
 
         return $customer->addresses()->create([
             'label' => $data['label'] ?? 'المنزل',
-            'city' => $data['city'],
-            'area' => $data['area'],
+            'city' => $data['city'] ?? null,
+            'area' => $data['area'] ?? null,
             'street' => $data['street'] ?? null,
             'landmark' => $data['landmark'] ?? null,
             'delivery_notes' => $data['delivery_notes'] ?? null,
@@ -168,15 +194,20 @@ class CallCenterOrderCreationService
         ]);
     }
 
-    private function createItem(Order $order, array $row): void
+    private function createItem(Order $order, array $row, Customer $customer, User $agent): void
     {
         $item = Item::findOrFail($row['item_id']);
         $price = $row['unit_price'] ?? $item->priceForBranch($order->branch_id);
         if ($price === null || ! $item->department_id) {
             throw ValidationException::withMessages(['items' => 'أحد الأصناف غير متاح في الفرع المحدد.']);
         }
+        $notes = $row['notes'] ?? null;
         OrderItem::create([
             'order_id' => $order->id,
+            'created_by' => $agent->id,
+            // order_items keeps $timestamps = false — set explicitly or the
+            // order timeline can't tell items apart by when they were added.
+            'created_at' => now(),
             'item_id' => $item->id,
             'department_id' => $item->department_id,
             'item_name' => $item->name,
@@ -187,8 +218,21 @@ class CallCenterOrderCreationService
             'quantity' => $row['quantity'],
             'total' => round($price * $row['quantity'], 2),
             'status' => 'pending',
-            'notes' => $row['notes'] ?? null,
+            'notes' => $notes,
         ]);
+
+        // Same mirroring as OrderController::createOrderItem() — an item
+        // note ("بدون زيتون") is a customer preference, not just a kitchen
+        // instruction for this one order.
+        if (filled($notes)) {
+            CustomerNote::create([
+                'customer_id' => $customer->id,
+                'order_id' => $order->id,
+                'content' => "{$item->name}: {$notes}",
+                'type' => 'preference',
+                'created_by' => $agent->id,
+            ]);
+        }
     }
 
     private function addressSnapshot(?CustomerAddress $address): ?array

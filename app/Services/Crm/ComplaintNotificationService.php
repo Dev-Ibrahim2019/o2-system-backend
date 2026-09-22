@@ -37,16 +37,23 @@ class ComplaintNotificationService
     }
 
     /**
-     * Broadcast an urgent complaint — high/critical priority, or critical
-     * severity — to everyone who can work one, so whoever is free grabs it
-     * immediately instead of it waiting its turn in the normal queue.
+     * Broadcast a complaint to everyone who can work one — every new
+     * complaint, not only urgent ones (see CallCenterService::createComplaint(),
+     * the single shared creation path both CRM and Call Center funnel
+     * through). Urgent complaints (high/critical priority, or critical
+     * severity) use this with more insistent wording so whoever is free
+     * grabs it immediately instead of waiting its turn in the normal queue;
+     * everything else still reaches the same audience, just phrased as a
+     * normal arrival — a normal-priority complaint used to notify nobody at
+     * all when filed through the Call Center, and only crm-manager role
+     * holders when filed through CRM.
      *
      * Company-wide, not branch-scoped: customer_complaints.branch_id is
      * frequently null even for a real per-customer complaint (the per-
      * customer creation path never sets it), so scoping this by branch would
      * silently under-notify on the common case.
      */
-    public function notifyUrgent(CustomerComplaint $complaint, User $actor, string $message): void
+    public function notifyAllHandlers(CustomerComplaint $complaint, User $actor, string $message, bool $urgent = false): void
     {
         User::withoutGlobalScope(BranchScope::class)
             ->permission('crm.complaints.update')
@@ -55,7 +62,7 @@ class ComplaintNotificationService
             ->each(fn (User $u) => $u->notify(new ComplaintActivityNotification(
                 (int) $complaint->id,
                 (string) $complaint->title,
-                'urgent',
+                $urgent ? 'urgent' : 'created',
                 $actor->name,
                 $message,
             )));

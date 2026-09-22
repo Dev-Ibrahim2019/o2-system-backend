@@ -159,6 +159,16 @@ class CrmReportController extends Controller
             ->get()
             ->map(fn ($row) => ['order_type' => $row->order_type, 'orders_count' => (int) $row->orders_count, 'revenue' => (float) $row->revenue]);
 
+        // Purchase channel — POS/فوري vs. call_center vs. hospitality/website,
+        // whatever orders.source actually holds. Distinct from
+        // order_type_distribution (dine_in/takeaway/delivery, the fulfilment
+        // shape), this is who took the order.
+        $channelDistribution = (clone $completedQuery)
+            ->selectRaw('source, COUNT(*) as orders_count, SUM(total) as revenue')
+            ->groupBy('source')
+            ->get()
+            ->map(fn ($row) => ['source' => $row->source, 'orders_count' => (int) $row->orders_count, 'revenue' => (float) $row->revenue]);
+
         $dailyRevenue = $this->dailyRevenueWithAnomalies($completedQuery, $from, $to);
 
         $peakHours = $this->peakHours($completedQuery);
@@ -182,6 +192,7 @@ class CrmReportController extends Controller
                 'cancellation_rate' => ['pct' => $cancellationRate, 'target' => $settings->max_cancellation_rate_pct, 'trend_pct' => $trendPct($cancellationRate, $prevCancellationRate)],
             ],
             'order_type_distribution' => $typeDistribution,
+            'channel_distribution' => $channelDistribution,
             'daily_revenue' => $dailyRevenue,
             'peak_hours' => $peakHours,
             'alerts' => $alerts,

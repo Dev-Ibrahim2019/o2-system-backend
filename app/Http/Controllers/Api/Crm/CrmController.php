@@ -105,12 +105,13 @@ class CrmController extends Controller
             'work_address.phone' => ['nullable', 'string', 'max:30'],
         ]);
 
-        // Write scope must match the read scope. CrmCustomerAccessService only
-        // shows a branch-scoped user customers whose branch_id equals their own,
-        // so a customer created with a null (or foreign) branch_id would be
-        // invisible — and 403 — to the very user who just created it. Mirrors
-        // how CallCenterController derives its branch: the request's branch_id
-        // is honoured for global users only.
+        // branch_id is stamped for record-keeping (who/where this customer was
+        // first created) only — CrmCustomerAccessService no longer gates
+        // customer visibility on it (see its class docblock: no centralized
+        // call center, every branch runs its own, the same customer is
+        // legitimately served by more than one over time). Still honoured
+        // from the request for global users only, same as CallCenterController
+        // derives its branch.
         $data['branch_id'] = $this->access->isGlobal($request->user())
             ? ($data['branch_id'] ?? null)
             : $request->user()->branch_id;
@@ -138,7 +139,23 @@ class CrmController extends Controller
             $this->customerIdentity->syncWorkAddress($customer, $workAddress);
         }
 
-        return response()->json(['data' => $customer], 201);
+        // 'address'/'city' above are only saved onto customers.address —
+        // a legacy free-text pair, not customer_addresses (the structured
+        // table AddressesTab actually reads). Mirrored into a real address
+        // row here so typing an address on creation doesn't silently vanish
+        // from the customer's own Addresses tab (same fix as
+        // CallCenterService::createCustomer()'s quick-create path).
+        if (filled($data['address'] ?? null) || filled($data['city'] ?? null)) {
+            $customer->addresses()->create([
+                'label' => 'المنزل',
+                'city' => $data['city'] ?? null,
+                'street' => $data['address'] ?? null,
+                'is_default' => true,
+                'is_active' => true,
+            ]);
+        }
+
+        return response()->json(['data' => $customer->fresh(['address'])], 201);
     }
 
     /**
@@ -247,9 +264,16 @@ class CrmController extends Controller
         ]);
 
         $user = $request->user();
+        // Customer visibility has no branch boundary (see
+        // CrmCustomerAccessService's class docblock) — so the branch filter
+        // itself is a reporting choice open to anyone, not a global-only
+        // escape hatch. It used to be gated behind isGlobal($user), which
+        // silently dropped the filter for any branch-scoped user who picked
+        // one from a dropdown that, per the bug below, they could not even
+        // see in the first place.
         $baseCustomers = $this->access->visibleCustomers($user)
             ->when(
-                ($validated['branch_id'] ?? null) && $this->access->isGlobal($user),
+                $validated['branch_id'] ?? null,
                 fn ($q) => $q->where('branch_id', $validated['branch_id'])
             );
 
@@ -383,7 +407,43 @@ class CrmController extends Controller
             return $customer;
         });
 
-        $branches = $this->access->isGlobal($user) ? Branch::query()->select('id', 'name')->orderBy('name')->get() : [];
+        // Always the full branch list — used to be limited to global users
+        // only, which meant a branch-scoped crm-manager (or anyone else with
+        // a branch_id) never saw a branch picker at all, even though
+        // customer/complaint data has been branch-independent since the
+        // access-model fix. Orders and their stats stay genuinely
+        // branch-scoped (BranchScope on Order itself), so listing branches
+        // here does not expose anything this user could not already reach.
+        $branches = Branch::query()->select('id', 'name')->orderBy('name')->get();
+
+        // Per-branch breakdown — real numbers per branch, not just a single
+        // combined total gated behind an optional filter. customers_count is
+        // each branch's own customers.branch_id tally (their "home" branch,
+        // the same figure the rest of this dashboard already reports);
+        // orders_count is the genuine operational count for that branch
+        // (Order.branch_id, BranchScope-bypassed here since this endpoint's
+        // own permission already gates who may see company-wide figures at
+        // all — the same reasoning CrmReportController's scoped queries use).
+        // open_complaints_count is deliberately left out here: complaints
+        // tied to a customer are created with branch_id left null on both
+        // entry points (CrmController::createComplaint(),
+        // CallCenterController::storeComplaint()) — the column exists but is
+        // not populated for the majority of complaints today, so a
+        // per-branch count against it would read as "0" almost everywhere
+        // and mislead rather than inform. Not fixed here: it is a data-model
+        // gap documented in the CRM access-control audit, not something this
+        // dashboard fix should paper over with a misleading number.
+        $branchBreakdown = $branches->map(function ($branch) use ($from, $to) {
+            return [
+                'branch_id' => $branch->id,
+                'branch_name' => $branch->name,
+                'customers_count' => Customer::where('branch_id', $branch->id)->count(),
+                'orders_count' => Order::withoutGlobalScopes()->where('branch_id', $branch->id)->count(),
+                'new_customers_count' => Customer::where('branch_id', $branch->id)
+                    ->whereBetween('created_at', [$from.' 00:00:00', $to.' 23:59:59'])
+                    ->count(),
+            ];
+        })->values();
 
         $data = [
             'filters' => ['branch_id' => $validated['branch_id'] ?? null, 'date_from' => $from, 'date_to' => $to],
@@ -405,6 +465,7 @@ class CrmController extends Controller
             'top_customers_by_loyalty' => $topCustomersByLoyalty,
             'recent_customers' => $recentCustomers,
             'branches' => $branches,
+            'branch_breakdown' => $branchBreakdown,
             'financial' => null,
             'permissions' => [
                 'can_view_financial' => $user->can('crm.view-customer-financial'),
@@ -1035,10 +1096,11 @@ class CrmController extends Controller
         if (! $wasUrgent && $complaint->isUrgent()) {
             $priority = CustomerComplaint::PRIORITY_LABELS[$complaint->priority] ?? $complaint->priority;
             $severity = CustomerComplaint::SEVERITY_LABELS[$complaint->severity] ?? $complaint->severity;
-            $this->notifications->notifyUrgent(
+            $this->notifications->notifyAllHandlers(
                 $complaint,
                 $actor,
                 "صعّد {$actor->name} الشكوى #{$complaint->id} إلى أولوية {$priority} وخطورة {$severity}: {$complaint->title}",
+                urgent: true,
             );
         }
 
@@ -1665,15 +1727,17 @@ class CrmController extends Controller
      * CRM-scoped equivalent of the Call Center order-details endpoint —
      * reuses CallCenterService::getOrderDetails() as-is (order, items,
      * invoice, feedback). Not nested under /customers/{customer}/, so
-     * authorization is derived from the order's own customer instead of a
-     * route-bound one.
+     * authorization is derived from the order's own branch, not a
+     * route-bound customer — the order already passed BranchScope to reach
+     * here at all, but a call-center order's customer can legitimately have
+     * a different "home" branch than the branch actually fulfilling this
+     * particular order (a customer isn't re-pinned to whichever branch last
+     * served them), so checking the customer's branch instead of the
+     * order's own would 403 an agent who can plainly see the order.
      */
     public function orderDetails(Request $request, Order $order): JsonResponse
     {
-        if ($order->customer_id) {
-            $customer = Customer::findOrFail($order->customer_id);
-            $this->access->authorize($request->user(), $customer);
-        }
+        $this->access->authorizeBranch($request->user(), $order->branch_id !== null ? (string) $order->branch_id : null);
 
         return response()->json(['data' => $this->callCenter->getOrderDetails($order->id)]);
     }
@@ -1689,10 +1753,7 @@ class CrmController extends Controller
      */
     public function orderTimeline(Request $request, Order $order): JsonResponse
     {
-        if ($order->customer_id) {
-            $customer = Customer::findOrFail($order->customer_id);
-            $this->access->authorize($request->user(), $customer);
-        }
+        $this->access->authorizeBranch($request->user(), $order->branch_id !== null ? (string) $order->branch_id : null);
 
         return app(\App\Http\Controllers\Api\OrderTimelineController::class)->timeline($order);
     }
@@ -1709,10 +1770,7 @@ class CrmController extends Controller
      */
     public function storeItemFeedback(Request $request, Order $order, OrderItem $orderItem): JsonResponse
     {
-        if ($order->customer_id) {
-            $customer = Customer::findOrFail($order->customer_id);
-            $this->access->authorize($request->user(), $customer);
-        }
+        $this->access->authorizeBranch($request->user(), $order->branch_id !== null ? (string) $order->branch_id : null);
 
         abort_unless((int) $orderItem->order_id === (int) $order->id, 404);
 
@@ -1755,9 +1813,9 @@ class CrmController extends Controller
     {
         abort_unless((int) $orderItem->order_id === (int) $order->id, 404);
         abort_unless($order->customer_id, 422, 'الطلب غير مرتبط بعميل — لا يمكن تسجيل شكوى.');
+        $this->access->authorizeBranch($request->user(), $order->branch_id !== null ? (string) $order->branch_id : null);
 
         $customer = Customer::findOrFail($order->customer_id);
-        $this->access->authorize($request->user(), $customer);
 
         $feedback = OrderItemFeedback::where('order_item_id', $orderItem->id)->first();
         abort_unless($feedback, 422, 'قيّم الصنف أولاً قبل تسجيله كشكوى.');

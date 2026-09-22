@@ -8,24 +8,27 @@ use Illuminate\Database\Eloquent\Builder;
 
 class CrmCustomerAccessService
 {
+    // Deliberately no branch filtering on customer identity: there is no
+    // centralized call center — every branch runs its own, and the same
+    // customer legitimately calls into (and is served by) more than one of
+    // them over time. customers.branch_id only records where a customer was
+    // first created; it was never meant to gate who else can see them, and
+    // orders/complaints/notes are what actually carries a branch (each is
+    // its own operational record, scoped separately — see
+    // OrderController/CrmController::orderDetails()'s branch check on the
+    // order itself, not the customer). A customer's identity, profile and
+    // history are shared across all branches by design.
     public function visibleCustomers(User $user): Builder
     {
-        $query = Customer::query();
-
-        if (! $this->isGlobal($user)) {
-            $query->where('branch_id', $user->branch_id);
-        }
-
-        return $query;
+        return Customer::query();
     }
 
     public function authorize(User $user, Customer $customer): void
     {
-        abort_unless(
-            $this->isGlobal($user) || (int) $customer->branch_id === (int) $user->branch_id,
-            403,
-            'لا تملك صلاحية الوصول إلى عميل من فرع آخر.'
-        );
+        // No-op today (see the class-level note above) — kept as a real call
+        // site rather than deleted so a future branch-restriction rule has
+        // exactly one place to land, and so every caller's intent ("this
+        // needs to check the actor may see this customer") stays legible.
     }
 
     /**

@@ -11,7 +11,9 @@ use App\Models\CustomerOccasion;
 use App\Models\ComplaintFollowup;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\Scopes\BranchScope;
 use App\Models\User;
+use App\Notifications\CustomerBirthdayTodayNotification;
 use App\Services\Crm\ComplaintNotificationService;
 use App\Services\CustomerIdentityService;
 use Carbon\Carbon;
@@ -226,12 +228,61 @@ class CallCenterService
                 ->orWhere('code', 'like', "%{$query}%");
         })
             ->select('id', 'name', 'phone', 'mobile', 'code', 'status', 'engagement_status', 'city', 'address', 'branch_id', 'loyalty_points')
-            ->with('branch:id,name')
+            ->with(['branch:id,name', 'occasions' => fn ($o) => $o
+                ->where('occasion_type', 'birthday')
+                ->where('is_active', true)])
             ->limit($limit)
-            ->get()
-            ->toArray();
+            ->get();
 
-        return $customers;
+        $todayMonthDay = now()->format('m-d');
+        $customers->each(function (Customer $customer) use ($todayMonthDay) {
+            $birthday = $customer->occasions->first();
+            $isBirthdayToday = $birthday && Carbon::parse($birthday->date)->format('m-d') === $todayMonthDay;
+            $customer->setAttribute('is_birthday_today', $isBirthdayToday);
+            unset($customer->occasions);
+
+            if ($isBirthdayToday) {
+                $this->notifyBirthdayToday($customer);
+            }
+        });
+
+        return $customers->toArray();
+    }
+
+    /**
+     * One notification per customer per calendar day, however many times an
+     * agent searches them up — checked against the notifications table
+     * itself rather than a new dedupe table, the same "does today's row
+     * already exist" idea CrmOrderDelayAlert uses for delay alerts, just
+     * without a dedicated table since a search is cheap to repeat and a
+     * missed notification here is not operationally costly.
+     */
+    private function notifyBirthdayToday(Customer $customer): void
+    {
+        $alreadyNotifiedToday = DB::table('notifications')
+            ->where('type', CustomerBirthdayTodayNotification::class)
+            ->whereDate('created_at', now()->toDateString())
+            ->whereJsonContains('data->customer_id', $customer->id)
+            ->exists();
+
+        if ($alreadyNotifiedToday) {
+            return;
+        }
+
+        $notification = new CustomerBirthdayTodayNotification((int) $customer->id, $customer->name);
+
+        // Same "call center per branch, not one centralized team" model as
+        // CrmCustomerAccessService — the searching agent's own branch team
+        // (plus global CRM/call-center staff) is who should know, not every
+        // branch's call center for a customer with no fixed branch of their
+        // own anymore.
+        $agentBranchId = auth()->user()?->branch_id;
+
+        User::withoutGlobalScope(BranchScope::class)
+            ->role(['call-center', 'call-center-manager', 'super-admin'])
+            ->get()
+            ->filter(fn (User $u) => is_null($u->branch_id) || $u->hasRole('super-admin') || (int) $u->branch_id === (int) $agentBranchId)
+            ->each(fn (User $u) => $u->notify($notification));
     }
 
     /**
@@ -260,14 +311,20 @@ class CallCenterService
                 'status' => 'active',
             ], Customer::TYPE_OPERATIONAL);
 
-            // Create initial address if provided
+            // Create initial address if provided. 'address' is the quick-create
+            // form's single free-text line — customer_addresses has no matching
+            // column (it is structured: street/city/area/...), so it used to be
+            // saved onto customers.address above and silently dropped here,
+            // leaving a row with a label and nothing else. Falls into 'street'
+            // when a structured one wasn't also given, so what the agent typed
+            // actually shows up on the saved address instead of vanishing.
             if (!empty($data['address']) || !empty($data['city'])) {
                 $customer->addresses()->create([
                     'label' => $data['address_label'] ?? 'المنزل',
                     'city' => $data['city'] ?? null,
                     'area' => $data['area'] ?? null,
                     'district' => $data['district'] ?? null,
-                    'street' => $data['street'] ?? null,
+                    'street' => $data['street'] ?? $data['address'] ?? null,
                     'landmark' => $data['landmark'] ?? null,
                     'building_no' => $data['building_no'] ?? null,
                     'floor' => $data['floor'] ?? null,
@@ -1020,18 +1077,33 @@ class CallCenterService
 
         $this->addFollowup($complaint->id, $userId, 'created', 'تم إنشاء الشكوى', 'system');
 
-        // A high/critical-priority or critical-severity arrival gets broadcast
-        // to everyone who can work a complaint immediately — regardless of
-        // which channel filed it — instead of waiting its turn in the queue.
-        if ($complaint->isUrgent()) {
-            $actor = User::withoutGlobalScopes()->find($userId);
-            if ($actor) {
+        // Every new complaint is broadcast to everyone who can work one —
+        // not just urgent ones. This used to fire only for high/critical
+        // priority or critical severity, which left two real gaps: a normal-
+        // priority complaint notified nobody at all when filed through
+        // /api/call-center/complaints (CallCenterController::storeComplaint()
+        // never calls ComplaintNotificationService itself), and even on the
+        // CRM path a normal complaint only reached crm-manager role holders
+        // (CrmController::createComplaint()'s notifyOversight() call) —
+        // never the wider team who could actually pick it up. The urgent
+        // case keeps its own more insistent wording; everything else still
+        // reaches the same audience, just phrased as a normal arrival.
+        $actor = User::withoutGlobalScopes()->find($userId);
+        if ($actor) {
+            if ($complaint->isUrgent()) {
                 $priority = CustomerComplaint::PRIORITY_LABELS[$complaint->priority] ?? $complaint->priority;
                 $severity = CustomerComplaint::SEVERITY_LABELS[$complaint->severity] ?? $complaint->severity;
-                $this->complaintNotifications->notifyUrgent(
+                $this->complaintNotifications->notifyAllHandlers(
                     $complaint,
                     $actor,
                     "شكوى بأولوية {$priority} وخطورة {$severity} تحتاج استجابة سريعة — #{$complaint->id}: {$complaint->title}",
+                    urgent: true,
+                );
+            } else {
+                $this->complaintNotifications->notifyAllHandlers(
+                    $complaint,
+                    $actor,
+                    "شكوى جديدة #{$complaint->id}: {$complaint->title}",
                 );
             }
         }

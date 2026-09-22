@@ -17,6 +17,7 @@ class OrderItem extends Model
     protected $fillable = [
         'order_id',
         'created_by',
+        'created_at',
         'item_id',
         'department_id',
         'item_name',
@@ -48,6 +49,7 @@ class OrderItem extends Model
         'tax_rate' => 'decimal:2',
         'tax_amount' => 'decimal:2',
         'sent_to_kitchen_at' => 'datetime',
+        'created_at' => 'datetime',
         'is_printed_direct' => 'boolean',
         'is_takeaway' => 'boolean',
     ];

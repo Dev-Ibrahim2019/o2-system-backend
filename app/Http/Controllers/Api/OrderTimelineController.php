@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\ApiController;
 use App\Models\Order;
+use App\Models\OrderActivityLog;
 use Illuminate\Http\JsonResponse;
 
 class OrderTimelineController extends ApiController
@@ -13,9 +14,15 @@ class OrderTimelineController extends ApiController
      *
      * يُرجع:
      * - من فتح الطلب ومتى (opened_by, created_at)
-     * - من أضاف كل صنف (created_by على order_items)
+     * - من أضاف كل صنف ومتى (created_by/created_at على order_items — مجمّعة
+     *   حسب من أضافها ومتى بالضبط، وليس وقت فتح الطلب الأصلي، حتى تظهر
+     *   إضافة صنف لطلب محفوظ مسبقًا كحدث منفصل وواضح)
      * - من طبع الفاتورة ومتى (printed_by, printed_at)
      * - من أغلق الطلب ومتى (closed_by, closed_at على الفاتورة)
+     * - كل حدث مُسجَّل بـ order_activity_log (OrderStatusService — تأكيد،
+     *   إغلاق صريح/تلقائي، إعادة فتح، تعيين/إلغاء سائق، دفعة) — كانت هذه
+     *   الأحداث تُسجَّل فعليًا لكن لا تظهر هنا إطلاقًا لأن هذا الكنترولر
+     *   لم يكن يقرأ من هذا الجدول أصلاً.
      */
     public function timeline(Order $order): JsonResponse
     {
@@ -44,13 +51,17 @@ class OrderTimelineController extends ApiController
             ],
         ];
 
-        // 2. إضافة الأصناف (مجمعة حسب المستخدم والوقت)
-        $itemsByCreator = $order->items
+        // 2. إضافة الأصناف — مجمعة حسب (المستخدم + دقيقة الإضافة الفعلية)،
+        // وليس حسب المستخدم وحده: صنفان أضافهما نفس الموظف بفارق ساعات
+        // (مثلاً عند فتح الطلب، ثم لاحقًا بعد تأكيده) يظهران كحدثين
+        // منفصلين بدل أن يُدمَجا في حدث واحد بتوقيت فتح الطلب الأصلي.
+        $itemsByCreatorAndMinute = $order->items
             ->filter(fn($item) => $item->created_by)
-            ->groupBy('created_by');
+            ->groupBy(fn($item) => $item->created_by . '|' . ($item->created_at?->format('Y-m-d H:i') ?? $order->created_at->format('Y-m-d H:i')));
 
-        foreach ($itemsByCreator as $userId => $items) {
+        foreach ($itemsByCreatorAndMinute as $items) {
             $creator = $items->first()->creator;
+            $timestamp = $items->first()->created_at ?? $order->created_at;
             $events[] = [
                 'type' => 'items_added',
                 'label' => 'تم إضافة ' . count($items) . ' صنف',
@@ -58,7 +69,7 @@ class OrderTimelineController extends ApiController
                     'id' => $creator->id,
                     'name' => $creator->name,
                 ] : null,
-                'timestamp' => $order->created_at->toISOString(), // يمكن تحسينه إذا كان هناك created_at على order_items
+                'timestamp' => $timestamp->toISOString(),
                 'details' => [
                     'items_count' => count($items),
                     'items' => $items->map(fn($item) => [
@@ -164,6 +175,52 @@ class OrderTimelineController extends ApiController
                     'service_quality' => $fb->service_quality,
                     'delivery_speed' => $fb->delivery_speed,
                     'notes' => $fb->notes,
+                ],
+            ];
+        }
+
+        // 7. كل حدث سجّلته OrderStatusService فعليًا بـorder_activity_log —
+        // تأكيد الإرسال للأقسام، الإغلاق (التلقائي أو الصريح)، إعادة الفتح،
+        // تعيين/إلغاء تعيين سائق، تسجيل دفعة. كانت تُكتب فعليًا لكن لا تظهر
+        // هنا إطلاقًا لأن هذا الكنترولر لم يقرأ من هذا الجدول من الأساس —
+        // فمثلاً إغلاق طلب كول سنتر (status='closed' عبر maybeAutoClose())
+        // كان يختفي كليًا من سجل النشاطات رغم تسجيله بالفعل.
+        $actionLabels = [
+            'status_change' => 'تغيير الحالة',
+            'closed' => 'تم إغلاق الطلب',
+            'reopened' => 'تمت إعادة فتح الطلب',
+            'force_completed' => 'إنهاء الطلب يدويًا',
+            'preparation_started' => 'بدء التجهيز',
+            'items_updated' => 'تعديل أصناف الطلب',
+            'item_removed' => 'حذف صنف',
+            'payment' => 'تسجيل دفعة',
+            'driver_assigned' => 'تعيين سائق',
+            'driver_unassigned' => 'إلغاء تعيين السائق',
+        ];
+
+        $activityLogs = OrderActivityLog::where('order_id', $order->id)
+            ->with('actor:id,name')
+            ->get();
+
+        foreach ($activityLogs as $log) {
+            $label = $actionLabels[$log->action_type] ?? $log->action_type;
+            if ($log->from_status && $log->to_status) {
+                $label .= " ({$log->from_status} ← {$log->to_status})";
+            }
+
+            $events[] = [
+                'type' => 'activity_log_' . $log->action_type,
+                'label' => $label,
+                'user' => $log->actor ? [
+                    'id' => $log->actor->id,
+                    'name' => $log->actor->name,
+                ] : null,
+                'timestamp' => $log->created_at?->toISOString(),
+                'details' => [
+                    'action_type' => $log->action_type,
+                    'from_status' => $log->from_status,
+                    'to_status' => $log->to_status,
+                    'note' => $log->note,
                 ],
             ];
         }

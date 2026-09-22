@@ -11,10 +11,12 @@ use App\Http\Resources\OrderItemResource;
 use App\Http\Resources\OrderResource;
 use App\Models\DiningTable;
 use App\Models\Customer;
+use App\Models\CustomerNote;
 use App\Models\Employee;
 use App\Models\FiscalYear;
 use App\Models\Item;
 use App\Models\Order;
+use App\Models\OrderActivityLog;
 use App\Models\OrderItem;
 use App\Models\ProductionTicket;
 use App\Models\ProductionTicketItem;
@@ -374,6 +376,24 @@ class OrderController extends ApiController
                     }
                 }
 
+                // Snapshot before the wipe — the sync below deletes every
+                // unprinted pending item then recreates whatever the request
+                // still lists, so "did anything actually change" (a new
+                // item, a removed one, a quantity edit) is otherwise
+                // unrecoverable by the time the order timeline asks: the old
+                // rows are simply gone, no trace left. Keyed by item_id so a
+                // quantity change on an existing item is diffable against
+                // its old quantity, not read as delete+add of the same item.
+                $beforeItems = $order->items()
+                    ->where('status', 'pending')
+                    ->where('is_printed_direct', false)
+                    ->get(['item_id', 'item_name_ar', 'item_name', 'quantity'])
+                    ->groupBy('item_id')
+                    ->map(fn ($rows) => [
+                        'name' => $rows->first()->item_name_ar ?: $rows->first()->item_name,
+                        'quantity' => (float) $rows->sum('quantity'),
+                    ]);
+
                 // مسح الأصناف غير المطبوعة فقط (المحفوظة بـ is_printed_direct=true لا تُحذف)
                 $order->items()
                     ->where('status', 'pending')
@@ -400,6 +420,18 @@ class OrderController extends ApiController
                         $row['is_takeaway'] ?? false
                     );
                 }
+
+                $afterItems = $order->items()
+                    ->where('status', 'pending')
+                    ->where('is_printed_direct', false)
+                    ->get(['item_id', 'item_name_ar', 'item_name', 'quantity'])
+                    ->groupBy('item_id')
+                    ->map(fn ($rows) => [
+                        'name' => $rows->first()->item_name_ar ?: $rows->first()->item_name,
+                        'quantity' => (float) $rows->sum('quantity'),
+                    ]);
+
+                $this->logItemsDiff($order, $beforeItems, $afterItems);
 
                 if (! $request->boolean('skip_sync')) {
                     $this->syncProductionTickets($order);
@@ -503,8 +535,19 @@ class OrderController extends ApiController
         }
 
         try {
+            $name = $orderItem->item_name_ar ?: $orderItem->item_name;
+            $quantity = (float) $orderItem->quantity;
             $orderItem->delete();
             $order->recalculateTotals();
+
+            $formattedQuantity = rtrim(rtrim(number_format($quantity, 2), '0'), '.');
+            OrderActivityLog::create([
+                'order_id' => $order->id,
+                'actor_id' => auth()->id(),
+                'action_type' => 'item_removed',
+                'note' => "حُذف: {$name} ×{$formattedQuantity}",
+                'created_at' => now(),
+            ]);
 
             return $this->success(
                 'تم حذف الصنف',
@@ -1153,9 +1196,15 @@ class OrderController extends ApiController
             throw new \InvalidArgumentException('الصنف غير مربوط بقسم — لا يمكن تقسيمه للمطبخ.');
         }
 
-        return OrderItem::create([
+        $orderItem = OrderItem::create([
             'order_id' => $order->id,
             'created_by' => auth()->id(),
+            // order_items keeps $timestamps = false (no updated_at column
+            // exists) — created_at must be set explicitly or every item ever
+            // added shows in the order timeline as having happened at the
+            // order's original opening time, indistinguishable from items
+            // added later to an already-saved order.
+            'created_at' => now(),
             'item_id' => $item->id,
             'department_id' => $item->department_id,
             'item_name' => $item->name,
@@ -1168,6 +1217,75 @@ class OrderController extends ApiController
             'status' => 'pending',
             'notes' => $notes,
             'is_takeaway' => $isTakeaway,
+        ]);
+
+        // A note typed on an item ("بدون زيتون") is customer preference
+        // data, not just kitchen instructions for this one order — mirrored
+        // onto the customer's own CRM notes (customer_notes, order_id-linked)
+        // the same way an order-level note already is in
+        // CallCenterOrderCreationService::create(), so it shows up on their
+        // profile for the next call/visit regardless of which channel typed
+        // it. Only when the order is actually linked to a real customer.
+        if (filled($notes) && $order->customer_id) {
+            CustomerNote::create([
+                'customer_id' => $order->customer_id,
+                'order_id' => $order->id,
+                'content' => "{$item->name}: {$notes}",
+                'type' => 'preference',
+                'created_by' => auth()->id(),
+            ]);
+        }
+
+        return $orderItem;
+    }
+
+    /**
+     * يقارن أصناف الطلب قبل/بعد مزامنة update() (التي تمسح كل الأصناف غير
+     * المطبوعة وتُعيد إنشاءها من الصفر) وتُسجّل الفرق الحقيقي — إضافة صنف،
+     * حذفه، أو تغيير كميته — بسجل نشاطات الطلب. بدون هذا، أي تعديل على
+     * طلب محفوظ (إضافة/حذف/تغيير كمية) كان يختفي كليًا من السجل لأن آلية
+     * المزامنة نفسها لا تُبقي أي أثر للحالة القديمة.
+     *
+     * @param  \Illuminate\Support\Collection<int, array{name: string, quantity: float}>  $before
+     * @param  \Illuminate\Support\Collection<int, array{name: string, quantity: float}>  $after
+     */
+    private function logItemsDiff(Order $order, $before, $after): void
+    {
+        $fmt = fn (float $q) => rtrim(rtrim(number_format($q, 2), '0'), '.');
+
+        $added = [];
+        $removed = [];
+        $changed = [];
+
+        foreach ($after as $itemId => $row) {
+            if (! $before->has($itemId)) {
+                $added[] = "{$row['name']} ×{$fmt($row['quantity'])}";
+            } elseif ((float) $before[$itemId]['quantity'] !== (float) $row['quantity']) {
+                $changed[] = "{$row['name']} ({$fmt($before[$itemId]['quantity'])} ← {$fmt($row['quantity'])})";
+            }
+        }
+
+        foreach ($before as $itemId => $row) {
+            if (! $after->has($itemId)) {
+                $removed[] = "{$row['name']} ×{$fmt($row['quantity'])}";
+            }
+        }
+
+        if (! $added && ! $removed && ! $changed) {
+            return;
+        }
+
+        $parts = [];
+        if ($added) $parts[] = 'أُضيف: ' . implode('، ', $added);
+        if ($removed) $parts[] = 'حُذف: ' . implode('، ', $removed);
+        if ($changed) $parts[] = 'تغيّرت الكمية: ' . implode('، ', $changed);
+
+        OrderActivityLog::create([
+            'order_id' => $order->id,
+            'actor_id' => auth()->id(),
+            'action_type' => 'items_updated',
+            'note' => implode(' — ', $parts),
+            'created_at' => now(),
         ]);
     }
 
