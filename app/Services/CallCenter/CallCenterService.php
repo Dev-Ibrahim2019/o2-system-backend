@@ -409,7 +409,7 @@ class CallCenterService
     public function getCustomerOrders(int $customerId, int $perPage = 20, ?string $cursor = null): array
     {
         $query = Order::where('customer_id', $customerId)
-            ->with(['branch:id,name', 'cashier:id,name', 'driver:id,name,phone'])
+            ->with(['branch:id,name', 'cashier:id,name', 'driver:id,name,phone', 'items.feedback'])
             ->orderByDesc('created_at');
 
         if ($cursor) {
@@ -444,6 +444,28 @@ class CallCenterService
                 'tax_rate' => (float) ($o->tax_rate ?? 0),
                 'tax_amount' => (float) ($o->tax_amount ?? 0),
                 'scheduled_at' => $o->scheduled_at,
+                // Items were never returned here before — the "آخر 5 أوردرات"
+                // panel's expand-to-detail view had nothing real to show per
+                // order (only the SAMPLE_ORDERS mock data on the frontend
+                // happened to carry an `items` array, which is exactly why it
+                // looked "populated" only for fake rows). Same shape as
+                // getOrderDetails() below, feedback included, so a per-item
+                // rating/note already on file shows immediately.
+                'items' => $o->items->map(fn (OrderItem $i) => [
+                    'id' => $i->id,
+                    'item_id' => $i->item_id,
+                    'item_name' => $i->item_name,
+                    'item_name_ar' => $i->item_name_ar,
+                    'quantity' => (float) $i->quantity,
+                    'price' => (float) $i->price,
+                    'total' => (float) $i->total,
+                    'notes' => $i->notes,
+                    'feedback' => $i->feedback ? [
+                        'rating' => (int) $i->feedback->rating,
+                        'notes' => $i->feedback->notes,
+                        'complaint_id' => $i->feedback->complaint_id,
+                    ] : null,
+                ])->values()->toArray(),
             ])->values()->toArray(),
             'next_cursor' => $nextCursor,
             'has_more' => $hasMore,
