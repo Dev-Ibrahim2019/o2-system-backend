@@ -3,7 +3,9 @@
 namespace App\Console\Commands;
 
 use App\Models\Order;
+use App\Services\CallCenter\CallCenterOrderExecutionService;
 use App\Services\CallCenter\OrderConfirmationService;
+use App\Services\CallCenter\OrderSlotService;
 use App\Services\Printing\OrderPrintingService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -33,14 +35,20 @@ class ExecuteScheduledOrders extends Command
             ->where('execution_attempts', '<', 3)
             ->get();
 
+        $succeeded = 0;
+        $failed = 0;
+
+        // طلبات الكول سنتر المدفوعة مسبقًا والمجدولة (scheduled_at بدون status=scheduled): بتنفّذ من نفس
+        // مسار التنفيذ الفوري (إنشاء تذاكر الأقسام + طباعتها + تعليم executed_at بنفس الـtransaction).
+        [$paidSucceeded, $paidFailed] = $this->executePaidScheduledCallCenterOrders();
+        $succeeded += $paidSucceeded;
+        $failed += $paidFailed;
+
         if ($orders->isEmpty()) {
-            $this->info('لا توجد طلبات مجدولة مستحقة الآن.');
+            $this->info($succeeded + $failed === 0 ? 'لا توجد طلبات مجدولة مستحقة الآن.' : "النتيجة: {$succeeded} نجح، {$failed} فشل.");
 
             return self::SUCCESS;
         }
-
-        $succeeded = 0;
-        $failed = 0;
 
         foreach ($orders as $order) {
             try {
@@ -83,5 +91,46 @@ class ExecuteScheduledOrders extends Command
         $this->info("النتيجة: {$succeeded} نجح، {$failed} فشل.");
 
         return self::SUCCESS;
+    }
+
+    /** @return array{0:int,1:int} [نجح، فشل] */
+    private function executePaidScheduledCallCenterOrders(): array
+    {
+        $service = app(CallCenterOrderExecutionService::class);
+        $succeeded = 0;
+        $failed = 0;
+
+        $due = Order::query()->withoutGlobalScopes()
+            ->where('source', 'call_center')
+            ->where('status', '!=', 'scheduled')
+            ->whereNotIn('status', OrderSlotService::TERMINAL_STATUSES)
+            ->where('payment_status', Order::PAYMENT_STATUS_PAID)
+            ->whereIn('kitchen_release_status', [Order::KITCHEN_RELEASE_STATUS_HELD, Order::KITCHEN_RELEASE_STATUS_FAILED])
+            ->whereNotNull('scheduled_at')
+            ->where('scheduled_at', '<=', now())
+            ->whereNull('executed_at')
+            ->where('execution_attempts', '<', 3)
+            ->get();
+
+        foreach ($due as $order) {
+            try {
+                $result = $service->executeNow($order, null, clearSchedule: false);
+                if ($result->kitchen_release_status !== Order::KITCHEN_RELEASE_STATUS_RELEASED) {
+                    throw new \RuntimeException('تعذّر إرسال الطلب للأقسام');
+                }
+                $succeeded++;
+                $this->info("تم تنفيذ الطلب المجدول #{$order->id}");
+            } catch (\Throwable $e) {
+                $order->update([
+                    'execution_attempts' => (int) $order->execution_attempts + 1,
+                    'execution_failed_reason' => Str::limit($e->getMessage(), 250, ''),
+                ]);
+                Log::error('فشل التنفيذ التلقائي للطلب المجدول (مدفوع) #'.$order->id, ['message' => $e->getMessage()]);
+                $failed++;
+                $this->error("فشل تنفيذ الطلب #{$order->id}: {$e->getMessage()}");
+            }
+        }
+
+        return [$succeeded, $failed];
     }
 }

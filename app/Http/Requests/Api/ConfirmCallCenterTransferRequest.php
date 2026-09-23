@@ -18,6 +18,10 @@ class ConfirmCallCenterTransferRequest extends FormRequest
             'payment_method_id' => ['required', 'integer', 'exists:payment_methods,id'],
             'amount' => ['required', 'numeric', 'gt:0'],
             'idempotency_key' => ['required', 'string', 'max:100'],
+            // أدلة الحوالة — كلها اختيارية (البنك ممكن يكون هو طريقة الدفع نفسها)
+            'transferred_at' => ['nullable', 'date', 'before_or_equal:today'],
+            'bank_name' => ['nullable', 'string', 'max:100'],
+            'receipt' => ['nullable', 'image', 'max:5120'],
         ];
     }
 }

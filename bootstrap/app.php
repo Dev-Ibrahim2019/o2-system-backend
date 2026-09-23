@@ -15,7 +15,10 @@ return Application::configure(basePath: dirname(__DIR__))
     // أول Schedule:: بهذا المشروع — يحتاج crontab فعلي على السيرفر
     // (`* * * * * php artisan schedule:run`) عشان يعمل فعليًا، خارج نطاق الكود.
     ->withSchedule(function (Schedule $schedule): void {
-        $schedule->command('orders:execute-scheduled')->everyMinute();
+        // كل 30 ثانية (بدل دقيقة): الجدولة بتشتغل على السيرفر مش بالمتصفح، فتنفيذ الطلب المجدول
+        // بيصير بوقته حتى لو الصفحة مسكّرة. schedule:run بيضل شغّال لآخر الدقيقة لما يكون في مهمة
+        // sub-minute. withoutOverlapping: تشغيلة بطيئة (طابعة) ما بتتداخل مع اللي بعدها.
+        $schedule->command('orders:execute-scheduled')->everyThirtySeconds()->withoutOverlapping();
     })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();

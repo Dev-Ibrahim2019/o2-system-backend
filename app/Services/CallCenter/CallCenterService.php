@@ -11,10 +11,12 @@ use App\Models\CustomerOccasion;
 use App\Models\ComplaintFollowup;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\OrderSlot;
 use App\Models\Scopes\BranchScope;
 use App\Models\User;
 use App\Notifications\CustomerBirthdayTodayNotification;
 use App\Services\Crm\ComplaintNotificationService;
+use App\Services\Integration\TakeawayDispatcher;
 use App\Services\CustomerIdentityService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -29,6 +31,7 @@ class CallCenterService
     public function __construct(
         private readonly CustomerIdentityService $customerIdentity,
         private readonly ComplaintNotificationService $complaintNotifications,
+        private readonly OrderSlotService $slots,
     ) {}
 
     public function getActiveOrders(?int $branchId = null): array
@@ -45,7 +48,11 @@ class CallCenterService
             // شبكة أمان لبيانات قديمة لم تُحدَّث بعد لقيمة closed الصريحة (راجع تعليق determineLifecycle)
             ->filter(fn (Order $order) => self::determineLifecycle($order->status, $order->invoice?->status) === 'active');
 
-        $rows = $orders->map(fn (Order $order) => $this->toActiveOrderRow($order))
+        $slotNumbers = OrderSlot::query()->whereNull('released_at')
+            ->whereIn('order_id', $orders->pluck('id'))
+            ->pluck('slot_number', 'order_id');
+
+        $rows = $orders->map(fn (Order $order) => $this->toActiveOrderRow($order, $slotNumbers[$order->id] ?? null))
             ->filter(fn (array $row) => $row['scopes'] !== [])
             ->values();
 
@@ -94,8 +101,11 @@ class CallCenterService
         $total = $all->count();
         $paged = $all->slice(($page - 1) * $perPage, $perPage)->values();
 
+        // حالة إرسال الطلب المغلق للتيك أواي (sent/failed/pending) — null للملغي والطلبات المغلقة قبل هالميزة
+        $takeawaySync = app(TakeawayDispatcher::class)->statusByOrderRef($paged->pluck('public_ref')->filter()->all());
+
         return [
-            'data' => $paged->map(fn (Order $order) => $this->toClosedOrderRow($order))->values(),
+            'data' => $paged->map(fn (Order $order) => $this->toClosedOrderRow($order, $takeawaySync[$order->public_ref] ?? null))->values(),
             'meta' => [
                 'current_page' => $page,
                 'last_page' => max(1, (int) ceil($total / max(1, $perPage))),
@@ -105,7 +115,46 @@ class CallCenterService
         ];
     }
 
-    private function toActiveOrderRow(Order $order): array
+    /**
+     * لوحة الخانات لفرع: السعة، الخانات المشغولة (مع بيانات الطلب)، الخانات بفترة الـcooldown،
+     * وطابور الطلبات المنتظرة لما الفرع يمتلي. الواجهة بترسم الخانات الفاضية من capacity بنفسها.
+     * ملاحظة: طلبات أعلى من السعة (بعد تصغيرها) بتنرجع كخانات مشغولة عادية لحد ما تفرغ.
+     */
+    public function getSlotBoard(int $branchId): array
+    {
+        $active = $this->slots->activeSlots($branchId);
+        $queued = $this->slots->queuedOrders($branchId);
+
+        $orders = Order::query()
+            ->whereIn('id', $active->pluck('order_id')->merge($queued->pluck('id')))
+            ->withCount('tickets')
+            ->with(['branch:id,name', 'invoice:id,order_id,status', 'driver:id,name,phone'])
+            ->get()
+            ->keyBy('id');
+
+        $slots = $active->filter(fn ($slot) => $orders->has($slot->order_id))
+            ->map(fn ($slot) => [
+                'slot_number' => (int) $slot->slot_number,
+                'assigned_at' => $slot->assigned_at,
+                'order' => $this->toActiveOrderRow($orders[$slot->order_id], (int) $slot->slot_number),
+            ])
+            ->values();
+
+        $queue = $queued->filter(fn (Order $order) => $orders->has($order->id))
+            ->map(fn (Order $order) => $this->toActiveOrderRow($orders[$order->id]))
+            ->values();
+
+        return [
+            'branch_id' => $branchId,
+            'capacity' => $this->slots->capacity($branchId),
+            'occupied' => $slots->count(),
+            'slots' => $slots,
+            'cooling' => $this->slots->coolingSlots($branchId),
+            'queue' => $queue,
+        ];
+    }
+
+    private function toActiveOrderRow(Order $order, ?int $slotNumber = null): array
     {
         $scopes = self::classifyActiveOrder(
             $order->status,
@@ -129,6 +178,7 @@ class CallCenterService
             'total' => (float) $order->total,
             'branch' => $order->branch,
             'created_at' => $order->created_at,
+            'printed_at' => $order->printed_at,
             'scheduled_at' => $order->scheduled_at,
             'executed_at' => $order->executed_at,
             'payments' => $order->payments,
@@ -138,10 +188,11 @@ class CallCenterService
             'delivery_assigned_at' => $order->delivery_assigned_at,
             'delivered_at' => $order->delivered_at,
             'scopes' => $scopes,
-        ];
+            'slot_number' => $slotNumber,
+        ] + OrderFlowService::describe($order);
     }
 
-    private function toClosedOrderRow(Order $order): array
+    private function toClosedOrderRow(Order $order, ?string $takeawaySync = null): array
     {
         return [
             'id' => $order->id,
@@ -156,6 +207,7 @@ class CallCenterService
             'created_at' => $order->created_at,
             'updated_at' => $order->updated_at,
             'payment_status' => self::derivePaymentStatus($order->invoice?->status),
+            'takeaway_sync' => $takeawaySync,
         ];
     }
 
@@ -530,6 +582,9 @@ class CallCenterService
                 'price' => (float) $i->price,
                 'total' => (float) $i->total,
                 'notes' => $i->notes,
+                // الأصناف الملغاة (إزالة بعد التنفيذ) بتضل بالبيانات مع سببها — الـDrawer بيفلترها والـCRM بيقرر لحاله
+                'status' => $i->status,
+                'cancel_reason' => $i->cancel_reason,
                 // Per-item rating (order_item_feedback) — null until someone
                 // rates it from the CRM order pop-up. complaint_id is set once
                 // that rating has been escalated into a complaint.
@@ -543,6 +598,8 @@ class CallCenterService
                 'id' => $order->invoice->id,
                 'number' => $order->invoice->number,
                 'status' => $order->invoice->status,
+                'total' => (float) $order->invoice->total,
+                'remaining_amount' => (float) $order->invoice->remainingAmount(),
             ] : null,
             'feedback' => $order->feedback,
         ];

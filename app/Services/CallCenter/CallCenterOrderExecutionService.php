@@ -52,10 +52,11 @@ class CallCenterOrderExecutionService
         float $amount,
         string $idempotencyKey,
         int $executedBy,
+        array $evidence = [],
     ): Order {
         $this->assertCallCenterOrder($order);
         $this->assertManualConfirmationEligible($order);
-        $normalizedReference = $this->normalizeReference($referenceNumber);
+        $normalizedReference = self::normalizeReference($referenceNumber);
         $payload = [
             'order_id' => $order->id,
             'reference_number' => $normalizedReference,
@@ -64,14 +65,14 @@ class CallCenterOrderExecutionService
         ];
 
         $this->financialPhase($order, 'call-center-transfer', $idempotencyKey, $payload, $executedBy,
-            function (IdempotencyRecord $record, Order $lockedOrder) use ($referenceNumber, $normalizedReference, $paymentMethodId, $amount, $idempotencyKey, $executedBy) {
+            function (IdempotencyRecord $record, Order $lockedOrder) use ($referenceNumber, $normalizedReference, $paymentMethodId, $amount, $idempotencyKey, $executedBy, $evidence) {
                 $method = PaymentMethod::active()->whereKey($paymentMethodId)->firstOrFail();
                 if ($method->is_entity || ! in_array($method->type, ['bank', 'card', 'wallet'], true)) {
                     throw new UnprocessableEntityHttpException('طريقة الدفع لا تدعم التأكيد اليدوي.');
                 }
-                if (PaymentConfirmation::where('payment_method_id', $paymentMethodId)
-                    ->where('normalized_reference_number', $normalizedReference)->exists()) {
-                    throw new ConflictHttpException('مرجع التحويل مستخدم مسبقًا لطريقة الدفع نفسها.');
+                // عالميًا لكل طرق الدفع (مش لكل طريقة لحالها) — والرسالة بتقول أي طلب استخدمه
+                if ($owner = $this->referenceOwner($normalizedReference)) {
+                    throw new ConflictHttpException("الرقم المرجعي مستخدم مسبقًا بالطلب {$owner}.");
                 }
                 $invoice = $this->invoiceForPayment($lockedOrder, $amount);
                 PaymentConfirmation::create([
@@ -84,10 +85,15 @@ class CallCenterOrderExecutionService
                     'idempotency_key' => $idempotencyKey,
                     'confirmed_by' => $executedBy,
                     'confirmed_at' => now(),
+                    'transferred_at' => $evidence['transferred_at'] ?? null,
+                    'bank_name' => $evidence['bank_name'] ?? null,
+                    'receipt_path' => $evidence['receipt_path'] ?? null,
                 ]);
+                // بنمرّر المرجع المُطبَّع للدفعة كمان، فالقيد الفريد الموجود على payments.reference_number
+                // بيلتقط نفس الرقم بأي كتابة (فراغات/حروف/أرقام عربية) بدل ما يعتبرها أرقام مختلفة.
                 $result = $this->invoicePayments->recordInvoicePayment(
                     $invoice, $method->type, $method->id, $amount, $executedBy,
-                    referenceNumber: $referenceNumber
+                    referenceNumber: $normalizedReference
                 );
                 $this->updateFinancialState($lockedOrder, $result['invoice']);
             });
@@ -143,19 +149,29 @@ class CallCenterOrderExecutionService
         }, 3);
     }
 
-    private function releasePhase(Order $order, int $executedBy): Order
+    private function releasePhase(Order $order, ?int $executedBy): Order
     {
         if ($order->kitchen_release_status === Order::KITCHEN_RELEASE_STATUS_RELEASED) return $order;
+        $released = false;
         try {
-            DB::transaction(function () use ($order, $executedBy) {
+            // "منفّذ" (executed_at) بيتعلّم جوّا نفس الـtransaction اللي بتنشأ فيها تذاكر الأقسام، وبنعيد
+            // قراءة الحالة تحت القفل — عشان تنفيذ يدوي ومجدول بنفس اللحظة ما يطبعوا مرتين.
+            $released = DB::transaction(function () use ($order, $executedBy) {
                 $lockedOrder = Order::query()->lockForUpdate()->findOrFail($order->id);
+                if ($lockedOrder->kitchen_release_status === Order::KITCHEN_RELEASE_STATUS_RELEASED) {
+                    return false;
+                }
                 $this->orderConfirmation->release($lockedOrder);
                 $lockedOrder->update([
                     'kitchen_release_status' => Order::KITCHEN_RELEASE_STATUS_RELEASED,
                     'kitchen_released_at' => now(),
                     'kitchen_released_by' => $executedBy,
+                    'executed_at' => now(),
+                    'execution_failed_reason' => null,
                     'status' => 'confirmed',
                 ]);
+
+                return true;
             }, 3);
         } catch (\Throwable $exception) {
             Log::error('Call-center kitchen release failed.', [
@@ -173,7 +189,15 @@ class CallCenterOrderExecutionService
                 ]);
             });
         }
-        return $order->fresh();
+
+        $fresh = $order->fresh();
+        if ($released) {
+            // بعد الـcommit وبره الـtransaction: فشل طابعة قسم ما بيرجّع التنفيذ ولا بيوقف باقي الأقسام،
+            // بيتسجّل على تذكرة القسم (print_status=failed) مع زر إعادة طباعة.
+            app(DepartmentTicketPrinter::class)->printOrder($fresh);
+        }
+
+        return $fresh;
     }
 
     private function invoiceForPayment(Order $order, float $amount): \App\Models\Invoice
@@ -237,7 +261,74 @@ class CallCenterOrderExecutionService
             return $freshOrder->fresh();
         }
 
+        // طلب مجدول بموعد لسا ما حان: مدفوع بس ما بينبعت للأقسام — السيرفر بينفّذه بوقته
+        // (orders:execute-scheduled) أو الموظف بنفّذه فورًا (executeNow).
+        if ($freshOrder->scheduled_at && $freshOrder->scheduled_at->isFuture()) {
+            $freshOrder->update([
+                'status' => 'pending',
+                'kitchen_release_status' => Order::KITCHEN_RELEASE_STATUS_HELD,
+            ]);
+            return $freshOrder->fresh();
+        }
+
         return $this->releasePhase($freshOrder, $executedBy);
+    }
+
+    /**
+     * تنفيذ فوري لطلب مدفوع: بيرسل الأصناف للأقسام ويطبع تذاكرها. بيشتغل لطلب مجدول قبل موعده (بيلغي
+     * الجدولة)، ولطلب فشل إرساله للمطبخ سابقًا (إعادة محاولة). Idempotent: لو تنفّذ قبل، بيرجّعه كما هو.
+     */
+    public function executeNow(Order $order, ?int $executedBy, bool $clearSchedule = true): Order
+    {
+        $this->assertCallCenterOrder($order);
+        $fresh = $order->fresh();
+
+        if ($fresh->kitchen_release_status === Order::KITCHEN_RELEASE_STATUS_RELEASED) {
+            return $fresh;
+        }
+        if ($fresh->payment_status !== Order::PAYMENT_STATUS_PAID) {
+            throw new UnprocessableEntityHttpException('لا يمكن تنفيذ الطلب قبل اكتمال الدفع.');
+        }
+
+        if ($clearSchedule && $fresh->scheduled_at) {
+            $fresh->update(['scheduled_at' => null]);
+            app(OrderStatusService::class)->logStatusChange($fresh, $fresh->status, $fresh->status, 'execution', 'تنفيذ فوري قبل الموعد المجدول');
+        }
+
+        return $this->releasePhase($fresh->fresh(), $executedBy);
+    }
+
+    /** جدولة تنفيذ الطلب على السيرفر بوقت محدد (أو تعديل الوقت). مسموحة قبل التنفيذ فقط. */
+    public function schedule(Order $order, \DateTimeInterface $at, int $by): Order
+    {
+        $this->assertCallCenterOrder($order);
+        $fresh = $order->fresh();
+
+        if ($fresh->kitchen_release_status === Order::KITCHEN_RELEASE_STATUS_RELEASED) {
+            throw new UnprocessableEntityHttpException('الطلب تنفّذ بالفعل ولا يمكن جدولته.');
+        }
+        if ($at <= now()->addSeconds(30)) {
+            throw new UnprocessableEntityHttpException('وقت الجدولة لازم يكون بالمستقبل.');
+        }
+
+        $fresh->update(['scheduled_at' => $at, 'execution_attempts' => 0, 'execution_failed_reason' => null]);
+        app(OrderStatusService::class)->logStatusChange($fresh, $fresh->status, $fresh->status, 'scheduled', 'جدولة التنفيذ: '.\Illuminate\Support\Carbon::instance($at)->format('Y-m-d H:i'));
+
+        return $fresh->fresh();
+    }
+
+    /** إلغاء الجدولة — الطلب بيرجع "بانتظار التنفيذ" وبيتنفّذ يدويًا (executeNow). */
+    public function unschedule(Order $order, int $by): Order
+    {
+        $this->assertCallCenterOrder($order);
+        $fresh = $order->fresh();
+
+        if ($fresh->scheduled_at) {
+            $fresh->update(['scheduled_at' => null]);
+            app(OrderStatusService::class)->logStatusChange($fresh, $fresh->status, $fresh->status, 'scheduled', 'إلغاء جدولة التنفيذ');
+        }
+
+        return $fresh->fresh();
     }
 
     private function lockEntity(string $type, int $id): Model
@@ -266,9 +357,45 @@ class CallCenterOrderExecutionService
         return max(0, (float) $balances['accrued_salary'] - (float) $balances['outstanding_advance']);
     }
 
-    private function normalizeReference(string $reference): string
+    /**
+     * "AB 123" و"ab123" و"AB١٢٣" لازم ينحسبوا نفس الرقم: بنشيل كل الفراغات (بما فيها الفراغ غير
+     * القابل للكسر)، وبنحوّل الأرقام العربية-الهندية (٠-٩) والفارسية (۰-۹) لأرقام إنجليزية، وبنكبّر الأحرف.
+     */
+    public static function normalizeReference(string $reference): string
     {
-        return mb_strtoupper((string) preg_replace('/\s+/', '', trim($reference)));
+        $digits = [
+            '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4', '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+            '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4', '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+        ];
+
+        return mb_strtoupper((string) preg_replace('/[\s\x{00A0}\x{200B}-\x{200F}]+/u', '', strtr(trim($reference), $digits)));
+    }
+
+    /** رقم الطلب المختصر (#MMDD-XXXX) اللي استخدم هالمرجع قبل، أو null لو المرجع جديد — عالميًا لكل طرق الدفع. */
+    private function referenceOwner(string $normalizedReference): ?string
+    {
+        $orderNumber = PaymentConfirmation::query()
+            ->join('orders', 'orders.id', '=', 'payment_confirmations.order_id')
+            ->where('payment_confirmations.normalized_reference_number', $normalizedReference)
+            ->value('orders.order_number');
+
+        $orderNumber ??= DB::table('payments')
+            ->join('invoices', 'invoices.id', '=', 'payments.invoice_id')
+            ->join('orders', 'orders.id', '=', 'invoices.order_id')
+            ->where('payments.reference_number', $normalizedReference)
+            ->value('orders.order_number');
+
+        return $orderNumber ? self::shortOrderRef($orderNumber) : null;
+    }
+
+    /** ORD-20270209-0001 → #0209-0001 (نفس اختصار الواجهة getOrderReference) */
+    public static function shortOrderRef(string $orderNumber): string
+    {
+        $parts = explode('-', $orderNumber);
+        $sequence = array_pop($parts) ?: $orderNumber;
+        $date = array_pop($parts);
+
+        return $date && preg_match('/^\d{8}$/', $date) ? '#'.substr($date, 4).'-'.$sequence : '#'.$sequence;
     }
 
     private function assertCallCenterOrder(Order $order): void
@@ -276,7 +403,7 @@ class CallCenterOrderExecutionService
         if ($order->source !== 'call_center') {
             throw new UnprocessableEntityHttpException('خدمة تنفيذ الكول سنتر لا تقبل طلبات من مصدر آخر.');
         }
-        if (in_array($order->status, ['cancelled', 'paid', 'served'], true)) {
+        if (in_array($order->status, ['cancelled', 'paid', 'served', 'closed'], true)) {
             throw new UnprocessableEntityHttpException('حالة الطلب الحالية لا تسمح بتنفيذ عملية كول سنتر.');
         }
     }
@@ -290,8 +417,10 @@ class CallCenterOrderExecutionService
             ], true);
         $partial = $order->payment_status === Order::PAYMENT_STATUS_PROCESSING
             && in_array($order->payment_policy, Order::PAYMENT_POLICIES, true);
-        $initial = $order->payment_policy === Order::PAYMENT_POLICY_MANUAL_CONFIRMATION
-            && $order->payment_status === Order::PAYMENT_STATUS_AWAITING_CONFIRMATION;
+        // الطلب الجديد (policy/status لسا فاضيين) بيبدأ بحوالة مباشرة — قبل هيك كان لازم حدا يستدعي
+        // saveOrderAwaitingBankConfirmation() أول، وما في أي مسار بيستدعيه، فكان كل طلب جديد "غير مؤهل".
+        $initial = in_array($order->payment_policy, [null, Order::PAYMENT_POLICY_MANUAL_CONFIRMATION], true)
+            && in_array($order->payment_status, [null, Order::PAYMENT_STATUS_AWAITING_CONFIRMATION, Order::PAYMENT_STATUS_FAILED], true);
         if (! $retry && ! $partial && ! $initial) {
             throw new UnprocessableEntityHttpException('الطلب غير مؤهل لتأكيد تحويل يدوي.');
         }

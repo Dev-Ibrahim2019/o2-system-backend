@@ -38,5 +38,6 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="CALL_CENTER_PRINT_ON_EXECUTE" value="false"/>
     </php>
 </phpunit>

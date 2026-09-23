@@ -16,4 +16,25 @@ return [
     // مكتوبة صراحة بالكود، حتى يمكن رفعه لاحقًا (مثلاً لـ 2) بدون إعادة تصميم. يمكن تجاوزه لسائق
     // معيّن عبر employees.max_active_deliveries (Employee::maxActiveDeliveries()).
     'max_active_deliveries_per_driver' => (int) env('CALL_CENTER_MAX_ACTIVE_DELIVERIES_PER_DRIVER', 1),
+
+    // طباعة تذاكر الأقسام تلقائيًا عند تنفيذ الطلب (فوري أو مجدول). لو false التذاكر بتنشأ بس بدون طباعة.
+    'print_on_execute' => (bool) env('CALL_CENTER_PRINT_ON_EXECUTE', true),
+
+    // ربط برنامج التيك أواي: بعد إغلاق الطلب بيتبعت حدث order.closed من الـ outbox. بدون url ما بيتبعت شي
+    // (الأحداث بتضل بالـ outbox بانتظار ضبط الربط) — بدل ما نخترع عنوان مش موجود.
+    'takeaway' => [
+        'url' => env('TAKEAWAY_API_URL'),
+        'api_key' => env('TAKEAWAY_API_KEY'),
+        'timeout' => (int) env('TAKEAWAY_API_TIMEOUT', 10),
+        'max_attempts' => (int) env('TAKEAWAY_API_MAX_ATTEMPTS', 8),
+    ],
+
+    'slots' => [
+        // السعة الافتراضية لكل فرع لو ما انضبطت branches.order_slot_capacity
+        'default_capacity' => (int) env('CALL_CENTER_SLOTS_DEFAULT_CAPACITY', 200),
+        // الخانة اللي تحررت للتو ما تنعطى لطلب جديد قبل مرور هالمدة — عشان ما يلتبس على الموظف
+        // "كان هون طلب تاني قبل شوي".
+        'reuse_cooldown_seconds' => (int) env('CALL_CENTER_SLOTS_REUSE_COOLDOWN', 60),
+        'max_capacity' => 1000,
+    ],
 ];

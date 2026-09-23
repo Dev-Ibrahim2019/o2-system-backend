@@ -135,8 +135,15 @@
 
     <div class="receipt-container">
 
+        @php $ticketType = $ticket->type ?? 'order'; @endphp
         <div class="restaurant-title">
-            تذكرة تحضير مطعم O2
+            @if($ticketType === 'cancellation')
+                تذكرة إلغاء — أوقفوا تحضير الأصناف التالية
+            @elseif($ticketType === 'amendment')
+                تذكرة تعديل — الفرق فقط
+            @else
+                تذكرة تحضير مطعم O2
+            @endif
         </div>
 
         <div class="info-bar">
@@ -155,6 +162,26 @@
                 </tr>
             </thead>
             <tbody>
+                @if($ticketType !== 'order')
+                @foreach(($ticket->lines ?? []) as $line)
+                <tr>
+                    <td style="text-align: center;">
+                        <span class="qty-badge">{{ $line['quantity'] }}x</span>
+                    </td>
+                    <td>
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <span style="font-weight: 800; {{ ($line['action'] ?? '') === 'cancel' ? 'text-decoration: line-through;' : '' }}">
+                                {{ ($line['action'] ?? '') === 'cancel' ? 'إلغاء: ' : 'إضافة: ' }}{{ $line['name'] }}
+                            </span>
+                            <span class="dept-tag">{{ $ticket->department->name ?? 'تحضير' }}</span>
+                        </div>
+                        @if(!empty($line['notes']))
+                        <div class="item-notes">⚠️ {{ $line['notes'] }}</div>
+                        @endif
+                    </td>
+                </tr>
+                @endforeach
+                @else
                 @foreach($ticket->ticketItems as $ticketItem)
                 <tr>
                     <td style="text-align: center;">
@@ -177,11 +204,12 @@
                     </td>
                 </tr>
                 @endforeach
+                @endif
             </tbody>
         </table>
 
         <div class="footer">
-            <div>عدد عناصر التيكت: <span class="en-text">{{ $ticket->ticketItems->count() }}</span></div>
+            <div>عدد عناصر التيكت: <span class="en-text">{{ $ticketType === 'order' ? $ticket->ticketItems->count() : count($ticket->lines ?? []) }}</span></div>
         </div>
     </div>
 
