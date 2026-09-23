@@ -191,6 +191,7 @@ class OrderTimelineController extends ApiController
             'reopened' => 'تمت إعادة فتح الطلب',
             'force_completed' => 'إنهاء الطلب يدويًا',
             'preparation_started' => 'بدء التجهيز',
+            'item_added' => 'إضافة صنف',
             'items_updated' => 'تعديل أصناف الطلب',
             'item_removed' => 'حذف صنف',
             'payment' => 'تسجيل دفعة',
