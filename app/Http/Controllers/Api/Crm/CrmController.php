@@ -247,13 +247,6 @@ class CrmController extends Controller
     // "walk_in" replaces the old "hall" value (no customer ever had that
     // value — confirmed via direct query before this change; zero data migration needed).
     public const CUSTOMER_SOURCE_VALUES = ['website', 'fawri', 'families', 'call_center', 'walk_in'];
-    private const SOURCE_LABELS = [
-        'website' => 'الموقع الإلكتروني',
-        'fawri' => 'كاشير فوري',
-        'families' => 'كاشير عائلات',
-        'call_center' => 'كاشير كول سنتر',
-        'walk_in' => 'حضور مباشر',
-    ];
 
     public function dashboard(Request $request): JsonResponse
     {
@@ -336,20 +329,6 @@ class CrmController extends Controller
                 'label' => $label,
                 'count' => (int) ($occasionCounts[$type] ?? 0),
                 'percent' => $occasionTotal > 0 ? round((($occasionCounts[$type] ?? 0) / $occasionTotal) * 100, 1) : 0,
-            ])
-            ->sortByDesc('count')
-            ->values();
-
-        // Same principle for sources — all 5 known channels always listed.
-        $sourceCounts = (clone $baseCustomers)->whereNotNull('source')
-            ->selectRaw('source, count(*) as total')->groupBy('source')->pluck('total', 'source');
-        $sourceTotal = $sourceCounts->sum();
-        $customerSources = collect(self::SOURCE_LABELS)
-            ->map(fn ($label, $source) => [
-                'source' => $source,
-                'label' => $label,
-                'count' => (int) ($sourceCounts[$source] ?? 0),
-                'percent' => $sourceTotal > 0 ? round((($sourceCounts[$source] ?? 0) / $sourceTotal) * 100, 1) : 0,
             ])
             ->sortByDesc('count')
             ->values();
@@ -445,6 +424,48 @@ class CrmController extends Controller
             ];
         })->values();
 
+        // قناة الطلبات الموحّدة الوحيدة لهذه اللوحة (حلّت محل بطاقة "مصادر
+        // العملاء" المنفصلة التي كانت تُظهر 5 قيم منها "حضور مباشر" غير
+        // المطلوبة). مختلفة عن channel_distribution في CrmReportController
+        // (يُجمِّع orders.source خامًا بلا تفكيك عائلات/فوري ولا استبعاد
+        // لطلبات بوابة QR). محسوبة على نفس فلتر الفرع/التاريخ المستخدم لبقية
+        // اللوحة.
+        $channelBaseOrders = Order::withoutGlobalScopes()
+            ->whereBetween('created_at', [$from.' 00:00:00', $to.' 23:59:59'])
+            ->when($validated['branch_id'] ?? null, fn ($q) => $q->where('branch_id', $validated['branch_id']));
+
+        // كاشير عائلات/فوري: orders.source لا يفرّق بين الاثنين (كلاهما
+        // 'pos') — التفريق الوحيد المتاح هو order_type، بنفس منطق
+        // PosCustomerLinkService::sourceFor() المستخدم لتصنيف مصدر العميل.
+        $familiesCount = (clone $channelBaseOrders)->where('source', 'pos')->where('order_type', 'dine_in')->count();
+        $fawriCount = (clone $channelBaseOrders)->where('source', 'pos')->where('order_type', 'takeaway')->count();
+        // بوابة الطلب الذاتي عبر QR على طاولة العميل (CustomerPortalController،
+        // بدون مصادقة) لا تضبط orders.source صراحة، فتقع بالخطأ ضمن القيمة
+        // الافتراضية بقاعدة البيانات 'call_center' رغم أنها ليست طلبات كول
+        // سنتر حقيقية. استبعادها هنا بشرط call_center_agent_id — الكول سنتر
+        // الحقيقي يضبطه دومًا (CallCenterOrderCreationService)، عكس بوابة QR.
+        $callCenterCount = (clone $channelBaseOrders)
+            ->where('source', 'call_center')
+            ->whereNotNull('call_center_agent_id')
+            ->count();
+
+        // "الموقع الإلكتروني" لا يوجد له مصدر بيانات حقيقي في النظام حاليًا —
+        // لا توجد بوابة طلب إلكتروني فعلية (تحقّقنا من ذلك صراحة) — فتُعرض
+        // دائمًا بصفر بانتظار قناة حقيقية بدل اختلاق رقم مضلِّل.
+        $channelCounts = ['families' => $familiesCount, 'fawri' => $fawriCount, 'call_center' => $callCenterCount, 'website' => 0];
+        $channelTotal = $familiesCount + $fawriCount + $callCenterCount;
+        $orderChannelDistribution = collect([
+            'families' => 'كاشير العائلات',
+            'fawri' => 'كاشير فوري',
+            'call_center' => 'كاشير الكول سنتر',
+            'website' => 'الموقع الإلكتروني',
+        ])->map(fn ($label, $channel) => [
+            'channel' => $channel,
+            'label' => $label,
+            'count' => $channelCounts[$channel],
+            'percent' => $channelTotal > 0 ? round(($channelCounts[$channel] / $channelTotal) * 100, 1) : 0,
+        ])->values();
+
         $data = [
             'filters' => ['branch_id' => $validated['branch_id'] ?? null, 'date_from' => $from, 'date_to' => $to],
             'customers_count' => $customersCount,
@@ -461,11 +482,11 @@ class CrmController extends Controller
             'monthly_new_customers' => $monthlyNewCustomers,
             'monthly_active_customers' => $monthlyActiveCustomers,
             'occasion_distribution' => $occasionDistribution,
-            'customer_sources' => $customerSources,
             'top_customers_by_loyalty' => $topCustomersByLoyalty,
             'recent_customers' => $recentCustomers,
             'branches' => $branches,
             'branch_breakdown' => $branchBreakdown,
+            'order_channel_distribution' => $orderChannelDistribution,
             'financial' => null,
             'permissions' => [
                 'can_view_financial' => $user->can('crm.view-customer-financial'),

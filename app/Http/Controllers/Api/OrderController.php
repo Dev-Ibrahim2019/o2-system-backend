@@ -503,6 +503,20 @@ class OrderController extends ApiController
             // نحتاج النادل يضغط "ترحيل" مرة ثانية للعناصر الجديدة فقط
             // لا نغير حالة الطلب — نتركها كما هي
 
+            // هذا المسار (إضافة صنف واحد لطلب محفوظ مسبقًا) لم يكن يسجَّل بسجل
+            // النشاطات إطلاقًا — فقط مزامنة الأصناف الجماعية بـ update() كانت
+            // تُسجَّل. صفحة "سجل النشاط" (OrderController::activityLog) تقرأ من
+            // order_activity_log فقط، فكانت أي إضافة صنف من هنا تختفي كليًا منها.
+            $name = $orderItem->item_name_ar ?: $orderItem->item_name;
+            $formattedQuantity = rtrim(rtrim(number_format($orderItem->quantity, 2), '0'), '.');
+            OrderActivityLog::create([
+                'order_id' => $order->id,
+                'actor_id' => auth()->id(),
+                'action_type' => 'item_added',
+                'note' => "أُضيف: {$name} ×{$formattedQuantity}",
+                'created_at' => now(),
+            ]);
+
             return $this->success(
                 'تمت إضافة الصنف',
                 [
