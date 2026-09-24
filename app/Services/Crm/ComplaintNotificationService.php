@@ -37,27 +37,42 @@ class ComplaintNotificationService
     }
 
     /**
-     * Broadcast a complaint to everyone who can work one — every new
-     * complaint, not only urgent ones (see CallCenterService::createComplaint(),
-     * the single shared creation path both CRM and Call Center funnel
-     * through). Urgent complaints (high/critical priority, or critical
-     * severity) use this with more insistent wording so whoever is free
-     * grabs it immediately instead of waiting its turn in the normal queue;
-     * everything else still reaches the same audience, just phrased as a
-     * normal arrival — a normal-priority complaint used to notify nobody at
-     * all when filed through the Call Center, and only crm-manager role
-     * holders when filed through CRM.
+     * Notify the handlers of a complaint — every new complaint, not only
+     * urgent ones (see CallCenterService::createComplaint(), the single
+     * shared creation path both CRM and Call Center funnel through). Urgent
+     * complaints (high/critical priority, or critical severity) use this
+     * with more insistent wording so whoever is free grabs it immediately
+     * instead of waiting its turn in the normal queue; everything else still
+     * reaches the same audience, just phrased as a normal arrival.
      *
-     * Company-wide, not branch-scoped: customer_complaints.branch_id is
-     * frequently null even for a real per-customer complaint (the per-
-     * customer creation path never sets it), so scoping this by branch would
-     * silently under-notify on the common case.
+     * Branch-scoped as of the branch-ownership fix: complaints.branch_id is
+     * now reliably stamped at creation (order's branch, or the filing
+     * agent's own branch — see CallCenterService::createComplaint()), so
+     * this reaches only crm.complaints.update holders at that SAME branch,
+     * plus global users (super-admin / null branch_id), plus whoever is
+     * currently the CRM assignee regardless of their own branch (a
+     * cross-branch-assigned handler must still be told). A complaint that
+     * still has a null branch_id (a legacy row from before this fix, or a
+     * branch-less actor filing with no order) falls back to the previous
+     * company-wide broadcast — there is nothing to scope it to.
      */
     public function notifyAllHandlers(CustomerComplaint $complaint, User $actor, string $message, bool $urgent = false): void
     {
-        User::withoutGlobalScope(BranchScope::class)
-            ->permission('crm.complaints.update')
-            ->get()
+        $query = User::withoutGlobalScope(BranchScope::class)->permission('crm.complaints.update');
+
+        if ($complaint->branch_id !== null) {
+            $branchId = $complaint->branch_id;
+            $assignedUserId = $complaint->assigned_user_id;
+            $query->where(function ($q) use ($branchId, $assignedUserId) {
+                $q->whereNull('branch_id')
+                    ->orWhere('branch_id', $branchId);
+                if ($assignedUserId) {
+                    $q->orWhere('id', $assignedUserId);
+                }
+            });
+        }
+
+        $query->get()
             ->reject(fn (User $u) => $u->id === $actor->id)
             ->each(fn (User $u) => $u->notify(new ComplaintActivityNotification(
                 (int) $complaint->id,

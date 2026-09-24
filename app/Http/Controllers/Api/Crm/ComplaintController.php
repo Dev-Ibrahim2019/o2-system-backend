@@ -240,7 +240,31 @@ class ComplaintController extends Controller
             // branch_id — the same two paths updateComplaint()'s authorization
             // checks below.
             ->where(function (Builder $q) use ($user) {
-                $q->whereIn('customer_id', $this->access->visibleCustomers($user)->select('id'))
+                $q->where(function (Builder $customerLinked) use ($user) {
+                    $customerLinked->whereIn('customer_id', $this->access->visibleCustomers($user)->select('id'));
+                    // Customer identity is global by design (visibleCustomers()
+                    // is unfiltered above), but a complaint is operational —
+                    // it belongs to a branch. Previously this branch was never
+                    // actually checked here, so a branch-scoped user saw every
+                    // customer-linked complaint from both branches. Now
+                    // restricted to: their own branch, a legacy row with no
+                    // branch_id yet (pre-fix data), or one they're personally
+                    // the current assignee on — the last clause is what keeps
+                    // a cross-branch-assigned employee able to see a complaint
+                    // they were deliberately handed from another branch.
+                    // Note: assigned_to (Employee FK, the Call Center's field) is
+                    // deliberately NOT checked here — User and Employee are two
+                    // entirely separate, unlinked accounts in this codebase (no
+                    // employee_id on User, no user_id on Employee), so a logged-in
+                    // User can never be reliably matched against assigned_to.
+                    if (! $this->access->isGlobal($user)) {
+                        $customerLinked->where(function (Builder $b) use ($user) {
+                            $b->whereNull('branch_id')
+                                ->orWhere('branch_id', (string) $user->branch_id)
+                                ->orWhere('assigned_user_id', $user->id);
+                        });
+                    }
+                })
                     ->orWhere(function (Builder $general) use ($user) {
                         $general->whereNull('customer_id');
                         if (! $this->access->isGlobal($user)) {

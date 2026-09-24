@@ -613,9 +613,40 @@ class CrmController extends Controller
      *    because the mockup shows a single star rating per order.
      *  - `has_complaint`: whether any customer_complaint points at this order.
      */
+    /**
+     * Whether $user should see another branch's orders for this customer —
+     * and if so, restricted to FINAL_ORDER_STATUSES only. Global users
+     * (super-admin, or any user with a null branch_id) already see every
+     * branch via Order's own BranchScope and need no special handling here.
+     */
+    private function canViewCrossBranchOrders($user): bool
+    {
+        $isGlobal = is_null($user->branch_id) || (method_exists($user, 'hasRole') && $user->hasRole('super-admin'));
+
+        return ! $isGlobal && $user->can('crm.customer-orders.view-cross-branch');
+    }
+
     public function orders(Request $request, Customer $customer): JsonResponse
     {
         $this->access->authorize($request->user(), $customer);
+        $user = $request->user();
+
+        // Previously always $customer->orders() — a plain relation query, so
+        // Order's own BranchScope silently limited this to the viewer's own
+        // branch with zero indication anything was hidden, even though
+        // Customer itself is deliberately global. Now: own-branch orders in
+        // any status (unchanged), plus other-branch orders ONLY when both
+        // (a) the viewer holds crm.customer-orders.view-cross-branch and
+        // (b) the order is in a final status — an other branch's ACTIVE
+        // order is never included here under any permission.
+        $ordersQuery = $this->canViewCrossBranchOrders($user)
+            ? Order::withoutGlobalScopes()
+                ->where('customer_id', $customer->id)
+                ->where(function ($q) use ($user) {
+                    $q->where('branch_id', $user->branch_id)
+                        ->orWhere(fn ($other) => $other->finalized());
+                })
+            : $customer->orders();
 
         // Both are correlated sub-selects rather than withCount()/withAvg():
         // Order has no `complaints` relation (customer_complaints.order_id is
@@ -623,7 +654,7 @@ class CrmController extends Controller
         // to read a count would mean editing the Order model for a CRM-only
         // display concern. CustomerComplaint's SoftDeletes scope still applies
         // because the sub-select is built from the model, not a raw table.
-        $page = $customer->orders()
+        $page = $ordersQuery
             ->with([
                 'branch:id,name',
                 'diningTable:id,dining_zone_id,table_number',
@@ -648,13 +679,19 @@ class CrmController extends Controller
         // customersFor() keys its own batch lookup for the cross-customer screens.
         $customers = collect([$customer->getKey() => $customer]);
 
-        $page->getCollection()->transform(function (Order $order) use ($customers) {
+        $page->getCollection()->transform(function (Order $order) use ($customers, $user) {
             $rating = $order->getAttribute('rating');
             $hasComplaint = (int) $order->getAttribute('complaints_count') > 0;
+            $isOtherBranch = $user->branch_id !== null && (string) $order->branch_id !== (string) $user->branch_id;
 
             return $this->transformOrderRow($order, null, $customers) + [
                 'rating' => $rating === null ? null : (float) $rating,
                 'has_complaint' => $hasComplaint,
+                // Frontend must hide every write action (edit/cancel/assign
+                // driver/change status/payment) when true — this is a display
+                // hint, not the enforcement: the write endpoints themselves
+                // stay BranchScope-protected regardless of what the UI shows.
+                'is_other_branch_read_only' => $isOtherBranch,
             ];
         });
 
@@ -689,9 +726,23 @@ class CrmController extends Controller
     public function purchaseHistory(Request $request, Customer $customer): JsonResponse
     {
         $this->access->authorize($request->user(), $customer);
+        $user = $request->user();
 
         $months = collect(range(5, 0))->map(fn ($i) => now()->subMonths($i));
-        $totalsByMonth = $customer->orders()
+        // Same cross-branch rule as orders() above — final-status orders
+        // from another branch count toward this total only when the viewer
+        // holds the cross-branch permission, so this chart and the order
+        // list it summarizes never disagree with each other.
+        $historyQuery = $this->canViewCrossBranchOrders($user)
+            ? Order::withoutGlobalScopes()
+                ->where('customer_id', $customer->id)
+                ->where(function ($q) use ($user) {
+                    $q->where('branch_id', $user->branch_id)
+                        ->orWhere(fn ($other) => $other->finalized());
+                })
+            : $customer->orders();
+
+        $totalsByMonth = $historyQuery
             ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as ym, SUM(total) as total")
             ->where('created_at', '>=', $months->first()->copy()->startOfMonth())
             ->groupBy('ym')
@@ -1014,7 +1065,10 @@ class CrmController extends Controller
         }
 
         // Legacy employee assignment (Call Center's field). Unchanged: any
-        // real change to it is manager-only.
+        // real change to it is manager-only. Previously this field's changes
+        // were never logged and never branch-checked — both fixed below,
+        // mirroring the assigned_user_id (CRM) gate a few lines down.
+        $employeeAssigneeChange = null;
         if (array_key_exists('assigned_to', $data)) {
             $current = $complaint->getAttribute('assigned_to');
             $current = $current === null ? null : (int) $current;
@@ -1025,6 +1079,17 @@ class CrmController extends Controller
                     403,
                     'إسناد الشكوى أو تحويلها لموظف آخر من صلاحية مدير قسم CRM.',
                 );
+                if ($next !== null && $complaint->branch_id !== null) {
+                    $employeeBranch = \App\Models\Employee::withoutGlobalScope(BranchScope::class)->find($next)?->branch_id;
+                    if ($employeeBranch !== null && (string) $employeeBranch !== (string) $complaint->branch_id) {
+                        abort_unless(
+                            $actor->can('crm.complaints.assign-cross-branch'),
+                            403,
+                            'إسناد شكوى فرع لموظف من فرع آخر يحتاج صلاحية الإسناد عبر الفروع.',
+                        );
+                    }
+                }
+                $employeeAssigneeChange = ['from' => $current, 'to' => $next];
             }
         }
 
@@ -1046,6 +1111,23 @@ class CrmController extends Controller
                         403,
                         'إسناد الشكوى أو تحويلها لموظف آخر من صلاحية مدير قسم CRM.',
                     );
+                }
+                // Assigning a Gaza-origin complaint to a Nuseirat-branch user
+                // (or vice-versa) is legitimate — a complaint filed at one
+                // branch is regularly worked by staff at another — but it must
+                // be a deliberate choice, not silently allowed by whoever
+                // happens to hold the ordinary .assign permission. Origin
+                // branch itself never changes because of this — only who is
+                // currently handling it.
+                if ($to !== null && $complaint->branch_id !== null) {
+                    $toBranch = User::withoutGlobalScope(BranchScope::class)->find($to)?->branch_id;
+                    if ($toBranch !== null && (string) $toBranch !== (string) $complaint->branch_id) {
+                        abort_unless(
+                            $actor->can('crm.complaints.assign-cross-branch'),
+                            403,
+                            'إسناد شكوى فرع لموظف من فرع آخر يحتاج صلاحية الإسناد عبر الفروع.',
+                        );
+                    }
                 }
                 $assigneeChange = ['from' => $from, 'to' => $to];
             }
@@ -1097,6 +1179,32 @@ class CrmController extends Controller
             $complaint->assigned_user_id = $assigneeChange['to'];
             $complaint->save();
             $this->recordAssigneeChange($complaint, $actor, $assigneeChange['from'], $assigneeChange['to']);
+        }
+
+        // ── Legacy Employee (Call Center) assignee change: log only — the
+        // column itself was already applied by the mass update() above ──
+        if ($employeeAssigneeChange !== null) {
+            $employeeOf = fn (?int $id) => $id ? \App\Models\Employee::withoutGlobalScope(BranchScope::class)->find($id) : null;
+            $from = $employeeAssigneeChange['from'];
+            $to = $employeeAssigneeChange['to'];
+            $this->callCenter->addFollowup(
+                $complaint->id,
+                $actor->id,
+                $to === null ? 'unassigned' : 'assigned',
+                $to === null
+                    ? "رفع {$actor->name} إسناد الشكوى (موظف) عن " . ($employeeOf($from)?->name ?? "#{$from}")
+                    : ($from !== null
+                        ? "حوّل {$actor->name} إسناد الشكوى (موظف) من " . ($employeeOf($from)?->name ?? "#{$from}") . " إلى " . ($employeeOf($to)?->name ?? "#{$to}")
+                        : "أسند {$actor->name} الشكوى (موظف) إلى " . ($employeeOf($to)?->name ?? "#{$to}")),
+                'system',
+                metadata: [
+                    'from_employee_id' => $from,
+                    'from_branch_id' => $employeeOf($from)?->branch_id,
+                    'to_employee_id' => $to,
+                    'to_branch_id' => $employeeOf($to)?->branch_id,
+                    'complaint_branch_id' => $complaint->branch_id,
+                ],
+            );
         }
 
         // ── Auto-assign: starting work on an unassigned complaint claims it.
@@ -1184,9 +1292,21 @@ class CrmController extends Controller
      */
     private function recordAssigneeChange(CustomerComplaint $complaint, User $actor, ?int $from, ?int $to, bool $auto = false): void
     {
-        $nameOf = fn (?int $id) => $id
-            ? (User::withoutGlobalScope(BranchScope::class)->find($id)?->name ?? "#{$id}")
-            : null;
+        $userOf = fn (?int $id) => $id ? User::withoutGlobalScope(BranchScope::class)->find($id) : null;
+        $nameOf = fn (?int $id) => $userOf($id)?->name ?? ($id ? "#{$id}" : null);
+        // Structured transfer record — the note above is for reading, this is
+        // for reconstructing "who held this, on which branch, when" reliably
+        // without parsing Arabic sentences. branch_id here is the assignee's
+        // branch AT THE TIME of the transfer, not looked up live later — an
+        // employee moving branches afterward must not silently rewrite this
+        // complaint's own history.
+        $transferMeta = [
+            'from_user_id' => $from,
+            'from_branch_id' => $userOf($from)?->branch_id,
+            'to_user_id' => $to,
+            'to_branch_id' => $userOf($to)?->branch_id,
+            'complaint_branch_id' => $complaint->branch_id,
+        ];
 
         // Took it for themselves.
         if ($from === null && $to === $actor->id) {
@@ -1198,6 +1318,7 @@ class CrmController extends Controller
                     ? "أُسندت الشكوى تلقائياً إلى {$actor->name} عند بدء المعالجة"
                     : "مسك {$actor->name} الشكوى وأصبحت مُسندة إليه",
                 'system',
+                metadata: $transferMeta,
             );
             $this->notifyComplaintOversight(
                 $complaint,
@@ -1217,6 +1338,7 @@ class CrmController extends Controller
                 'unassigned',
                 "رفع {$actor->name} إسناد الشكوى عن " . ($nameOf($from) ?? '—'),
                 'system',
+                metadata: $transferMeta,
             );
             if ($from !== null) {
                 $this->notifyComplaintUser($from, $complaint, $actor, 'unassigned_from_you',
@@ -1235,6 +1357,7 @@ class CrmController extends Controller
                 ? "حوّل {$actor->name} الشكوى من " . ($nameOf($from) ?? '—') . " إلى {$nameOf($to)}"
                 : "أسند {$actor->name} الشكوى إلى {$nameOf($to)}",
             'system',
+            metadata: $transferMeta,
         );
         if ($to !== $actor->id) {
             $this->notifyComplaintUser($to, $complaint, $actor, 'assigned_to_you',
@@ -1756,11 +1879,50 @@ class CrmController extends Controller
      * served them), so checking the customer's branch instead of the
      * order's own would 403 an agent who can plainly see the order.
      */
-    public function orderDetails(Request $request, Order $order): JsonResponse
+    /**
+     * Resolve an order for a READ, honouring the cross-branch rule.
+     *
+     * Deliberately not route-model-bound: implicit binding runs
+     * Order::findOrFail() with BranchScope applied, so another branch's
+     * order 404s before the method body is ever reached — which is exactly
+     * what made a finished cross-branch order visible in the customer's
+     * order list but dead on click ("تعذر العثور على السجل المطلوب").
+     *
+     * The rule this enforces is the same one the list applies: own branch is
+     * always readable; another branch's order only when it is finalized()
+     * AND the viewer holds crm.customer-orders.view-cross-branch. A refusal
+     * is a 404, not a 403, matching ComplaintController::show() — a viewer
+     * who may not see a record should not learn it exists.
+     *
+     * Read only: the write endpoints below keep implicit binding, so they
+     * still refuse another branch's order outright.
+     */
+    private function findOrderForRead(Request $request, int $orderId): Order
     {
-        $this->access->authorizeBranch($request->user(), $order->branch_id !== null ? (string) $order->branch_id : null);
+        $user = $request->user();
+        $order = Order::withoutGlobalScopes()->find($orderId);
+        abort_if($order === null, 404, 'تعذر العثور على الطلب.');
 
-        return response()->json(['data' => $this->callCenter->getOrderDetails($order->id)]);
+        $isGlobal = is_null($user->branch_id) || (method_exists($user, 'hasRole') && $user->hasRole('super-admin'));
+        $sameBranch = (string) $order->branch_id === (string) $user->branch_id;
+
+        if (! $isGlobal && ! $sameBranch) {
+            $isFinalized = Order::withoutGlobalScopes()->whereKey($order->id)->finalized()->exists();
+            abort_unless(
+                $isFinalized && $user->can('crm.customer-orders.view-cross-branch'),
+                404,
+                'تعذر العثور على الطلب.',
+            );
+        }
+
+        return $order;
+    }
+
+    public function orderDetails(Request $request, int $order): JsonResponse
+    {
+        $resolved = $this->findOrderForRead($request, $order);
+
+        return response()->json(['data' => $this->callCenter->getOrderDetails($resolved->id, allowCrossBranch: true)]);
     }
 
     /**
@@ -1772,11 +1934,11 @@ class CrmController extends Controller
      * Adds the same branch-scoped authorization as orderDetails() before
      * delegating, since the underlying controller has none of its own.
      */
-    public function orderTimeline(Request $request, Order $order): JsonResponse
+    public function orderTimeline(Request $request, int $order): JsonResponse
     {
-        $this->access->authorizeBranch($request->user(), $order->branch_id !== null ? (string) $order->branch_id : null);
+        $resolved = $this->findOrderForRead($request, $order);
 
-        return app(\App\Http\Controllers\Api\OrderTimelineController::class)->timeline($order);
+        return app(\App\Http\Controllers\Api\OrderTimelineController::class)->timeline($resolved);
     }
 
     /**

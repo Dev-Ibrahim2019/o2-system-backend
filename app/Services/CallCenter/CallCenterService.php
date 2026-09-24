@@ -475,9 +475,18 @@ class CallCenterService
     /**
      * Get order details with items
      */
-    public function getOrderDetails(int $orderId): array
+    /**
+     * $allowCrossBranch lifts Order's BranchScope for this read only. It is
+     * opt-in and false by default, so every existing caller keeps the branch
+     * restriction it has always had; the one caller that passes true
+     * (CrmController::orderDetails) has already established that the viewer
+     * may read this specific finished order from another branch.
+     */
+    public function getOrderDetails(int $orderId, bool $allowCrossBranch = false): array
     {
-        $order = Order::with([
+        $query = $allowCrossBranch ? Order::withoutGlobalScopes() : Order::query();
+
+        $order = $query->with([
             'items.feedback',
             'branch:id,name',
             'cashier:id,name',
@@ -1071,6 +1080,23 @@ class CallCenterService
             throw new InvalidArgumentException("Unknown complaint channel [{$channel}].");
         }
 
+        // Branch ownership: a complaint tied to an order always belongs to
+        // that order's branch — regardless of which branch the filing agent
+        // sits in — because the order is the actual source of the problem.
+        // Without an order, it falls back to the filing agent's own branch
+        // (the same rule createGeneralComplaint() already used). Previously
+        // both the CRM per-customer form and the Call Center form left this
+        // null outright, which made every branch-scoped complaint report
+        // silently wrong. An explicit 'branch_id' in $data (none of today's
+        // callers pass one) still wins over both of these — never overridden.
+        $branchId = $data['branch_id'] ?? null;
+        if ($branchId === null && ! empty($data['order_id'])) {
+            $branchId = \App\Models\Order::withoutGlobalScopes()->find($data['order_id'])?->branch_id;
+        }
+        if ($branchId === null) {
+            $branchId = \App\Models\User::find($userId)?->branch_id;
+        }
+
         $complaint = CustomerComplaint::create([
             // Nullable: a "شكوى عامة" is not about any one customer.
             'customer_id' => $data['customer_id'] ?? null,
@@ -1089,7 +1115,7 @@ class CallCenterService
             'severity' => $data['severity'] ?? 'info',
             'is_sensitive' => $data['is_sensitive'] ?? false,
             'show_alert' => true,
-            'branch_id' => $data['branch_id'] ?? null,
+            'branch_id' => $branchId,
             'channel' => $channel,
             // Optional analytical tag. Read from $data rather than passed as
             // an argument like $channel, because unlike the channel it is a
@@ -1201,7 +1227,7 @@ class CallCenterService
     /**
      * Add a followup to a complaint
      */
-    public function addFollowup(int $complaintId, ?int $userId, string $action, string $notes, string $type = 'note', ?string $oldStatus = null, ?string $newStatus = null): ComplaintFollowup
+    public function addFollowup(int $complaintId, ?int $userId, string $action, string $notes, string $type = 'note', ?string $oldStatus = null, ?string $newStatus = null, ?array $metadata = null): ComplaintFollowup
     {
         return ComplaintFollowup::create([
             'complaint_id' => $complaintId,
@@ -1211,6 +1237,7 @@ class CallCenterService
             'old_status' => $oldStatus,
             'new_status' => $newStatus,
             'followup_type' => $type,
+            'metadata' => $metadata,
         ]);
     }
 

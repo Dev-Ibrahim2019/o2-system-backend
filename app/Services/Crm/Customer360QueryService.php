@@ -202,12 +202,41 @@ class Customer360QueryService
             // CustomerIdentityService::WORK_ADDRESS_LABEL, not a customers.work_address column.
             'addresses' => fn ($q) => $q->where('label', \App\Services\CustomerIdentityService::WORK_ADDRESS_LABEL)->where('is_active', true),
         ])->loadCount([
-            'orders',
-            'orders as completed_orders_count' => fn ($q) => $q->whereIn('status', ['paid', 'served']),
             'complaints as open_complaints_count' => fn ($q) => $q->open(),
         ]);
 
-        $orderStats = $customer->orders()
+        // Same rule as CrmController::orders()/purchaseHistory(): a
+        // branch-scoped user's order stats here previously came from
+        // $customer->orders() unmodified, so Order's own BranchScope
+        // silently excluded another branch's history for this same global
+        // customer — counts/totals/last-order-date all understated with no
+        // indication anything was hidden. Widened only for holders of
+        // crm.customer-orders.view-cross-branch, and only to final-status
+        // orders — an other branch's still-active order never counts here.
+        $isGlobalUser = is_null($user->branch_id) || (method_exists($user, 'hasRole') && $user->hasRole('super-admin'));
+        $canCrossBranch = ! $isGlobalUser && $user->can('crm.customer-orders.view-cross-branch');
+        $visibleOrders = fn () => $canCrossBranch
+            ? \App\Models\Order::withoutGlobalScopes()
+                ->where('customer_id', $customer->id)
+                ->where(function ($q) use ($user) {
+                    $q->where('branch_id', $user->branch_id)
+                        ->orWhere(fn ($other) => $other->finalized());
+                })
+            : $customer->orders();
+
+        // Counted off the same builder as the sums below, not loadCount() on
+        // the raw relation. Keeping them apart is what produced the visibly
+        // contradictory profile header: "إجمالي الطلبات 0" sitting next to
+        // "إجمالي المشتريات 50₪" for the very same customer, because only
+        // the sums had been widened for cross-branch reads and the counts
+        // had not.
+        $customer->setAttribute('orders_count', (clone $visibleOrders())->count());
+        $customer->setAttribute(
+            'completed_orders_count',
+            (clone $visibleOrders())->whereIn('status', ['paid', 'served'])->count(),
+        );
+
+        $orderStats = $visibleOrders()
             ->selectRaw('AVG(total) as average_order_value, SUM(total) as total_purchases, MAX(created_at) as last_order_at')
             ->first();
 

@@ -525,8 +525,66 @@ class CallCenterController extends ApiController
             unset($data['status'], $data['resolution_notes']);
         }
 
+        // Reassigning the Call Center's own employee field was previously
+        // open to anyone hitting this endpoint (only the broad call-center
+        // role gate applied — no crm.complaints.assign check, no branch
+        // check, no history at all). Now mirrors the CRM-side gate:
+        // manager permission required, an extra cross-branch permission when
+        // handing off to another branch's employee, and a logged followup —
+        // same as CrmController::updateComplaint() does for assigned_user_id.
+        $employeeAssigneeChange = null;
+        if (array_key_exists('assigned_to', $data)) {
+            $actor = $request->user();
+            $current = $complaint->getAttribute('assigned_to');
+            $current = $current === null ? null : (int) $current;
+            $next = $data['assigned_to'] === null ? null : (int) $data['assigned_to'];
+            if ($next !== $current) {
+                abort_unless(
+                    $actor->can('crm.complaints.assign'),
+                    403,
+                    'إسناد الشكوى أو تحويلها لموظف آخر من صلاحية مدير قسم CRM.',
+                );
+                if ($next !== null && $complaint->branch_id !== null) {
+                    $employeeBranch = \App\Models\Employee::withoutGlobalScope(\App\Models\Scopes\BranchScope::class)->find($next)?->branch_id;
+                    if ($employeeBranch !== null && (string) $employeeBranch !== (string) $complaint->branch_id) {
+                        abort_unless(
+                            $actor->can('crm.complaints.assign-cross-branch'),
+                            403,
+                            'إسناد شكوى فرع لموظف من فرع آخر يحتاج صلاحية الإسناد عبر الفروع.',
+                        );
+                    }
+                }
+                $employeeAssigneeChange = ['from' => $current, 'to' => $next];
+            }
+        }
+
         if (!empty($data)) {
             $complaint->update($data);
+        }
+
+        if ($employeeAssigneeChange !== null) {
+            $employeeOf = fn (?int $id) => $id ? \App\Models\Employee::withoutGlobalScope(\App\Models\Scopes\BranchScope::class)->find($id) : null;
+            $from = $employeeAssigneeChange['from'];
+            $to = $employeeAssigneeChange['to'];
+            $actorName = $request->user()->name;
+            $this->callCenterService->addFollowup(
+                $complaint->id,
+                $request->user()->id,
+                $to === null ? 'unassigned' : 'assigned',
+                $to === null
+                    ? "رفع {$actorName} إسناد الشكوى (موظف) عن " . ($employeeOf($from)?->name ?? "#{$from}")
+                    : ($from !== null
+                        ? "حوّل {$actorName} إسناد الشكوى (موظف) من " . ($employeeOf($from)?->name ?? "#{$from}") . " إلى " . ($employeeOf($to)?->name ?? "#{$to}")
+                        : "أسند {$actorName} الشكوى (موظف) إلى " . ($employeeOf($to)?->name ?? "#{$to}")),
+                'system',
+                metadata: [
+                    'from_employee_id' => $from,
+                    'from_branch_id' => $employeeOf($from)?->branch_id,
+                    'to_employee_id' => $to,
+                    'to_branch_id' => $employeeOf($to)?->branch_id,
+                    'complaint_branch_id' => $complaint->branch_id,
+                ],
+            );
         }
 
         $complaint->refresh()->load(['customer:id,name,phone', 'order:id,order_number']);

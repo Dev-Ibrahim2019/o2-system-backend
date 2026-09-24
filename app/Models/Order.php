@@ -171,6 +171,38 @@ class Order extends Model
         'reopened_at' => 'datetime',
     ];
 
+    /**
+     * Orders that are finished — nothing operational is left to do on them.
+     * The one definition the whole codebase should read, because "finished"
+     * is genuinely not a single status value here: the POS, Call Center,
+     * hospitality and customer-portal flows were deliberately never unified
+     * (see OrderStatusService's CALL_CENTER_TRANSITIONS docblock), so each
+     * ends on a different value.
+     *
+     *  - closed / cancelled / CANCELLED — terminal for every flow. These are
+     *    exactly the values OrderStatusService::maybeAutoClose() and
+     *    forceComplete() treat as "already done, nothing to do" themselves.
+     *  - served / DELIVERED — the order was handed over. Both transition only
+     *    to 'closed', so there is no operational step left either way.
+     *  - paid — terminal for POS/hospitality/portal orders, where payment is
+     *    the last step. NOT terminal for call-center orders: those are paid
+     *    BEFORE the kitchen is released ('paid' => confirmed/in_progress/ready
+     *    in the transition map), so a call-center order sitting at 'paid' is
+     *    still very much in flight and must not be treated as history.
+     *
+     * Kept as a scope rather than a constant because of that last, source-
+     * dependent case — a flat status list cannot express it correctly.
+     */
+    public function scopeFinalized($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereIn('status', ['closed', 'cancelled', 'CANCELLED', 'served', 'DELIVERED'])
+                ->orWhere(function ($paid) {
+                    $paid->where('status', 'paid')->where('source', '!=', 'call_center');
+                });
+        });
+    }
+
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);

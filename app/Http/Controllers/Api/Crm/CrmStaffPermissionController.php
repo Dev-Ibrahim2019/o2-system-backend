@@ -71,6 +71,7 @@ class CrmStaffPermissionController extends Controller
 
         'crm.customer-orders.view' => ['group' => 'طلبات العملاء', 'label' => 'عرض طلبات العميل', 'sensitive' => false],
         'crm.customer-orders.manage' => ['group' => 'طلبات العملاء', 'label' => 'إدارة إعدادات تأخر الطلبات', 'sensitive' => false],
+        'crm.customer-orders.view-cross-branch' => ['group' => 'طلبات العملاء', 'label' => 'عرض الطلبات المكتملة من فرع آخر (قراءة فقط)', 'sensitive' => false],
 
         'crm.groups.view' => ['group' => 'المجموعات', 'label' => 'عرض مجموعات العملاء', 'sensitive' => false],
         'crm.groups.create' => ['group' => 'المجموعات', 'label' => 'إنشاء مجموعة', 'sensitive' => false],
@@ -81,6 +82,7 @@ class CrmStaffPermissionController extends Controller
         'crm.complaints.create' => ['group' => 'الشكاوى', 'label' => 'إنشاء شكوى', 'sensitive' => false],
         'crm.complaints.update' => ['group' => 'الشكاوى', 'label' => 'تحديث حالة الشكوى', 'sensitive' => false],
         'crm.complaints.assign' => ['group' => 'الشكاوى', 'label' => 'إسناد الشكاوى لموظف', 'sensitive' => false],
+        'crm.complaints.assign-cross-branch' => ['group' => 'الشكاوى', 'label' => 'إسناد شكوى لموظف من فرع آخر', 'sensitive' => false],
 
         'crm.notes.view' => ['group' => 'الملاحظات', 'label' => 'عرض ملاحظات العميل', 'sensitive' => false],
         'crm.notes.create' => ['group' => 'الملاحظات', 'label' => 'إضافة ملاحظة', 'sensitive' => false],
