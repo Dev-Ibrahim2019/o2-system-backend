@@ -12,7 +12,6 @@ use App\Services\Invoice\InvoiceFromOrderService;
 use App\Services\Order\OrderConfirmationService as KitchenReleaseService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
-use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
@@ -20,7 +19,8 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
  *
  *   قبل التنفيذ  : مباشرة بدون سبب — والفاتورة غير المدفوعة بتنبني من جديد.
  *   بعد التنفيذ  : سبب إلزامي، والصنف بيتلغى (مش بينحذف) وبتطلع تذكرة إلغاء للقسم المعني.
- *   بعد الدفع    : المبلغ ما عاد يطابق التحويل، فبيلزمها مشرف + سبب (وتحذير عدم تطابق بالرد).
+ *   بعد الدفع    : ممنوع نهائيًا لأي حدا (حتى المشرف) — المبلغ المحوّل ثابت وما لازم يتغيّر الطلب تحته.
+ *                  (عمليًا التنفيذ بيجي بعد الدفع دائمًا، فمسار "بعد التنفيذ" بيخص بيانات قديمة/استثنائية.)
  *
  * الأصناف المضافة بعد التنفيذ بتروح للأقسام بتذكرة جديدة فيها الأصناف الجديدة بس (مش الطلب كامل).
  * قفل التعديل المتزامن (editing_by/editing_until) بيمنع موظفين يعدّلوا نفس الطلب سوا؛ بينتهي لحاله
@@ -28,7 +28,7 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
  */
 class OrderAmendmentService
 {
-    public const SUPERVISOR_ROLES = ['call-center-manager', 'super-admin', 'branch-manager', 'accountant'];
+    public const PAID_EDIT_MESSAGE = 'لا يمكن تعديل طلب مدفوع.';
     public const LOCK_TTL_SECONDS = 120;
     private const MIN_REASON_LENGTH = 3;
 
@@ -45,6 +45,7 @@ class OrderAmendmentService
     {
         return DB::transaction(function () use ($order, $by) {
             $locked = Order::query()->withoutGlobalScopes()->lockForUpdate()->findOrFail($order->id);
+            $this->assertEditable($locked);
             if ($holder = $this->lockHolderOtherThan($locked, $by)) {
                 throw new ConflictHttpException("الطلب قيد التعديل من {$holder}.");
             }
@@ -101,12 +102,7 @@ class OrderAmendmentService
         $result = DB::transaction(function () use ($order, $by, $reason, $explicitChanges, $payload, &$created) {
             $locked = Order::query()->withoutGlobalScopes()->lockForUpdate()->findOrFail($order->id);
 
-            if ($locked->source !== 'call_center') {
-                throw ValidationException::withMessages(['order' => ['هذا الإجراء لطلبات الكول سنتر فقط.']]);
-            }
-            if (OrderFlowService::lifecycle($locked) !== 'open') {
-                throw ValidationException::withMessages(['order' => ['لا يمكن تعديل طلب مغلق أو ملغى.']]);
-            }
+            $this->assertEditable($locked);
             if ($holder = $this->lockHolderOtherThan($locked, $by)) {
                 throw new ConflictHttpException("الطلب قيد التعديل من {$holder}.");
             }
@@ -117,15 +113,8 @@ class OrderAmendmentService
             $notesChanged = $payload !== null && array_key_exists('notes', $payload) && ($payload['notes'] ?? null) !== $locked->note;
 
             $executed = OrderFlowService::executionStatus($locked) === 'executed';
-            $paid = OrderFlowService::paymentState($locked) === 'paid';
             $reason = trim((string) $reason);
 
-            if (($hasRemovals || $hasAdditions) && $paid) {
-                if (! $by->hasRole(self::SUPERVISOR_ROLES)) {
-                    throw new AccessDeniedHttpException('بعد الدفع المبلغ ما عاد يطابق التحويل — تعديل الأصناف يحتاج صلاحية مشرف.');
-                }
-                $this->requireReason($reason, 'سبب التعديل بعد الدفع إلزامي.');
-            }
             if ($hasRemovals && $executed) {
                 $this->requireReason($reason, 'سبب الإزالة بعد التنفيذ إلزامي.');
             }
@@ -184,12 +173,13 @@ class OrderAmendmentService
                 'created_at' => now(),
             ]);
 
+            // فاتورة عليها دفعة جزئية (مش مدفوعة بالكامل) ما بتنبني من جديد — منبّه إنه المتبقي تغيّر
             $fresh = $locked->fresh();
             $warnings = [];
             $invoiceRow = $fresh->invoice()->first();
             if ($invoiceRow && $invoice === null && $invoiceRow->payments()->exists()
                 && abs((float) $fresh->total - (float) $invoiceRow->total) > 0.001) {
-                $warnings[] = sprintf('الإجمالي الجديد (%s) لا يطابق الفاتورة المدفوعة (%s).', number_format((float) $fresh->total, 2), number_format((float) $invoiceRow->total, 2));
+                $warnings[] = sprintf('الإجمالي الجديد (%s) لا يطابق الفاتورة (%s) — عليها دفعة جزئية مسجّلة.', number_format((float) $fresh->total, 2), number_format((float) $invoiceRow->total, 2));
             }
 
             return ['changed' => true, 'warnings' => $warnings];
@@ -290,6 +280,20 @@ class OrderAmendmentService
         ]);
 
         return $item->name_ar ?? $item->name;
+    }
+
+    /** الطلب لازم يكون كول سنتر، مفتوح، ومش مدفوع — نفس الفحص للقفل والإزالة والتعديل. */
+    private function assertEditable(Order $order): void
+    {
+        if ($order->source !== 'call_center') {
+            throw ValidationException::withMessages(['order' => ['هذا الإجراء لطلبات الكول سنتر فقط.']]);
+        }
+        if (OrderFlowService::lifecycle($order) !== 'open') {
+            throw ValidationException::withMessages(['order' => ['لا يمكن تعديل طلب مغلق أو ملغى.']]);
+        }
+        if (OrderFlowService::paymentState($order) === 'paid') {
+            throw ValidationException::withMessages(['order' => [self::PAID_EDIT_MESSAGE]]);
+        }
     }
 
     private function requireReason(string $reason, string $message): void

@@ -86,6 +86,25 @@ class CallCenterOrderFlowTest extends TestCase
         $this->assertSame(1, PaymentConfirmation::count());
     }
 
+    public function test_retry_after_a_duplicate_reference_succeeds_and_the_failed_attempt_leaves_no_invoice(): void
+    {
+        $first = $this->orderWithInvoice();
+        $this->pay($first, 'DUP-1', 100)->assertOk();
+
+        // طلب بدون فاتورة (زي ما بتبعته الواجهة) — الفاتورة بتنشأ جوّا transaction الدفع نفسها
+        $second = $this->orderWithInvoice();
+        $second->invoice()->delete();
+
+        $this->pay($second, 'DUP-1', 100)->assertStatus(409);
+        $this->assertSame(0, Invoice::where('order_id', $second->id)->count(), 'rejected payment must not leave an invoice behind');
+
+        $this->pay($second, 'NEW-2', 100)
+            ->assertOk()
+            ->assertJsonPath('data.payment_status', 'paid');
+        $this->assertSame(1, Invoice::where('order_id', $second->id)->count());
+        $this->assertSame('paid', Invoice::where('order_id', $second->id)->value('status'));
+    }
+
     public function test_amount_mismatch_is_a_warning_not_a_rejection(): void
     {
         $order = $this->orderWithInvoice();

@@ -172,6 +172,32 @@ class CallCenterOrderSlotTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_an_order_created_from_a_clicked_empty_slot_takes_that_slot(): void
+    {
+        $user = User::factory()->create(['branch_id' => $this->branch->id]);
+        Role::findOrCreate('call-center-manager', 'web');
+        $user->assignRole('call-center-manager');
+        $existing = $this->order();
+        $item = \App\Models\Item::factory()->create();
+
+        $create = fn (array $extra) => $this->actingAs($user)->postJson('/api/orders', $extra + [
+            'branch_id' => $this->branch->id, 'order_type' => 'takeaway', 'source' => 'call_center',
+            'customer_name' => 'عميل', 'customer_phone' => '0599000111',
+            'items' => [['item_id' => $item->id, 'quantity' => 1, 'unit_price' => 10]],
+        ]);
+
+        $picked = $create(['slot_number' => 37])->assertCreated()->assertJsonPath('data.slot_number', 37);
+        $this->assertSame(37, $this->slotOf(Order::find($picked->json('data.id'))));
+        $this->assertSame(1, $this->slotOf($existing), 'existing orders never move');
+
+        // الخانة 37 انحجزت: الطلب التالي اللي طلبها بياخد أصغر خانة فاضية بدلها
+        $create(['slot_number' => 37])->assertCreated()->assertJsonPath('data.slot_number', 2);
+        // بدون خانة محددة: السلوك القديم (أصغر خانة فاضية)
+        $create([])->assertCreated()->assertJsonPath('data.slot_number', 3);
+        // خانة فوق السعة ما بتنعطى
+        $create(['slot_number' => 999])->assertCreated()->assertJsonPath('data.slot_number', 4);
+    }
+
     private function order(array $overrides = []): Order
     {
         return Order::create($overrides + [

@@ -89,6 +89,53 @@ class OrderSlotService
         });
     }
 
+    /**
+     * طلب جديد انعمل بالضغط على خانة فاضية محددة: بياخد هالخانة بدل أصغر خانة فاضية. بيتنادى بس لحظة
+     * الإنشاء (مش لنقل طلب قائم — الطلب ما بيتحرك من خانته). خانة بفترة الـcooldown مسموحة هون لأنه
+     * الموظف اختارها بنفسه. لو الخانة انحجزت بنفس اللحظة لطلب تاني أو فوق السعة، الطلب بيضل بخانته
+     * التلقائية. بيرجّع رقم الخانة النهائي (أو null لو الطلب بالطابور).
+     */
+    public function claim(Order $order, int $slotNumber): ?int
+    {
+        if (! $this->shouldHold($order)) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($order, $slotNumber) {
+            $capacityValue = DB::table('branches')->where('id', $order->branch_id)->lockForUpdate()->value('order_slot_capacity');
+            $capacity = (int) ($capacityValue ?? config('call-center.slots.default_capacity', 200));
+            $current = OrderSlot::query()->where('order_id', $order->id)->whereNull('released_at')->first();
+
+            if ($current && (int) $current->slot_number === $slotNumber) {
+                return $slotNumber;
+            }
+
+            $taken = OrderSlot::query()
+                ->where('branch_id', $order->branch_id)
+                ->whereNull('released_at')
+                ->where('slot_number', $slotNumber)
+                ->exists();
+            if ($slotNumber < 1 || $slotNumber > $capacity || $taken) {
+                return $current ? (int) $current->slot_number : null;
+            }
+
+            if ($current) {
+                $current->update(['slot_number' => $slotNumber, 'active_slot' => $slotNumber]);
+            } else {
+                OrderSlot::create([
+                    'branch_id' => $order->branch_id,
+                    'order_id' => $order->id,
+                    'slot_number' => $slotNumber,
+                    'assigned_at' => now(),
+                    'active_slot' => $slotNumber,
+                    'active_order_id' => $order->id,
+                ]);
+            }
+
+            return $slotNumber;
+        });
+    }
+
     public function release(OrderSlot $slot, string $reason): void
     {
         $slot->update([

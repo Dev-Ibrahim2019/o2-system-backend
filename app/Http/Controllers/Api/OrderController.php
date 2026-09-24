@@ -40,6 +40,21 @@ class OrderController extends ApiController
         return $user->hasRole(['super-admin', 'branch-manager', 'accountant']);
     }
 
+    /**
+     * طلب كول سنتر مدفوع بالكامل ما بينعدّل من أي مسار (المبلغ المحوّل ثابت) — حتى من هاي الـendpoints
+     * العامة، لأنه status تبعه بيضل pending/confirmed (الدفع بـ payment_status) فما كان يمسكه فحص 'paid' تحت.
+     * نفس القاعدة بـ OrderAmendmentService لمسارات الكول سنتر نفسها.
+     */
+    private function paidCallCenterEditError(Order $order): ?JsonResponse
+    {
+        if ($order->source === 'call_center'
+            && \App\Services\CallCenter\OrderFlowService::paymentState($order) === 'paid') {
+            return $this->error(\App\Services\CallCenter\OrderAmendmentService::PAID_EDIT_MESSAGE, 422);
+        }
+
+        return null;
+    }
+
     public function index(Request $request): JsonResponse
     {
         $query = Order::with(['items.department', 'tickets.department', 'cashier'])
@@ -222,6 +237,15 @@ class OrderController extends ApiController
                 // لا نرسل تلقائياً — ينتظر تأكيد النادل عبر confirm()
             }
 
+            // طلب كول سنتر انعمل من خانة فاضية محددة: بياخد هالخانة بدل أصغر خانة فاضية
+            $slotNumber = null;
+            if ($order->source === 'call_center') {
+                $slots = app(\App\Services\CallCenter\OrderSlotService::class);
+                $slotNumber = ! empty($data['slot_number'])
+                    ? $slots->claim($order, (int) $data['slot_number'])
+                    : \App\Models\OrderSlot::query()->where('order_id', $order->id)->whereNull('released_at')->value('slot_number');
+            }
+
             DB::commit();
 
             $response = $this->withLinkStatus($this->success(
@@ -229,6 +253,12 @@ class OrderController extends ApiController
                 new OrderResource($order->load(['items.department', 'cashier'])),
                 201
             ), $link->status);
+
+            if ($order->source === 'call_center') {
+                $payload = $response->getData(true);
+                $payload['data']['slot_number'] = $slotNumber !== null ? (int) $slotNumber : null;
+                $response->setData($payload);
+            }
 
             if ($idempotencyKey) {
                 \App\Models\IdempotencyRecord::updateOrCreate(
@@ -306,6 +336,10 @@ class OrderController extends ApiController
         \App\Services\Pos\PosCustomerLinkService $linker,
         \App\Services\Crm\IdentityConflictService $conflicts,
     ): JsonResponse {
+        if ($blocked = $this->paidCallCenterEditError($order)) {
+            return $blocked;
+        }
+
         if (in_array($order->status, ['paid', 'cancelled'], true)) {
             if (!$this->canEditClosedOrder()) {
                 return $this->error('لا يمكن تعديل طلب مغلق أو ملغى. الصلاحية مخصصة للمحاسب أو مدير الفرع فقط.', 422);
@@ -457,6 +491,10 @@ class OrderController extends ApiController
 
     public function syncPricing(UpdateOrderRequest $request, Order $order): JsonResponse
     {
+        if ($blocked = $this->paidCallCenterEditError($order)) {
+            return $blocked;
+        }
+
         if (in_array($order->status, ['paid', 'cancelled'], true)) {
             if (!$this->canEditClosedOrder()) {
                 return $this->error('لا يمكن تعديل تسعير طلب مغلق أو ملغى. الصلاحية مخصصة للمحاسب أو مدير الفرع فقط.', 422);
@@ -478,6 +516,10 @@ class OrderController extends ApiController
 
     public function addItem(AddOrderItemRequest $request, Order $order): JsonResponse
     {
+        if ($blocked = $this->paidCallCenterEditError($order)) {
+            return $blocked;
+        }
+
         // يسمح الإضافة على: pending, pending_confirmation, confirmed, in_progress
         if (in_array($order->status, ['paid', 'cancelled', 'served', 'ready'])) {
             if (!$this->canEditClosedOrder()) {
@@ -534,6 +576,10 @@ class OrderController extends ApiController
 
     public function removeItem(Order $order, OrderItem $orderItem): JsonResponse
     {
+        if ($blocked = $this->paidCallCenterEditError($order)) {
+            return $blocked;
+        }
+
         if (in_array($order->status, ['paid', 'cancelled', 'served'])) {
             if (!$this->canEditClosedOrder()) {
                 return $this->error('لا يمكن حذف أصناف من هذا الطلب. الصلاحية مخصصة للمحاسب أو مدير الفرع فقط.', 422);

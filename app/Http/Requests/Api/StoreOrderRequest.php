@@ -47,6 +47,8 @@ class StoreOrderRequest extends FormRequest
             'call_notes' => 'nullable|string|max:4000',
             'tax_rate' => 'nullable|numeric|min:0|max:100',
             'scheduled_at' => 'nullable|date|after_or_equal:now',
+            // كول سنتر: طلب انعمل بالضغط على خانة فاضية بلوحة الطلبات النشطة — بياخد هالخانة (OrderSlotService::claim)
+            'slot_number' => 'nullable|integer|min:1',
             'payments' => 'nullable|array|max:2',
             'payments.*.method' => 'required_with:payments|in:cash,card,wallet',
             'payments.*.amount' => 'required_with:payments|numeric|min:0',
@@ -124,6 +126,7 @@ class StoreOrderRequest extends FormRequest
             'call_notes' => $this->input('call_notes'),
             'tax_rate' => $this->input('tax_rate'),
             'scheduled_at' => $this->input('scheduled_at'),
+            'slot_number' => $this->input('slot_number'),
         ];
 
         if ($this->has('items')) {

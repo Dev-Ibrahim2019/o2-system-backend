@@ -70,17 +70,19 @@ class CallCenterOrderAmendmentTest extends TestCase
 
     public function test_after_execution_removal_needs_a_reason_and_issues_a_cancellation_ticket(): void
     {
-        [$order, $shawarma, $juice] = $this->order([50 => 2, 20 => 1]);
+        // تنفيذ بدون دفع كامل مسار قديم/استثنائي (التنفيذ الطبيعي بيجي بعد الدفع) — بنحاكيه بإرجاع الدفع لجزئي
+        [$order, , $juice] = $this->order([50 => 2, 20 => 1]);
         $this->payAndExecute($order);
+        $order->update(['payment_status' => Order::PAYMENT_STATUS_PROCESSING]);
+        $order->invoice()->update(['status' => 'partial']);
         $juiceRow = OrderItem::where('order_id', $order->id)->where('item_id', $juice->id)->firstOrFail();
 
         $this->actingAs($this->manager)->deleteJson("/api/call-center/orders/{$order->id}/items/{$juiceRow->id}")
-            ->assertStatus(422)->assertJsonPath('errors.reason.0', 'سبب التعديل بعد الدفع إلزامي.');
+            ->assertStatus(422)->assertJsonPath('errors.reason.0', 'سبب الإزالة بعد التنفيذ إلزامي.');
 
         $this->actingAs($this->manager)->deleteJson("/api/call-center/orders/{$order->id}/items/{$juiceRow->id}", ['reason' => 'العميل غيّر رأيه'])
             ->assertOk()
-            ->assertJsonPath('data.change_tickets.0.success', true)
-            ->assertJsonPath('data.warnings.0', 'الإجمالي الجديد (100.00) لا يطابق الفاتورة المدفوعة (120.00).');
+            ->assertJsonPath('data.change_tickets.0.success', true);
 
         $juiceRow->refresh();
         $this->assertSame('cancelled', $juiceRow->status);
@@ -89,40 +91,32 @@ class CallCenterOrderAmendmentTest extends TestCase
         $ticket = ProductionTicket::where('order_id', $order->id)->where('type', 'cancellation')->firstOrFail();
         $this->assertEquals([['name' => $juice->name_ar, 'quantity' => 1, 'action' => 'cancel', 'notes' => 'العميل غيّر رأيه']], $ticket->lines);
         $this->assertEquals(100, $order->fresh()->total);
-        $this->assertSame('executed', OrderFlowService::describe($order->fresh())['execution_status']);
     }
 
-    public function test_a_plain_agent_cannot_change_items_after_payment_but_a_supervisor_can(): void
+    public function test_a_paid_order_cannot_be_edited_by_anyone_through_any_endpoint(): void
     {
-        [$order, , $juice] = $this->order([50 => 1, 20 => 1]);
+        [$order, $shawarma, $juice] = $this->order([50 => 1, 20 => 1]);
         $this->payAndExecute($order);
         $row = OrderItem::where('order_id', $order->id)->where('item_id', $juice->id)->firstOrFail();
+        $message = 'لا يمكن تعديل طلب مدفوع.';
 
-        $this->actingAs($this->agent)->deleteJson("/api/call-center/orders/{$order->id}/items/{$row->id}", ['reason' => 'سبب'])
-            ->assertForbidden();
+        foreach ([$this->agent, $this->manager] as $user) {
+            $this->actingAs($user)->postJson("/api/call-center/orders/{$order->id}/edit-lock")
+                ->assertStatus(422)->assertJsonPath('errors.order.0', $message);
+            $this->actingAs($user)->putJson("/api/call-center/orders/{$order->id}", ['items' => [['item_id' => $shawarma->id, 'quantity' => 3]], 'reason' => 'سبب كافي'])
+                ->assertStatus(422)->assertJsonPath('errors.order.0', $message);
+            $this->actingAs($user)->deleteJson("/api/call-center/orders/{$order->id}/items/{$row->id}", ['reason' => 'سبب كافي'])
+                ->assertStatus(422)->assertJsonPath('errors.order.0', $message);
+        }
+
+        // المسارات العامة (/orders) كمان — status الطلب pending/confirmed فكان فحص 'paid' القديم ما يمسكه
+        $this->actingAs($this->manager)->postJson("/api/orders/{$order->id}/items", ['item_id' => $shawarma->id, 'quantity' => 1])
+            ->assertStatus(422)->assertJsonPath('message', $message);
+        $this->actingAs($this->manager)->deleteJson("/api/orders/{$order->id}/items/{$row->id}")
+            ->assertStatus(422)->assertJsonPath('message', $message);
+
         $this->assertNotSame('cancelled', $row->fresh()->status);
-
-        $this->actingAs($this->manager)->deleteJson("/api/call-center/orders/{$order->id}/items/{$row->id}", ['reason' => 'سبب'])
-            ->assertOk();
-    }
-
-    public function test_items_added_after_execution_go_to_the_kitchen_in_a_new_ticket_with_only_the_new_items(): void
-    {
-        [$order, $shawarma] = $this->order([50 => 1]);
-        $this->payAndExecute($order);
-        $firstTicket = ProductionTicket::where('order_id', $order->id)->firstOrFail();
-        $extra = $this->item(30);
-
-        $this->actingAs($this->manager)->putJson("/api/call-center/orders/{$order->id}", [
-            'items' => [['item_id' => $shawarma->id, 'quantity' => 1], ['item_id' => $extra->id, 'quantity' => 1]],
-            'reason' => 'العميل أضاف صنف',
-        ])->assertOk();
-
-        $tickets = ProductionTicket::where('order_id', $order->id)->where('type', 'order')->with('ticketItems.orderItem')->get();
-        $this->assertCount(2, $tickets);
-        $newTicket = $tickets->firstWhere('id', '!=', $firstTicket->id);
-        $this->assertSame([$extra->id], $newTicket->ticketItems->pluck('orderItem.item_id')->all());
-        $this->assertSame(1, $firstTicket->fresh()->ticketItems()->count(), 'the original ticket is untouched');
+        $this->assertEquals(70, $order->fresh()->total);
     }
 
     public function test_edit_lock_blocks_a_second_editor_until_released_or_expired(): void

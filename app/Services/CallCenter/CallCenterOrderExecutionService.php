@@ -203,7 +203,15 @@ class CallCenterOrderExecutionService
     private function invoiceForPayment(Order $order, float $amount): \App\Models\Invoice
     {
         $invoice = $order->invoice()->lockForUpdate()->first();
-        if (! $invoice) throw new UnprocessableEntityHttpException('يجب إنشاء فاتورة Draft للطلب قبل تنفيذ الدفع.');
+        // الفاتورة بتنشأ هون، جوّا نفس transaction الدفع وبعد فحص الرقم المرجعي — مش بطلب منفصل من الواجهة.
+        // هيك لو الدفع فشل (مرجع مكرر مثلًا) ما بتضل فاتورة معلّقة بتفشّل المحاولة الجاية بـ"يوجد فاتورة مسبقة".
+        if (! $invoice) {
+            app(\App\Services\Invoice\InvoiceFromOrderService::class)->createFromOrder($order, [
+                'customer_id' => $order->customer_id,
+                'notes' => $order->note,
+            ], auth()->id());
+            $invoice = $order->invoice()->lockForUpdate()->firstOrFail();
+        }
         if ($amount <= 0 || $amount > $invoice->remainingAmount() + 0.001) {
             throw new UnprocessableEntityHttpException('يجب أن يكون مبلغ الدفعة موجبًا وألا يتجاوز المتبقي من الفاتورة.');
         }
