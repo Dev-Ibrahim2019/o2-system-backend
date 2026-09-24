@@ -734,9 +734,22 @@ Route::middleware('auth:sanctum')->post('call-center/check-status', [CallCenterC
 Route::middleware(['auth:sanctum', 'role_or_permission:call-center|call-center-manager|super-admin|accountant|branch-manager|access-call-center-interface|manage-call-center'])->prefix('call-center')->group(function () {
     Route::get('customers/resolve-by-phone', \App\Http\Controllers\Api\CustomerResolutionController::class);
     Route::post('orders', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'store']);
+    Route::post('orders/{order}/close', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'close']);
+    Route::get('orders/{order}/flow', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'flow']);
+    Route::put('orders/{order}', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'update']);
+    Route::delete('orders/{order}/items/{orderItem}', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'removeItem']);
+    Route::post('orders/{order}/edit-lock', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'acquireEditLock']);
+    Route::delete('orders/{order}/edit-lock', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'releaseEditLock']);
+    Route::post('orders/{order}/takeaway-resend', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'resendToTakeaway']);
+    Route::post('orders/{order}/execute', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'execute']);
+    Route::put('orders/{order}/schedule', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'schedule']);
+    Route::delete('orders/{order}/schedule', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'unschedule']);
+    Route::post('orders/{order}/tickets/{ticket}/reprint', [\App\Http\Controllers\Api\CallCenterOrderController::class, 'reprintTicket']);
     Route::post('orders/{order}/confirm-transfer', [\App\Http\Controllers\Api\CallCenterPaymentController::class, 'confirmTransfer']);
     Route::post('orders/{order}/debit-entity', [\App\Http\Controllers\Api\CallCenterPaymentController::class, 'debitEntity']);
     Route::get('active-orders', [CallCenterController::class, 'activeOrders']);
+    Route::get('slots', [CallCenterController::class, 'slots']);
+    Route::put('slots/capacity', [CallCenterController::class, 'updateSlotCapacity']);
     Route::get('closed-orders', [CallCenterController::class, 'closedOrders']);
     Route::get('menu/top-items', [CallCenterController::class, 'topSellingItems']);
     Route::get('customers/search', [CallCenterController::class, 'searchCustomers']);

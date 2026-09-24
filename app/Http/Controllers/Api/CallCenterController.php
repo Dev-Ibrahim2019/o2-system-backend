@@ -8,6 +8,7 @@ use App\Models\CallCenterRegister;
 use App\Models\Customer;
 use App\Models\CustomerComplaint;
 use App\Services\CallCenter\CallCenterService;
+use App\Services\CallCenter\OrderSlotService;
 use App\Services\Support\PhoneNormalizer;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -34,6 +35,45 @@ class CallCenterController extends ApiController
             'تم تحميل الطلبات النشطة',
             $this->callCenterService->getActiveOrders($data['branch_id'] ?? null),
         );
+    }
+
+    /**
+     * GET /api/call-center/slots — لوحة الخانات لفرع (السعة + الخانات المشغولة + الطابور).
+     * لو ما انبعت branch_id ومستخدم الكول سنتر مربوط بفرع، بنستخدم فرعه.
+     */
+    public function slots(Request $request): JsonResponse
+    {
+        if (! $this->agentCan('call-center.view-active-orders')) {
+            return $this->error('لا تملك صلاحية عرض الطلبات النشطة.', 403);
+        }
+
+        $data = $request->validate(['branch_id' => ['nullable', 'integer', 'exists:branches,id']]);
+        $branchId = $data['branch_id'] ?? $request->user()?->branch_id;
+        if (! $branchId) {
+            return $this->error('حدد الفرع لعرض الخانات.', 422);
+        }
+
+        return $this->success('تم تحميل الخانات', $this->callCenterService->getSlotBoard((int) $branchId));
+    }
+
+    /**
+     * PUT /api/call-center/slots/capacity — تغيير عدد خانات الفرع. التصغير مسموح: الطلبات بالخانات
+     * الزايدة بتضل مكانها والخانات بتختفي لحالها لما تفرغ.
+     */
+    public function updateSlotCapacity(Request $request, OrderSlotService $slots): JsonResponse
+    {
+        if (! $request->user()?->hasRole(['call-center-manager', 'super-admin', 'branch-manager'])) {
+            return $this->error('لا تملك صلاحية تغيير سعة الخانات.', 403);
+        }
+
+        $data = $request->validate([
+            'branch_id' => ['required', 'integer', 'exists:branches,id'],
+            'capacity' => ['required', 'integer', 'min:1', 'max:'.(int) config('call-center.slots.max_capacity', 1000)],
+        ]);
+
+        $slots->setCapacity((int) $data['branch_id'], (int) $data['capacity']);
+
+        return $this->success('تم تحديث عدد الخانات', $this->callCenterService->getSlotBoard((int) $data['branch_id']));
     }
 
     /**

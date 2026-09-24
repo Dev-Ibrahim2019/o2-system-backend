@@ -24,9 +24,21 @@ class ProductionTicket extends Model
         'served_at',
         'created_by',
         'notes',
+        'type',
+        'print_status',
+        'print_error',
+        'printed_at',
+        'print_attempts',
+        'lines',
     ];
 
+    public const TYPE_ORDER = 'order';
+    public const TYPE_CANCELLATION = 'cancellation';
+    public const TYPE_AMENDMENT = 'amendment';
+
     protected $casts = [
+        'lines' => 'array',
+        'printed_at' => 'datetime',
         'sent_at' => 'datetime',
         'started_at' => 'datetime',
         'ready_at' => 'datetime',

@@ -3,6 +3,7 @@
 namespace App\Services\Invoice;
 
 use App\Models\Invoice;
+use App\Models\DiscountUsageLog;
 use App\Models\InvoiceItem;
 use App\Models\Order;
 use App\Services\Discount\DiscountEngineService;
@@ -46,6 +47,41 @@ class InvoiceFromOrderService
             'notes' => $data['notes'] ?? $order->note,
         ]);
 
+        $this->fillFromOrder($invoice, $order, $orderItems, $customerId, $employeeId, $supplierId, $appliedBy);
+
+        return $invoice->fresh(['items.discountDetail', 'payments', 'order']);
+    }
+
+    /**
+     * إعادة بناء أسطر ومجاميع فاتورة غير مدفوعة بعد تعديل الطلب (تعديل/إزالة صنف). ما بتلمس أبدًا فاتورة
+     * عليها دفعات — مستند مالي مسجّل — بترجّع null وتترك للمستدعي يعرض "المبلغ ما عاد يطابق الدفعة".
+     */
+    public function resync(Order $order, ?int $appliedBy = null): ?Invoice
+    {
+        $invoice = $order->invoice()->first();
+        if (! $invoice || $invoice->payments()->exists() || (float) $invoice->paid_amount > 0) {
+            return null;
+        }
+
+        $orderItems = $order->items()->where('status', '!=', 'cancelled')->get();
+        if ($orderItems->isEmpty()) {
+            throw new InvalidArgumentException('لا توجد أصناف صالحة للفوترة.');
+        }
+
+        DiscountUsageLog::where('invoice_id', $invoice->id)->delete();
+        $invoice->items()->delete();
+        $this->fillFromOrder(
+            $invoice, $order, $orderItems,
+            $invoice->customer_id ?? $order->customer_id, $order->employee_id, $order->supplier_id, $appliedBy,
+        );
+
+        return $invoice->fresh(['items.discountDetail', 'payments', 'order']);
+    }
+
+    /** أسطر الفاتورة + الخصومات + مجاميع الفاتورة والطلب (مصدر واحد لـcreateFromOrder وresync). */
+    private function fillFromOrder(Invoice $invoice, Order $order, $orderItems, ?int $customerId, ?int $employeeId, ?int $supplierId, ?int $appliedBy): void
+    {
+        $branchId = $order->branch_id;
         $grossSubtotal = 0.0;
         $engineDiscountTotal = 0.0;
 
@@ -149,7 +185,5 @@ class InvoiceFromOrderService
             'discount_amount' => round($manualDiscount, 3),
             'total' => $netTotal,
         ]);
-
-        return $invoice->fresh(['items.discountDetail', 'payments', 'order']);
     }
 }

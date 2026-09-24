@@ -78,6 +78,22 @@ class Order extends Model
                 throw new LogicException('Order public_ref is immutable once issued.');
             }
         });
+
+        // خانات الطلبات النشطة (كول سنتر فقط): حجز عند الإنشاء، وتحرير عند الدفع/الإلغاء/الإغلاق.
+        // فشلها ما لازم يوقف إنشاء الطلب أو الدفع — أمر reconcile الدوري بيصلّحها.
+        static::saved(function (Order $order): void {
+            if ($order->source !== 'call_center') {
+                return;
+            }
+            if (! $order->wasRecentlyCreated && ! $order->wasChanged(['status', 'branch_id'])) {
+                return;
+            }
+            try {
+                app(\App\Services\CallCenter\OrderSlotService::class)->sync($order);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        });
     }
 
     protected $fillable = [
@@ -90,6 +106,8 @@ class Order extends Model
         'closed_by',
         'printed_by',
         'printed_at',
+        'editing_by',
+        'editing_until',
         'order_type',
         'source',
         'status',
@@ -166,6 +184,7 @@ class Order extends Model
         'delivery_assigned_at' => 'datetime',
         'delivered_at' => 'datetime',
         'executed_at' => 'datetime',
+        'editing_until' => 'datetime',
         'execution_attempts' => 'integer',
         'closed_at' => 'datetime',
         'reopened_at' => 'datetime',

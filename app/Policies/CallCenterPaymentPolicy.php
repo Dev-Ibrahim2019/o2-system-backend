@@ -13,7 +13,8 @@ class CallCenterPaymentPolicy
             return false;
         }
 
-        return $user->hasAnyRole(['super-admin', 'branch-manager', 'accountant', 'call-center'])
+        // call-center-manager كان ناقص هون رغم إنه بكل مكان تاني (agentCan) بيملك كل صلاحيات الموظف
+        return $user->hasAnyRole(['super-admin', 'branch-manager', 'accountant', 'call-center', 'call-center-manager'])
             || $user->can('manage-call-center');
     }
 }

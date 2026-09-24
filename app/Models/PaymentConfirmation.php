@@ -20,11 +20,13 @@ class PaymentConfirmation extends Model
         'order_id', 'payment_method_id', 'reference_number', 'normalized_reference_number',
         'amount', 'status',
         'idempotency_key', 'confirmed_by', 'confirmed_at', 'notes',
+        'transferred_at', 'bank_name', 'receipt_path',
     ];
 
     protected $casts = [
         'amount' => 'decimal:3',
         'confirmed_at' => 'datetime',
+        'transferred_at' => 'date',
     ];
 
     public function order(): BelongsTo

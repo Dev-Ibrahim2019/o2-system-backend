@@ -38,6 +38,7 @@ class OrderItem extends Model
         'sent_to_kitchen_at',
         'is_printed_direct',
         'is_takeaway',
+        'cancel_reason',
     ];
 
     protected $casts = [

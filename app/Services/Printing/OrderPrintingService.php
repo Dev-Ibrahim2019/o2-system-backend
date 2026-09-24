@@ -202,53 +202,76 @@ class OrderPrintingService
         $results = [];
 
         foreach ($tickets as $ticket) {
-            $deptId = $ticket->department_id;
-
-            if ($ticket->ticketItems->isEmpty()) {
-                continue;
+            $result = $this->printTicket($order, $ticket);
+            if ($result !== null) {
+                $results[] = $result;
             }
-
-            $printer = $this->resolvePrinterForDepartment(
-                $order->branch_id,
-                $deptId,
-                $ticket->ticketItems->map(fn($ti) => [
-                    'item_id'     => $ti->orderItem?->item_id,
-                    'category_id' => $deptId,
-                    'name'        => $ti->orderItem?->item_name_ar ?? $ti->orderItem?->item_name,
-                    'quantity'    => $ti->quantity,
-                    'price'       => $ti->orderItem?->price ?? 0,
-                    'total'       => $ti->orderItem?->total ?? 0,
-                    'notes'       => $ti->notes ?? $ti->orderItem?->notes,
-                ])->toArray(),
-                null
-            );
-
-            if ($printer === null) {
-                Log::warning("No printer found for department {$deptId} in order {$order->id}");
-                $results[] = [
-                    'success' => false,
-                    'department_id' => $deptId,
-                    'department_name' => $ticket->department?->name,
-                    'message' => 'لا توجد طابعة مخصصة لهذا القسم',
-                ];
-                continue;
-            }
-
-            $imagePath = $this->receiptRenderer->renderTicket($order, $ticket);
-            $result = $this->printerService->printReceiptImage($printer, $imagePath);
-            $this->receiptRenderer->cleanup($imagePath);
-
-            $results[] = array_merge($result, [
-                'printer_id'      => $printer->id,
-                'printer_name'    => $printer->name,
-                'department_id'   => $deptId,
-                'department_name' => $ticket->department?->name,
-                'ticket_id'       => $ticket->id,
-                'items_count'     => $ticket->ticketItems->count(),
-            ]);
         }
 
         return $results;
+    }
+
+    /**
+     * طباعة تذكرة قسم واحدة — null لو التذكرة بلا أصناف (ما في شي نطبعه). مستخرجة من printTickets()
+     * حرفيًا عشان إعادة طباعة تذكرة قسم بعينه (بعد فشل طابعته) تستخدم نفس المنطق بالضبط.
+     */
+    public function printTicket(Order $order, ProductionTicket $ticket): ?array
+    {
+        $ticket->loadMissing(['department', 'ticketItems.orderItem']);
+        $deptId = $ticket->department_id;
+
+        // تذاكر الإلغاء/التعديل بتحمل أسطر الفرق بـ lines (مش ticket_items) — نفس مسار الطباعة
+        $isChangeTicket = ($ticket->type ?? 'order') !== 'order';
+        $routedItems = $isChangeTicket
+            ? collect($ticket->lines ?? [])->map(fn ($line) => [
+                'item_id'     => $line['item_id'] ?? null,
+                'category_id' => $deptId,
+                'name'        => $line['name'] ?? '',
+                'quantity'    => $line['quantity'] ?? 1,
+                'price'       => 0,
+                'total'       => 0,
+                'notes'       => $line['notes'] ?? null,
+            ])->all()
+            : $ticket->ticketItems->map(fn($ti) => [
+                'item_id'     => $ti->orderItem?->item_id,
+                'category_id' => $deptId,
+                'name'        => $ti->orderItem?->item_name_ar ?? $ti->orderItem?->item_name,
+                'quantity'    => $ti->quantity,
+                'price'       => $ti->orderItem?->price ?? 0,
+                'total'       => $ti->orderItem?->total ?? 0,
+                'notes'       => $ti->notes ?? $ti->orderItem?->notes,
+            ])->toArray();
+
+        if ($routedItems === []) {
+            return null;
+        }
+
+        $printer = $this->resolvePrinterForDepartment($order->branch_id, $deptId, $routedItems, null);
+
+        if ($printer === null) {
+            Log::warning("No printer found for department {$deptId} in order {$order->id}");
+
+            return [
+                'success' => false,
+                'department_id' => $deptId,
+                'department_name' => $ticket->department?->name,
+                'ticket_id' => $ticket->id,
+                'message' => 'لا توجد طابعة مخصصة لهذا القسم',
+            ];
+        }
+
+        $imagePath = $this->receiptRenderer->renderTicket($order, $ticket);
+        $result = $this->printerService->printReceiptImage($printer, $imagePath);
+        $this->receiptRenderer->cleanup($imagePath);
+
+        return array_merge($result, [
+            'printer_id'      => $printer->id,
+            'printer_name'    => $printer->name,
+            'department_id'   => $deptId,
+            'department_name' => $ticket->department?->name,
+            'ticket_id'       => $ticket->id,
+            'items_count'     => count($routedItems),
+        ]);
     }
 
     // ── Private Helpers ─────────────────────────────────────────
