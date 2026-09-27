@@ -16,6 +16,9 @@ use Illuminate\Support\Facades\Event;
 use App\Events\OrderPaid;
 use App\Listeners\GrantLoyaltyPoints;
 use App\Policies\CallCenterPaymentPolicy;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -39,6 +42,10 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::define('execute-call-center-payment', [CallCenterPaymentPolicy::class, 'execute']);
+
+        // API التيك أواي الخارجي: حد عام لكل IP قبل المصادقة (محاولات تخمين المفاتيح). الحد لكل مفتاح
+        // بـ AuthenticateExternalApiClient نفسه.
+        RateLimiter::for('external-takeaway-ip', fn (Request $request) => Limit::perMinute(300)->by('ext-ip:'.$request->ip()));
 
         // Registered explicitly rather than relied on for auto-discovery —
         // the project's other cross-cutting hooks (Supplier::observe in

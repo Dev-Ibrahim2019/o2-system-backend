@@ -3,12 +3,15 @@
 namespace Tests\Feature;
 
 use App\Models\Branch;
+use App\Models\ExternalApiClient;
+use App\Models\ExternalWebhookDelivery;
 use App\Models\IntegrationOutbox;
 use App\Models\Order;
 use App\Models\OrderActivityLog;
 use App\Models\OrderSlot;
 use App\Models\User;
 use App\Services\CallCenter\OrderFlowService;
+use App\Services\Integration\TakeawayDispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Spatie\Permission\Models\Role;
@@ -125,43 +128,47 @@ class CallCenterOrderClosureTest extends TestCase
         $this->actingAs($this->manager)->postJson("/api/call-center/orders/{$order->id}/close")->assertOk();
         $this->actingAs($this->manager)->postJson("/api/call-center/orders/{$order->id}/close")->assertOk();
 
-        $events = IntegrationOutbox::where('event_type', 'order.closed')->get();
+        $events = IntegrationOutbox::where('event_type', TakeawayDispatcher::EVENT_CREATED)->get();
         $this->assertCount(1, $events);
         $this->assertSame($order->public_ref, $events[0]->aggregate_ref);
-        $this->assertSame('أحمد', $events[0]->payload['customer']['name']);
-        $this->assertSame('paid', $events[0]->payload['payment']['status']);
+        $this->assertSame('أحمد', $events[0]->payload['order']['customer']['name']);
+        $this->assertSame('paid', $events[0]->payload['order']['payment_status']);
+        $this->assertSame('new', $events[0]->payload['order']['status']);
+        $this->assertNotNull($order->fresh()->tw_released_at);
     }
 
-    public function test_takeaway_dispatch_retries_with_backoff_then_sends_with_an_idempotency_key(): void
+    public function test_takeaway_webhook_retries_with_backoff_then_resend_delivers_it_signed(): void
     {
-        config(['call-center.takeaway.url' => 'https://takeaway.test/api', 'call-center.takeaway.api_key' => 'secret']);
+        [$client, , $secret] = ExternalApiClient::issue('Driver App', 'https://takeaway.test/hooks');
         $order = $this->order(['payment_status' => Order::PAYMENT_STATUS_PAID, 'kitchen_release_status' => Order::KITCHEN_RELEASE_STATUS_RELEASED]);
         $this->actingAs($this->manager)->postJson("/api/call-center/orders/{$order->id}/close")->assertOk();
-        $event = IntegrationOutbox::where('event_type', 'order.closed')->firstOrFail();
+        $event = IntegrationOutbox::where('event_type', TakeawayDispatcher::EVENT_CREATED)->firstOrFail();
 
-        Http::fake(['takeaway.test/*' => Http::sequence()->push('down', 500)->push(['ok' => true], 201)]);
+        Http::fake(['takeaway.test/*' => Http::sequence()->push('down', 500)->push(['ok' => true], 200)]);
         $this->artisan('takeaway:dispatch')->assertExitCode(0);
 
-        $event->refresh();
-        $this->assertNull($event->published_at);
-        $this->assertSame(1, $event->attempt_count);
-        $this->assertSame('HTTP 500', $event->last_error);
-        $this->assertTrue($event->available_at->isFuture(), 'backs off before the next try');
+        $delivery = ExternalWebhookDelivery::firstOrFail();
+        $this->assertSame('failed', $delivery->status);
+        $this->assertSame(1, $delivery->attempt_count);
+        $this->assertSame('HTTP 500', $delivery->last_error);
+        $this->assertTrue($delivery->next_attempt_at->isFuture(), 'backs off before the next try');
         $this->assertSame('failed', $this->closedOrderRow($order)['takeaway_sync']);
 
         $this->actingAs($this->manager)->postJson("/api/call-center/orders/{$order->id}/takeaway-resend")
             ->assertOk()->assertJsonPath('data.takeaway_sync', 'sent');
 
-        Http::assertSent(fn ($request) => $request->hasHeader('Idempotency-Key', $event->outbox_ref)
-            && $request->hasHeader('Authorization', 'Bearer secret')
-            && $request['order']['public_order_ref'] === $order->public_ref);
-        $this->assertNotNull($event->fresh()->published_at);
+        Http::assertSent(function ($request) use ($event, $secret, $order) {
+            return $request->hasHeader('Idempotency-Key', $event->outbox_ref)
+                && $request->hasHeader('X-Event', 'order.created')
+                && $request->header('X-Signature')[0] === TakeawayDispatcher::sign($secret, $request->header('X-Timestamp')[0], $request->body())
+                && $request['data']['id'] === $order->id;
+        });
+        $this->assertSame(2, \DB::table('external_webhook_attempts')->count(), 'every attempt is logged');
         $this->assertSame('sent', $this->closedOrderRow($order)['takeaway_sync']);
     }
 
-    public function test_takeaway_dispatch_is_a_noop_until_the_integration_is_configured(): void
+    public function test_takeaway_webhooks_are_a_noop_without_a_webhook_client(): void
     {
-        config(['call-center.takeaway.url' => null]);
         $order = $this->order(['payment_status' => Order::PAYMENT_STATUS_PAID, 'kitchen_release_status' => Order::KITCHEN_RELEASE_STATUS_RELEASED]);
         $this->actingAs($this->manager)->postJson("/api/call-center/orders/{$order->id}/close")->assertOk();
 

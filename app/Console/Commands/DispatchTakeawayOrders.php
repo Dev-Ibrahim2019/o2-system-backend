@@ -5,20 +5,19 @@ namespace App\Console\Commands;
 use App\Services\Integration\TakeawayDispatcher;
 use Illuminate\Console\Command;
 
-/** يرسل أحداث إغلاق الطلبات (order.closed) المعلّقة بالـ outbox لبرنامج التيك أواي — راجع TakeawayDispatcher. */
+/** يرسل webhooks التيك أواي (order.created/status_changed/driver_assigned/withdrawn) من الـoutbox — راجع TakeawayDispatcher. */
 class DispatchTakeawayOrders extends Command
 {
     protected $signature = 'takeaway:dispatch';
 
-    protected $description = 'Send pending closed-order events from the outbox to the takeaway system';
+    protected $description = 'Fan out and deliver pending takeaway webhooks from the outbox (signed, with retry)';
 
     public function handle(TakeawayDispatcher $dispatcher): int
     {
         $result = $dispatcher->dispatchDue();
 
-        $this->info($result['skipped']
-            ? 'TAKEAWAY_API_URL غير مضبوط — الأحداث بتضل معلّقة بالـ outbox.'
-            : "sent={$result['sent']} failed={$result['failed']}");
+        $this->info("fanned_out={$result['fanned_out']} sent={$result['sent']} failed={$result['failed']}"
+            .($result['skipped'] ? ' (no active client with a webhook_url)' : ''));
 
         return self::SUCCESS;
     }

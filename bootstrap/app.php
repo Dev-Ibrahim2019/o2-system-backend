@@ -34,9 +34,16 @@ return Application::configure(basePath: dirname(__DIR__))
             'check.pos.network' => \App\Http\Middleware\CheckPosNetwork::class,
             'check.hospitality.network' => \App\Http\Middleware\CheckHospitalityNetwork::class,
             'crm.enabled' => \App\Http\Middleware\EnsureCrmModuleEnabled::class,
+            'external.client' => \App\Http\Middleware\AuthenticateExternalApiClient::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // API التيك أواي الخارجي (/api/v1/external/*): كل الأخطاء بشكل واحد {"error": {"code", "message"}}.
+        // مسجَّل أول شي لأنه أول render بيرجّع رد هو اللي بيطلع (باقي الـrenders تحت خاصة بالواجهة الداخلية).
+        $exceptions->render(function (\Throwable $e, \Illuminate\Http\Request $request) {
+            return $request->is('api/v1/external/*') ? \App\Exceptions\ExternalApiException::toResponse($e) : null;
+        });
+
         // رسالة عربية واضحة بدل رسالة Spatie الإنجليزية الافتراضية — تُغطي كل الـ routes المحمية
         // بـ role/permission/role_or_permission middleware بالمشروع كامل، وليس فقط الجديدة منها.
         $exceptions->render(function (\Spatie\Permission\Exceptions\UnauthorizedException $e, \Illuminate\Http\Request $request) {

@@ -1,0 +1,294 @@
+openapi: 3.0.3
+info:
+  title: O2 RestoMaster — External Takeaway API
+  version: 1.0.0
+  description: |
+    API for the external takeaway application (driver assignment, preparation tracking, delivery confirmation).
+
+    **Which orders:** call-center orders of type `takeaway` or `delivery`, from the moment the call center
+    closes them (F7 — paid and sent to the kitchen). An order re-opened in the POS disappears from the API
+    and an `order.withdrawn` webhook is sent.
+
+    **Status** (`status`) is the takeaway status only — it never changes the POS/kitchen lifecycle, and the
+    external app cannot cancel orders.
+
+    ```
+    new → accepted → preparing → ready → picked_up → delivered
+    ```
+
+    - `takeaway` (customer pickup): `picked_up` is final.
+    - `delivery`: `picked_up` means the driver collected it and requires an assigned driver; then `delivered`.
+    - Sending the current status again is a safe no-op (idempotent retries).
+
+    **Dates** are ISO 8601 UTC (`2027-02-09T12:30:00Z`). **Amounts** are numbers with 2 decimals (ILS).
+
+    **Errors** always look like `{"error": {"code": "...", "message": "...", "details": {...}?}}`.
+
+    **Polling:** call `GET /orders?updated_since=<updated_at of the last order you processed>`. Results are
+    sorted by `updated_at` ascending and the filter is inclusive (`>=`), so de-duplicate by `id`.
+
+    **Rate limits:** per key (default 60 requests/minute, configurable per app) plus 300/minute per IP.
+    Responses carry `X-RateLimit-Limit` / `X-RateLimit-Remaining`; a 429 carries `Retry-After` (seconds).
+servers:
+  - url: http://localhost:8000/api/v1/external/takeaway
+    description: Local development
+security:
+  - ApiKey: []
+
+paths:
+  /orders:
+    get:
+      summary: List takeaway orders
+      operationId: listOrders
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/Status' } }
+        - { name: order_type, in: query, schema: { type: string, enum: [takeaway, delivery] } }
+        - { name: branch_id, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: from, in: query, description: 'created_at >= from', schema: { type: string, format: date-time } }
+        - { name: to, in: query, description: 'created_at <= to', schema: { type: string, format: date-time } }
+        - { name: updated_since, in: query, description: 'updated_at >= value; switches sorting to updated_at ascending', schema: { type: string, format: date-time } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: per_page, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+      responses:
+        '200':
+          description: A page of orders (newest released first, or updated_at ascending with updated_since)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Order' } }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/OriginNotAllowed' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /orders/{id}:
+    get:
+      summary: Get one order
+      operationId: getOrder
+      parameters: [ { $ref: '#/components/parameters/OrderId' } ]
+      responses:
+        '200': { $ref: '#/components/responses/OrderResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /orders/{id}/status:
+    patch:
+      summary: Move the order to the next takeaway status
+      operationId: updateOrderStatus
+      parameters: [ { $ref: '#/components/parameters/OrderId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [accepted, preparing, ready, picked_up, delivered] }
+                note: { type: string, maxLength: 500, nullable: true }
+            example: { status: accepted, note: 'Accepted by dispatcher' }
+      responses:
+        '200': { $ref: '#/components/responses/OrderResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            `invalid_transition` (details: current_status, allowed_next_statuses) or
+            `driver_required` (delivery order marked picked_up without a driver).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                error:
+                  code: invalid_transition
+                  message: "Cannot change status from 'new' to 'ready'."
+                  details: { current_status: new, allowed_next_statuses: [accepted] }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /orders/{id}/driver:
+    patch:
+      summary: Assign or change the driver of a delivery order (until it is picked up)
+      operationId: assignDriver
+      parameters: [ { $ref: '#/components/parameters/OrderId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [driver]
+              properties:
+                driver:
+                  type: object
+                  required: [name]
+                  properties:
+                    name: { type: string, maxLength: 100 }
+                    phone: { type: string, maxLength: 40, nullable: true }
+                    external_id: { type: string, maxLength: 100, nullable: true, description: "Driver id in your system" }
+            example: { driver: { name: 'Samer', phone: '0598111222', external_id: 'drv-7' } }
+      responses:
+        '200': { $ref: '#/components/responses/OrderResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`not_a_delivery_order` or `driver_locked` (already picked up / delivered)'
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+components:
+  securitySchemes:
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: 'Per-app key (o2tw_…). Create with: php artisan external-api:client create "App name"'
+
+  parameters:
+    OrderId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+
+  schemas:
+    Status:
+      type: string
+      enum: [new, accepted, preparing, ready, picked_up, delivered]
+
+    Money:
+      type: number
+      format: double
+      example: 45.5
+
+    Order:
+      type: object
+      required: [id, order_number, order_type, status, allowed_next_statuses, customer, items, subtotal, discount, tax, delivery_fee, total, payment_status, created_at, updated_at]
+      properties:
+        id: { type: integer, example: 1532 }
+        order_number: { type: string, example: 'ORD-20270209-0042' }
+        order_type: { type: string, enum: [takeaway, delivery] }
+        status: { $ref: '#/components/schemas/Status' }
+        allowed_next_statuses: { type: array, items: { $ref: '#/components/schemas/Status' }, example: [accepted] }
+        branch:
+          type: object
+          nullable: true
+          properties: { id: { type: integer }, name: { type: string } }
+        customer:
+          type: object
+          properties:
+            name: { type: string, nullable: true }
+            phone: { type: string, nullable: true }
+        delivery:
+          type: object
+          nullable: true
+          description: Only for delivery orders.
+          properties:
+            address:
+              type: object
+              nullable: true
+              description: 'Any of: address, label, city, area, district, street, landmark, building_no, floor, apartment, delivery_notes'
+              additionalProperties: { oneOf: [ { type: string }, { type: number } ] }
+            notes: { type: string, nullable: true }
+        driver:
+          type: object
+          nullable: true
+          properties:
+            name: { type: string }
+            phone: { type: string, nullable: true }
+            external_id: { type: string, nullable: true }
+            assigned_at: { type: string, format: date-time }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              quantity: { type: number }
+              unit_price: { $ref: '#/components/schemas/Money' }
+              total: { $ref: '#/components/schemas/Money' }
+              modifiers: { type: array, items: { type: object }, description: 'Always [] for now — the POS has no modifiers yet; kept for contract stability.' }
+              notes: { type: string, nullable: true }
+        subtotal: { $ref: '#/components/schemas/Money' }
+        discount: { $ref: '#/components/schemas/Money' }
+        tax: { $ref: '#/components/schemas/Money' }
+        delivery_fee: { $ref: '#/components/schemas/Money' }
+        total: { $ref: '#/components/schemas/Money' }
+        payment_status: { type: string, enum: [paid, unpaid] }
+        payment_method: { type: string, nullable: true, enum: [cash, card, bank, wallet, account, mixed] }
+        pickup_time: { type: string, format: date-time, nullable: true, description: 'Scheduled time, if any' }
+        notes: { type: string, nullable: true }
+        released_at: { type: string, format: date-time, description: 'When the call center handed the order over (F7)' }
+        status_updated_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    PageMeta:
+      type: object
+      properties:
+        current_page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+        last_page: { type: integer }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [unauthenticated, invalid_api_key, origin_not_allowed, not_found, validation_failed, invalid_transition, driver_required, not_a_delivery_order, driver_locked, rate_limited, method_not_allowed, http_error, server_error]
+            message: { type: string }
+            details: { type: object, description: 'validation_failed: field → messages. invalid_transition: current_status, allowed_next_statuses.' }
+
+    WebhookEvent:
+      type: object
+      description: |
+        POSTed to the app's webhook URL. Headers: `X-Event`, `X-Event-Id` (= `Idempotency-Key`, stable across
+        retries — de-duplicate on it), `X-Timestamp` (unix seconds), `X-Signature`.
+
+        `X-Signature = "sha256=" + hex(HMAC_SHA256(webhook_secret, X-Timestamp + "." + raw_body))`.
+        Verify with a constant-time compare and reject timestamps older than 5 minutes.
+
+        Respond 2xx within 10 s. Failures are retried with backoff (30 s, 1 m, 2 m, 4 m … max 1 h) up to 8 times.
+        An app never receives events for changes it made itself through this API.
+      properties:
+        id: { type: string, description: 'Event id (= X-Event-Id)' }
+        type: { type: string, enum: [order.created, order.status_changed, order.driver_assigned, order.withdrawn] }
+        occurred_at: { type: string, format: date-time }
+        data: { $ref: '#/components/schemas/Order' }
+
+  responses:
+    OrderResponse:
+      description: The order
+      content:
+        application/json:
+          schema:
+            type: object
+            properties: { data: { $ref: '#/components/schemas/Order' } }
+    Unauthenticated:
+      description: '`unauthenticated` (no key) or `invalid_api_key` (wrong or revoked)'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    OriginNotAllowed:
+      description: Browser Origin not registered for this key
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Unknown order, or not (or no longer) available to the takeaway app
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    ValidationFailed:
+      description: Invalid input
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    RateLimited:
+      description: Too many requests — see Retry-After
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }

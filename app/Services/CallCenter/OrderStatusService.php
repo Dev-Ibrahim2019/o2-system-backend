@@ -160,6 +160,9 @@ class OrderStatusService
 
         $this->logStatusChange($order, 'closed', $restoredStatus, 'reopened', $reason);
 
+        // طلب انفتح من جديد ما عاد "مغلق ومسلّم للتيك أواي" — بيطلع من الـAPI الخارجي وبيطلع webhook order.withdrawn
+        app(\App\Services\Takeaway\TakeawayOrderService::class)->withdraw($order->fresh());
+
         return $order->fresh();
     }
 
