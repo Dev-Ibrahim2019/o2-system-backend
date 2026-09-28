@@ -469,6 +469,9 @@ Route::middleware(['auth:sanctum', 'permission:crm.access', 'crm.enabled'])->pre
         Route::get('revenue', [$reports, 'revenue']);
     });
 
+    // CRM staff activity log — oversight only (crm-manager / super-admin).
+    Route::get('staff-activity', [\App\Http\Controllers\Api\Crm\CrmStaffActivityController::class, 'index'])->middleware('permission:crm.staff-activity.view');
+
     Route::get('dashboard', [$crm, 'dashboard'])->middleware('permission:crm.dashboard.view');
     Route::get('customers', [$crm, 'index'])->middleware('permission:crm.view-customers');
     Route::post('customers', [$crm, 'store'])->middleware('permission:crm.create-customers');
@@ -504,6 +507,9 @@ Route::middleware(['auth:sanctum', 'permission:crm.access', 'crm.enabled'])->pre
     // and like the family-members writes above.
     Route::post('customers/{customer}/addresses', [$crm, 'storeAddress'])->middleware('permission:crm.edit-customers');
     Route::get('customers/{customer}/complaints', [$crm, 'complaints'])->middleware('permission:crm.complaints.view');
+    // Counts only (no rows) of this customer's complaints at other branches —
+    // so a branch employee knows the customer has had problems elsewhere.
+    Route::get('customers/{customer}/complaints/elsewhere', [$crm, 'complaintsElsewhere'])->middleware('permission:crm.complaints.view');
     // CRM's own write path onto the same complaint lifecycle the Call Center
     // uses. No delete: a complaint is closed or cancelled, never erased.
     Route::post('customers/{customer}/complaints', [$crm, 'createComplaint'])->middleware('permission:crm.complaints.create');

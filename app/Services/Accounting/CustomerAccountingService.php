@@ -409,6 +409,15 @@ class CustomerAccountingService
         return $this->subledgerService->getCustomerBalance($customer->id, $asOf);
     }
 
+    /**
+     * @param  int[]  $customerIds
+     * @return array<int, float> balance per customer id, one query total
+     */
+    public function getBalances(array $customerIds, ?string $asOf = null): array
+    {
+        return $this->subledgerService->getCustomerBalances($customerIds, $asOf);
+    }
+
     // ──────────────────────────────────────────────────────────
     // 10. Monthly Collections
     // ──────────────────────────────────────────────────────────

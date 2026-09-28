@@ -50,4 +50,49 @@ class CrmCustomerAccessService
     {
         return $user->hasRole('super-admin') || is_null($user->branch_id);
     }
+
+    /**
+     * Branch filtering on the customer directory and CRM dashboard is a
+     * management tool (crm-manager / super-admin), not something a branch
+     * employee narrows their view with — so it rides on its own permission
+     * rather than on isGlobal().
+     */
+    public function canFilterByBranch(User $user): bool
+    {
+        return $user->can('crm.customers.filter-by-branch');
+    }
+
+    /**
+     * The one branch rule for complaints — every read AND write on a complaint
+     * goes through it, so a complaint that is hidden from the list can no
+     * longer be edited by id either.
+     *
+     * A branch-scoped user reaches a complaint when it belongs to their own
+     * branch, has no branch yet (legacy rows), or has been assigned to them.
+     * Cross-branch assignment itself needs crm.complaints.assign-cross-branch
+     * (manager-only), and a user can only self-take what they can already
+     * see — so the third clause is exactly "a manager handed it to them".
+     * Sensitivity is a separate rule (CustomerComplaint::scopeVisibleTo()).
+     */
+    public function restrictComplaintsToBranch(Builder $query, User $user): Builder
+    {
+        if ($this->isGlobal($user)) {
+            return $query;
+        }
+
+        return $query->where(function (Builder $b) use ($user) {
+            $b->whereNull('branch_id')
+                ->orWhere('branch_id', (string) $user->branch_id)
+                ->orWhere('assigned_user_id', $user->id);
+        });
+    }
+
+    /** Whether $user may open/act on this one complaint (branch rule + sensitivity). */
+    public function canReachComplaint(User $user, \App\Models\CustomerComplaint $complaint): bool
+    {
+        return $this->restrictComplaintsToBranch(
+            \App\Models\CustomerComplaint::query()->visibleTo($user)->whereKey($complaint->getKey()),
+            $user,
+        )->exists();
+    }
 }

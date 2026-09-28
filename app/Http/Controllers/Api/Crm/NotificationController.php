@@ -21,9 +21,14 @@ class NotificationController extends Controller
      * Newest first, paginated, with the unread tally alongside so the bell
      * badge and the list come from one request.
      */
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, \App\Services\Crm\CrmOccasionReminderService $occasionReminders): JsonResponse
     {
         $user = $request->user();
+
+        // Every CRM screen polls this bell, so its first call of the day is
+        // the fallback trigger for today's occasion reminders (no scheduler
+        // runs on this host). Cached to one attempt per day.
+        $occasionReminders->sendDueTodayOncePerDay();
 
         $page = $user->notifications()
             ->latest()

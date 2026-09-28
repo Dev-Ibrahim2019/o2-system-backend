@@ -30,7 +30,13 @@ use Illuminate\Support\Collection;
  */
 class CrmOrderDelayAlertService
 {
-    private const TERMINAL_STATUSES = ['paid', 'served', 'cancelled'];
+    /**
+     * Only orders created within this many hours are evaluated. An order
+     * still "active" days later is a data problem (never closed in the
+     * system), not a live delay — without this cap the first run after a
+     * quiet period paged everyone once per stale order.
+     */
+    private const LOOKBACK_HOURS = 24;
 
     public function __construct(private readonly CrmCustomerAccessService $access)
     {
@@ -42,25 +48,39 @@ class CrmOrderDelayAlertService
         $threshold = CrmOrderDelaySetting::current();
         $cutoff = now()->subMinutes($threshold);
 
-        $alreadyAlertedOrderIds = CrmOrderDelayAlert::query()
-            ->where('threshold_minutes', $threshold)
-            ->pluck('order_id');
-
-        $orders = Order::query()
-            ->with('branch:id,name')
-            ->whereNotIn('status', self::TERMINAL_STATUSES)
-            ->where('created_at', '<=', $cutoff)
-            ->whereNotIn('id', $alreadyAlertedOrderIds)
+        // Same "active" definition as the CRM order screens
+        // (CrmOrdersQueryService::onlyDelayable(), built on
+        // Order::scopeFinalized()). withoutGlobalScopes(): this is a system
+        // check — run from a manager's page load it must still cover every
+        // branch, not just the viewer's. An order already alerted at ANY
+        // threshold is skipped, so changing the threshold no longer re-pages
+        // everyone about orders they were already told about.
+        $orders = Order::withoutGlobalScopes()
+            ->with(['branch' => fn ($q) => $q->withoutGlobalScopes()->select('id', 'name')])
+            ->tap(fn ($q) => CrmOrdersQueryService::onlyDelayable($q))
+            ->whereBetween('created_at', [now()->subHours(self::LOOKBACK_HOURS), $cutoff])
+            ->whereNotIn('id', CrmOrderDelayAlert::query()->select('order_id'))
+            ->limit(500)
             ->get();
 
-        foreach ($orders as $order) {
-            $this->alert($order, $threshold);
+        if ($orders->isEmpty()) {
+            return 0;
         }
 
-        return $orders->count();
+        // Loaded once per run, not once per order.
+        $staff = User::withoutGlobalScope(BranchScope::class)
+            ->permission('crm.customer-orders.view')
+            ->get();
+
+        $alerted = 0;
+        foreach ($orders as $order) {
+            $alerted += $this->alert($order, $threshold, $staff) ? 1 : 0;
+        }
+
+        return $alerted;
     }
 
-    private function alert(Order $order, int $threshold): void
+    private function alert(Order $order, int $threshold, Collection $staff): bool
     {
         // firstOrCreate on the unique (order_id, threshold_minutes) pair —
         // guards against a double notification if this ever runs twice
@@ -72,7 +92,7 @@ class CrmOrderDelayAlertService
         );
 
         if (! $alert->wasRecentlyCreated) {
-            return;
+            return false;
         }
 
         $notification = new OrderDelayedNotification(
@@ -83,7 +103,9 @@ class CrmOrderDelayAlertService
             $order->branch?->name,
         );
 
-        $this->recipientsFor($order)->each(fn (User $u) => $u->notify($notification));
+        $this->recipientsFor($order, $staff)->each(fn (User $u) => $u->notify($notification));
+
+        return true;
     }
 
     /**
@@ -97,11 +119,8 @@ class CrmOrderDelayAlertService
      * company-wide for a different reason: complaints frequently carry no
      * branch_id at all).
      */
-    private function recipientsFor(Order $order): Collection
+    private function recipientsFor(Order $order, Collection $staff): Collection
     {
-        return User::withoutGlobalScope(BranchScope::class)
-            ->permission('crm.customer-orders.view')
-            ->get()
-            ->filter(fn (User $u) => $this->access->isGlobal($u) || (int) $u->branch_id === (int) $order->branch_id);
+        return $staff->filter(fn (User $u) => $this->access->isGlobal($u) || (int) $u->branch_id === (int) $order->branch_id);
     }
 }

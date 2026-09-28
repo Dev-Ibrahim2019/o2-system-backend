@@ -355,6 +355,46 @@ class SubledgerService
     }
 
     /**
+     * Balances for many customers in ONE grouped query — same rule as
+     * getBalance() (posted transactions only, account 1120), keyed by
+     * customer id. A customer with no entries gets 0.0.
+     *
+     * @param  int[]  $customerIds
+     * @return array<int, float>
+     */
+    public function getCustomerBalances(array $customerIds, ?string $asOf = null): array
+    {
+        $customerIds = array_values(array_unique(array_map('intval', $customerIds)));
+        if ($customerIds === []) {
+            return [];
+        }
+
+        $account = Account::where('code', '1120')->first();
+        $balances = array_fill_keys($customerIds, 0.0);
+        if (! $account) {
+            return $balances;
+        }
+
+        $rows = Entry::query()
+            ->where('subledger_type', 'customer')
+            ->whereIn('subledger_id', $customerIds)
+            ->where('account_id', $account->id)
+            ->whereHas('transaction', function ($q) use ($asOf) {
+                $q->where('status', 'posted');
+                if ($asOf) $q->where('date', '<=', $asOf);
+            })
+            ->groupBy('subledger_id')
+            ->selectRaw('subledger_id, COALESCE(SUM(debit),0) as d, COALESCE(SUM(credit),0) as c')
+            ->get();
+
+        foreach ($rows as $row) {
+            $balances[(int) $row->subledger_id] = $this->calcBalance($account, (float) $row->d, (float) $row->c);
+        }
+
+        return $balances;
+    }
+
+    /**
      * ظƒظ„ ط£ط±طµط¯ط© ظ…ظˆط±ط¯
      */
     public function getSupplierBalance(int $supplierId, ?string $asOf = null): float

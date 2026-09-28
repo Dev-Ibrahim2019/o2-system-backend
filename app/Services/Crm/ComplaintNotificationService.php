@@ -54,7 +54,12 @@ class ComplaintNotificationService
      * cross-branch-assigned handler must still be told). A complaint that
      * still has a null branch_id (a legacy row from before this fix, or a
      * branch-less actor filing with no order) falls back to the previous
-     * company-wide broadcast — there is nothing to scope it to.
+     * company-wide broadcast — there is nothing to scope it to. Every
+     * crm-manager is added on top regardless of branch.
+     *
+     * This is the ONLY notification a new complaint fires, for every entry
+     * point (CRM per-customer, شكوى عامة, item-rating escalation, Call
+     * Center) — callers must not add their own "created" notice after it.
      */
     public function notifyAllHandlers(CustomerComplaint $complaint, User $actor, string $message, bool $urgent = false): void
     {
@@ -72,7 +77,14 @@ class ComplaintNotificationService
             });
         }
 
+        // CRM managers watch every complaint company-wide, whatever branch
+        // they sit in. Folded into this one recipient list (deduplicated by
+        // id) instead of a second notifyOversight() call from the caller —
+        // that pairing is what used to ring a manager's bell twice for the
+        // same new complaint.
         $query->get()
+            ->concat(User::withoutGlobalScope(BranchScope::class)->role('crm-manager')->get())
+            ->unique('id')
             ->reject(fn (User $u) => $u->id === $actor->id)
             ->each(fn (User $u) => $u->notify(new ComplaintActivityNotification(
                 (int) $complaint->id,

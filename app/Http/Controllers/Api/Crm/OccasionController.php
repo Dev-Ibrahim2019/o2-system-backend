@@ -80,6 +80,9 @@ class OccasionController extends Controller
         };
 
         $rows = $this->scopedQuery($request->user())
+            // Narrow in SQL first (superset), then fallsWithin() decides —
+            // instead of pulling every active occasion into memory.
+            ->mayOccurBetween($start, $end)
             ->when($ownerClass, fn ($q) => $q->where('occasionable_type', $ownerClass))
             ->when(
                 $validated['occasion_type'] ?? null,
@@ -151,8 +154,12 @@ class OccasionController extends Controller
     public function summary(Request $request): JsonResponse
     {
         $today = now()->startOfDay();
-        $occasions = $this->scopedQuery($request->user())->get(self::SCOPE_COLUMNS);
         $ends = $this->windowEnds($today);
+        // The widest window summary() counts is "this month" — nothing
+        // outside it can land in any of the three counts.
+        $occasions = $this->scopedQuery($request->user())
+            ->mayOccurBetween($today, $ends['this_month'])
+            ->get(self::SCOPE_COLUMNS);
 
         $counts = [];
         foreach ($ends as $key => $end) {
@@ -257,17 +264,16 @@ class OccasionController extends Controller
      */
     private function scopedQuery(User $user): Builder
     {
-        $visibleCustomerIds = $this->access->isGlobal($user)
-            ? null
-            : $this->access->visibleCustomers($user)->pluck('id');
-
+        // A sub-select, not a plucked id list: visibleCustomers() is every
+        // customer by design, and binding tens of thousands of ids into a
+        // whereIn is both slow and capped by MySQL's placeholder limit.
         return CustomerOccasion::query()
             ->where('is_active', true)
-            ->when($visibleCustomerIds !== null, fn ($q) => $q->where(
+            ->when(! $this->access->isGlobal($user), fn ($q) => $q->where(
                 fn ($w) => $w
                     ->where(fn ($c) => $c
                         ->where('occasionable_type', Customer::class)
-                        ->whereIn('occasionable_id', $visibleCustomerIds))
+                        ->whereIn('occasionable_id', $this->access->visibleCustomers($user)->select('id')))
                     ->orWhere('occasionable_type', '!=', Customer::class)
             ));
     }

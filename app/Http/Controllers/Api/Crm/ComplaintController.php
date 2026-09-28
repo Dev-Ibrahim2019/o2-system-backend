@@ -30,6 +30,7 @@ class ComplaintController extends Controller
 {
     public function __construct(
         private readonly CrmCustomerAccessService $access,
+        private readonly \App\Services\Crm\CrmStaffActivityLogger $activity,
     ) {}
 
     /**
@@ -141,7 +142,13 @@ class ComplaintController extends Controller
             ])
             ->first();
 
-        abort_if($found === null, 404, 'الشكوى غير موجودة.');
+        if ($found === null) {
+            // The id resolved (route binding found it), so this is a real
+            // complaint outside the viewer's reach — worth a line in the
+            // managers' activity log, still a plain 404 to the caller.
+            $this->activity->complaintAccessDenied($request->user(), $complaint, 'view');
+            abort(404, 'الشكوى غير موجودة.');
+        }
 
         return response()->json([
             'data' => $found,
@@ -191,7 +198,10 @@ class ComplaintController extends Controller
             ->whereKey($complaint->getKey())
             ->first();
 
-        abort_if($found === null, 404, 'الشكوى غير موجودة.');
+        if ($found === null) {
+            $this->activity->complaintAccessDenied($request->user(), $complaint, 'followup');
+            abort(404, 'الشكوى غير موجودة.');
+        }
 
         $data = $request->validate([
             'notes' => ['required', 'string', 'max:2000'],
@@ -239,41 +249,19 @@ class ComplaintController extends Controller
             // or, for a "شكوى عامة" with no customer_id, through its own
             // branch_id — the same two paths updateComplaint()'s authorization
             // checks below.
-            ->where(function (Builder $q) use ($user) {
-                $q->where(function (Builder $customerLinked) use ($user) {
-                    $customerLinked->whereIn('customer_id', $this->access->visibleCustomers($user)->select('id'));
-                    // Customer identity is global by design (visibleCustomers()
-                    // is unfiltered above), but a complaint is operational —
-                    // it belongs to a branch. Previously this branch was never
-                    // actually checked here, so a branch-scoped user saw every
-                    // customer-linked complaint from both branches. Now
-                    // restricted to: their own branch, a legacy row with no
-                    // branch_id yet (pre-fix data), or one they're personally
-                    // the current assignee on — the last clause is what keeps
-                    // a cross-branch-assigned employee able to see a complaint
-                    // they were deliberately handed from another branch.
-                    // Note: assigned_to (Employee FK, the Call Center's field) is
-                    // deliberately NOT checked here — User and Employee are two
-                    // entirely separate, unlinked accounts in this codebase (no
-                    // employee_id on User, no user_id on Employee), so a logged-in
-                    // User can never be reliably matched against assigned_to.
-                    if (! $this->access->isGlobal($user)) {
-                        $customerLinked->where(function (Builder $b) use ($user) {
-                            $b->whereNull('branch_id')
-                                ->orWhere('branch_id', (string) $user->branch_id)
-                                ->orWhere('assigned_user_id', $user->id);
-                        });
-                    }
-                })
-                    ->orWhere(function (Builder $general) use ($user) {
-                        $general->whereNull('customer_id');
-                        if (! $this->access->isGlobal($user)) {
-                            $general->where(function (Builder $b) use ($user) {
-                                $b->whereNull('branch_id')->orWhere('branch_id', (string) $user->branch_id);
-                            });
-                        }
-                    });
-            })
+            // Branch rule — own branch, legacy null branch, or assigned to the
+            // viewer by a manager. One definition shared with every complaint
+            // write (CrmCustomerAccessService::restrictComplaintsToBranch()), so
+            // a complaint hidden here can no longer be edited by id either.
+            // Note: assigned_to (Employee FK, the Call Center's field) is
+            // deliberately NOT checked — User and Employee are separate,
+            // unlinked accounts, so a logged-in User can't be matched to it.
+            ->tap(fn (Builder $q) => $this->access->restrictComplaintsToBranch($q, $user))
+            // A customer-linked row stays reachable only through a customer the
+            // viewer can see (a "شكوى عامة" has none to check).
+            ->where(fn (Builder $q) => $q
+                ->whereNull('customer_id')
+                ->orWhereIn('customer_id', $this->access->visibleCustomers($user)->select('id')))
             ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
             // "الشكاوى المفتوحة" view — the happy-path statuses CustomerComplaint
             // ::scopeOpen() already defines, reused so this can never drift

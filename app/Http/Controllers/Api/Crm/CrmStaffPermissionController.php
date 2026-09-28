@@ -39,7 +39,9 @@ use Spatie\Permission\Models\Permission;
 class CrmStaffPermissionController extends Controller
 {
     /** Permissions no one may grant, revoke or deny through this controller — moves only with role membership. */
-    private const UNDELEGATABLE = ['crm.staff.manage-permissions'];
+    // crm.staff-activity.view is the log that watches these very staff — a
+    // manager must not be able to hand it (or take it) through this screen.
+    private const UNDELEGATABLE = ['crm.staff.manage-permissions', 'crm.staff-activity.view'];
 
     /**
      * "CRM staff" here means the CRM team specifically — not every account
@@ -68,6 +70,7 @@ class CrmStaffPermissionController extends Controller
         'crm.edit-customers' => ['group' => 'العملاء', 'label' => 'تعديل بيانات العميل', 'sensitive' => false],
         'crm.delete-customers' => ['group' => 'العملاء', 'label' => 'حذف عميل', 'sensitive' => false],
         'crm.customer-addresses.view' => ['group' => 'العملاء', 'label' => 'عرض عناوين العميل', 'sensitive' => false],
+        'crm.customers.filter-by-branch' => ['group' => 'العملاء', 'label' => 'فلترة العملاء ولوحة التحكم حسب الفرع', 'sensitive' => false],
 
         'crm.customer-orders.view' => ['group' => 'طلبات العملاء', 'label' => 'عرض طلبات العميل', 'sensitive' => false],
         'crm.customer-orders.manage' => ['group' => 'طلبات العملاء', 'label' => 'إدارة إعدادات تأخر الطلبات', 'sensitive' => false],

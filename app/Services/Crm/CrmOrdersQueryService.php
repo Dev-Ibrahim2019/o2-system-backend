@@ -18,12 +18,27 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class CrmOrdersQueryService
 {
-    // Terminal states — an order NOT in this set is considered "active"
-    // for monitoring purposes. This mirrors the one status-based "done"
-    // convention already used elsewhere in the codebase
-    // (Customer360QueryService::profile()'s completed_orders_count filter),
-    // not a new invented rule.
-    private const TERMINAL_STATUSES = ['paid', 'served', 'cancelled'];
+    /**
+     * "Active" = not finalized, on Order::scopeFinalized()'s definition — the
+     * one the model owns. This service used to keep its own list
+     * ['paid','served','cancelled'], which missed closed / DELIVERED /
+     * CANCELLED (so finished orders showed as active, then "delayed", and
+     * raised delay alerts) and wrongly treated a call-center order at 'paid'
+     * — paid BEFORE the kitchen starts — as done.
+     */
+    public static function onlyActive(Builder $query): Builder
+    {
+        return $query->whereNot(fn (Builder $w) => $w->finalized());
+    }
+
+    /**
+     * Active orders that can be late: 'scheduled' orders are for a future
+     * time, so time since creation says nothing about them being delayed.
+     */
+    public static function onlyDelayable(Builder $query): Builder
+    {
+        return self::onlyActive($query)->where('status', '!=', 'scheduled');
+    }
 
     public function list(User $user, array $filters): LengthAwarePaginator
     {
@@ -43,7 +58,7 @@ class CrmOrdersQueryService
             ->when($filters['branch_id'] ?? null, fn (Builder $q, $branchId) => $q->where('branch_id', $branchId))
             ->when($filters['date_from'] ?? null, fn (Builder $q, $from) => $q->whereDate('created_at', '>=', $from))
             ->when($filters['date_to'] ?? null, fn (Builder $q, $to) => $q->whereDate('created_at', '<=', $to))
-            ->when(($filters['active'] ?? false), fn (Builder $q) => $q->whereNotIn('status', self::TERMINAL_STATUSES))
+            ->when(($filters['active'] ?? false), fn (Builder $q) => self::onlyActive($q))
             ->when($search !== '', function (Builder $q) use ($search) {
                 $q->where(function (Builder $inner) use ($search) {
                     $inner->where('order_number', 'like', "%{$search}%")
@@ -114,7 +129,7 @@ class CrmOrdersQueryService
                 'diningTable.zone:id,name',
                 'cashier:id,name',
             ])
-            ->whereNotIn('status', self::TERMINAL_STATUSES)
+            ->tap(fn (Builder $q) => self::onlyDelayable($q))
             ->where('created_at', '<=', $threshold)
             ->when($filters['branch_id'] ?? null, fn (Builder $q, $branchId) => $q->where('branch_id', $branchId))
             ->when($filters['source'] ?? null, fn (Builder $q, $source) => $q->where('source', $source));

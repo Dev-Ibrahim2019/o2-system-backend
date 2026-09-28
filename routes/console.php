@@ -15,6 +15,11 @@ Artisan::command('inspire', function () {
 // table) still executing when the next minute's tick fires.
 Schedule::command('crm:orders:check-delays')->everyMinute()->withoutOverlapping();
 
+// CRM occasion reminders — today's birthdays/anniversaries/renewals to the
+// assigned user (or every crm-manager). Also fired by the CRM bell's first
+// poll of the day, since this host does not run schedule:run.
+Schedule::command('crm:occasions:remind')->dailyAt('08:00')->withoutOverlapping();
+
 // Call-center order slots: safety net for status changes that bypass model events, and the trigger
 // that hands a freed slot to a queued order once its reuse cooldown has passed (see OrderSlotService).
 Schedule::command('call-center:slots:reconcile')->everyMinute()->withoutOverlapping();

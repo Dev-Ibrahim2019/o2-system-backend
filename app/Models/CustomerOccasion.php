@@ -67,6 +67,59 @@ class CustomerOccasion extends Model
         return $next->lt($from) ? $next->addYear() : $next;
     }
 
+    /**
+     * SQL pre-filter: rows whose next occurrence MIGHT fall in [$start, $end].
+     *
+     * A superset, never a subset — nextOccurrence() stays the authoritative
+     * check after the fetch. It exists so the occasions list/summary and the
+     * daily reminder stop loading every active occasion into memory:
+     *  - one-off occasions: their own date must be inside the window;
+     *  - annual ones: their month-day must be inside the window's month-day
+     *    span (wrapping over New Year), plus every Feb 29 row, since
+     *    nextOccurrence() observes those on Mar 1 in a common year.
+     * An open-ended window ($end null) only drops one-off dates already past.
+     */
+    public function scopeMayOccurBetween($query, Carbon $start, ?Carbon $end)
+    {
+        $start = $start->copy()->startOfDay();
+        $oneOff = fn ($q) => $q->where(fn ($w) => $w->where('repeats_annually', false)->orWhereNull('repeats_annually'));
+
+        if ($end === null || $start->diffInDays($end) >= 365) {
+            return $query->where(fn ($q) => $q
+                ->where('repeats_annually', true)
+                ->orWhere(fn ($once) => $oneOff($once)
+                    ->where('date', '>=', $start->toDateString())
+                    ->when($end, fn ($b) => $b->where('date', '<=', $end->toDateString()))));
+        }
+
+        $md = static::monthDaySql();
+        $from = $start->format('m-d');
+        $to = $end->format('m-d');
+        $wraps = $end->year > $start->year;
+
+        return $query->where(fn ($q) => $q
+            ->where(fn ($once) => $oneOff($once)->whereBetween('date', [$start->toDateString(), $end->toDateString()]))
+            ->orWhere(fn ($annual) => $annual
+                ->where('repeats_annually', true)
+                ->where(fn ($w) => $w
+                    ->when(
+                        $wraps,
+                        fn ($b) => $b->whereRaw("{$md} >= ?", [$from])->orWhereRaw("{$md} <= ?", [$to]),
+                        fn ($b) => $b->whereRaw("{$md} BETWEEN ? AND ?", [$from, $to]),
+                    )
+                    ->orWhereRaw("{$md} = ?", ['02-29']))));
+    }
+
+    /** "MM-DD" of the `date` column, in whichever SQL dialect is connected. */
+    private static function monthDaySql(): string
+    {
+        return match ((new static)->getConnection()->getDriverName()) {
+            'sqlite' => "strftime('%m-%d', date)",
+            'pgsql' => "to_char(date, 'MM-DD')",
+            default => "DATE_FORMAT(date, '%m-%d')",
+        };
+    }
+
     /** How many days until the next occurrence, or null if there is none. */
     public function daysUntilNext(?Carbon $from = null): ?int
     {

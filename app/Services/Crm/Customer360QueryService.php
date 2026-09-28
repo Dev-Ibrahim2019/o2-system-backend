@@ -35,6 +35,14 @@ class Customer360QueryService
      * the count aggregate and the has_complaints filter below can never drift
      * apart (they used to repeat the same list).
      */
+    /**
+     * Cancelled orders are not purchases — they never count toward total
+     * purchases or average order value. They are counted on their own
+     * (cancelled_orders_count) because a customer who cancels often is a
+     * signal worth seeing, not noise to hide.
+     */
+    private const CANCELLED_ORDER_STATUSES = ['cancelled', 'CANCELLED'];
+
     private const OPEN_COMPLAINT_STATUSES = [
         CustomerComplaint::STATUS_NEW,
         CustomerComplaint::STATUS_OPEN,
@@ -66,10 +74,13 @@ class Customer360QueryService
             ])
             ->withCount([
                 'orders',
+                'orders as cancelled_orders_count' => fn ($q) => $q->whereIn('status', self::CANCELLED_ORDER_STATUSES),
                 'complaints as open_complaints_count' => fn ($q) => $q->whereIn('status', self::OPEN_COMPLAINT_STATUSES),
             ])
             ->withMax('orders', 'created_at')
-            ->withSum('orders', 'total')
+            // Alias stays orders_sum_total (the directory's sort key) — only
+            // the cancelled rows are dropped from the sum.
+            ->withSum(['orders' => fn ($q) => $q->whereNotIn('status', self::CANCELLED_ORDER_STATUSES)], 'total')
             // Mockup filters "لديه مشكلة" / "لديه مناسبة" / "مناسبة" — all
             // answered from customer_complaints and customer_occasions, which
             // already exist. No new column, no new table.
@@ -119,8 +130,10 @@ class Customer360QueryService
             ->when($filters['engagement_status'] ?? null, fn ($q, $tag) => $q->where('engagement_status', $tag))
             ->when($filters['source'] ?? null, fn ($q, $source) => $q->where('source', $source))
             ->when($filters['gender'] ?? null, fn ($q, $gender) => $q->where('gender', $gender))
+            // A management tool (crm-manager / super-admin), not a global-user
+            // escape hatch — same permission the CRM dashboard's picker uses.
             ->when(
-                ($filters['branch_id'] ?? null) && $this->access->isGlobal($user),
+                ($filters['branch_id'] ?? null) && $this->access->canFilterByBranch($user),
                 fn ($q) => $q->where('branch_id', $filters['branch_id'])
             )
             ->orderBy($sortColumn, $direction)
@@ -231,13 +244,24 @@ class Customer360QueryService
         // the sums had been widened for cross-branch reads and the counts
         // had not.
         $customer->setAttribute('orders_count', (clone $visibleOrders())->count());
+        // Completed = handed over or closed: served / DELIVERED / closed, plus
+        // 'paid' — except a call-center order at 'paid', which is paid BEFORE
+        // the kitchen starts and is still in flight (Order::scopeFinalized()).
         $customer->setAttribute(
             'completed_orders_count',
-            (clone $visibleOrders())->whereIn('status', ['paid', 'served'])->count(),
+            (clone $visibleOrders())->where(fn ($q) => $q
+                ->whereIn('status', ['served', 'DELIVERED', 'closed'])
+                ->orWhere(fn ($paid) => $paid->where('status', 'paid')->where('source', '!=', 'call_center')))
+                ->count(),
+        );
+        $customer->setAttribute(
+            'cancelled_orders_count',
+            (clone $visibleOrders())->whereIn('status', self::CANCELLED_ORDER_STATUSES)->count(),
         );
 
         $orderStats = $visibleOrders()
-            ->selectRaw('AVG(total) as average_order_value, SUM(total) as total_purchases, MAX(created_at) as last_order_at')
+            ->whereNotIn('status', self::CANCELLED_ORDER_STATUSES)
+            ->selectRaw('AVG(total) as average_order_value, SUM(total) as total_purchases')
             ->first();
 
         $birthdayOccasion = $customer->occasions->first();
@@ -298,9 +322,12 @@ class Customer360QueryService
             'summary' => [
                 'orders_count' => $customer->orders_count,
                 'completed_orders_count' => $customer->completed_orders_count,
+                'cancelled_orders_count' => $customer->cancelled_orders_count,
                 'average_order_value' => round((float) ($orderStats?->average_order_value ?? 0), 3),
                 'total_purchases' => round((float) ($orderStats?->total_purchases ?? 0), 3),
-                'last_order_at' => $orderStats?->last_order_at,
+                // Any order, cancelled included — "when did we last hear from
+                // them", not "when did they last buy".
+                'last_order_at' => (clone $visibleOrders())->max('created_at'),
                 'open_complaints_count' => $customer->open_complaints_count,
             ],
             'permissions' => [

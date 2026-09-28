@@ -44,7 +44,11 @@ class CrmController extends Controller
         private readonly CrmOrdersQueryService $orders,
         private readonly \App\Services\Crm\ComplaintNotificationService $notifications,
         private readonly \App\Services\Crm\CrmOrderDelayAlertService $delayAlerts,
+        private readonly \App\Services\Crm\CrmStaffActivityLogger $staffActivity,
     ) {}
+
+    /** Order statuses that never count as a purchase — see CANCELLED_ORDER_STATUSES use sites. */
+    private const CANCELLED_ORDER_STATUSES = ['cancelled', 'CANCELLED'];
 
     /**
      * POST /api/crm/customers
@@ -155,6 +159,8 @@ class CrmController extends Controller
             ]);
         }
 
+        $this->staffActivity->customerCreated($request->user(), $customer);
+
         return response()->json(['data' => $customer->fresh(['address'])], 201);
     }
 
@@ -207,11 +213,18 @@ class CrmController extends Controller
         // birth_date/work_address are always present as keys when the form
         // submits them (even as null, to signal "remove") — but must not be
         // treated as Customer columns.
-        // Same write-scope rule as store(): a branch-scoped user must not be
-        // able to move a customer into a branch they cannot read back.
-        $data['branch_id'] = $this->access->isGlobal($request->user())
-            ? ($data['branch_id'] ?? null)
-            : $request->user()->branch_id;
+        //
+        // branch_id is the customer's "home" branch (where they were first
+        // registered). Customers are shared across branches, so an edit by a
+        // branch employee must NOT re-stamp it with the editor's own branch —
+        // that used to move a customer between branches silently on every
+        // cross-branch edit. Only a global user may change it, and only when
+        // the request actually carries the key.
+        if (! $this->access->isGlobal($request->user()) || ! $request->has('branch_id')) {
+            unset($data['branch_id']);
+        }
+
+        $before = $customer->only(array_keys(\App\Services\Crm\CrmStaffActivityLogger::TRACKED_CUSTOMER_FIELDS));
 
         $hasBirthDateKey = $request->has('birth_date');
         $hasWorkAddressKey = $request->has('work_address');
@@ -228,14 +241,25 @@ class CrmController extends Controller
             $this->customerIdentity->syncWorkAddress($customer, $workAddress);
         }
 
+        // Every real change lands in the managers' activity log; unusual ones
+        // (another branch's customer, a renamed/re-numbered or blocked
+        // customer) are flagged there. The customer's own "النشاط" tab picks
+        // up the same edit from audit_logs, with the changed fields named.
+        $this->staffActivity->customerUpdated($request->user(), $customer, $before);
+
         return response()->json(['data' => $customer]);
     }
 
+    // Exactly the customer_occasions.occasion_type enum (OCCASION_TYPE_VALUES)
+    // — it used to carry 'wedding', which no row can ever hold, and miss
+    // company_founding/contract_renewal, so the directory filter offered a
+    // dead option and the dashboard donut silently dropped two real types.
     private const OCCASION_LABELS = [
         'birthday' => 'عيد ميلاد',
         'anniversary' => 'ذكرى سنوية',
-        'wedding' => 'زواج',
         'graduation' => 'تخرج',
+        'company_founding' => 'تأسيس',
+        'contract_renewal' => 'تجديد عقد',
         'other' => 'أخرى',
     ];
 
@@ -257,13 +281,14 @@ class CrmController extends Controller
         ]);
 
         $user = $request->user();
-        // Customer visibility has no branch boundary (see
-        // CrmCustomerAccessService's class docblock) — so the branch filter
-        // itself is a reporting choice open to anyone, not a global-only
-        // escape hatch. It used to be gated behind isGlobal($user), which
-        // silently dropped the filter for any branch-scoped user who picked
-        // one from a dropdown that, per the bug below, they could not even
-        // see in the first place.
+        // Filtering by branch is a management tool (crm.customers.filter-by-
+        // branch: crm-manager / super-admin) — the same rule the customer
+        // directory applies. Without it the parameter is ignored, and the
+        // branch picker/breakdown below are not returned at all.
+        $canFilterByBranch = $this->access->canFilterByBranch($user);
+        if (! $canFilterByBranch) {
+            $validated['branch_id'] = null;
+        }
         $baseCustomers = $this->access->visibleCustomers($user)
             ->when(
                 $validated['branch_id'] ?? null,
@@ -393,7 +418,9 @@ class CrmController extends Controller
         // access-model fix. Orders and their stats stay genuinely
         // branch-scoped (BranchScope on Order itself), so listing branches
         // here does not expose anything this user could not already reach.
-        $branches = Branch::query()->select('id', 'name')->orderBy('name')->get();
+        $branches = $canFilterByBranch
+            ? Branch::query()->select('id', 'name')->orderBy('name')->get()
+            : collect();
 
         // Per-branch breakdown — real numbers per branch, not just a single
         // combined total gated behind an optional filter. customers_count is
@@ -490,6 +517,7 @@ class CrmController extends Controller
             'financial' => null,
             'permissions' => [
                 'can_view_financial' => $user->can('crm.view-customer-financial'),
+                'can_filter_by_branch' => $canFilterByBranch,
             ],
         ];
 
@@ -530,7 +558,12 @@ class CrmController extends Controller
 
         $page = $this->profiles->directory($request->user(), $filters);
         $canFinancial = $request->user()->can('crm.view-customer-financial');
-        $page->getCollection()->transform(function (Customer $customer) use ($canFinancial) {
+        // One grouped ledger query for the whole page instead of one
+        // getBalance() per row (was N+1: 20–100 queries per directory load).
+        $balances = $canFinancial
+            ? $this->accounting->getBalances($page->getCollection()->pluck('id')->all())
+            : [];
+        $page->getCollection()->transform(function (Customer $customer) use ($canFinancial, $balances) {
             $item = [
                 'id' => $customer->id,
                 'code' => $customer->code,
@@ -547,6 +580,7 @@ class CrmController extends Controller
                 'source' => $customer->source,
                 'branch' => $customer->branch,
                 'orders_count' => $customer->orders_count,
+                'cancelled_orders_count' => (int) ($customer->cancelled_orders_count ?? 0),
                 'total_purchases' => (float) ($customer->orders_sum_total ?? 0),
                 'open_complaints_count' => $customer->open_complaints_count,
                 'loyalty_points' => $customer->loyalty_points,
@@ -555,7 +589,7 @@ class CrmController extends Controller
                 'next_occasion' => $this->withOccasionLabel($this->profiles->nextOccasion($customer)),
             ];
             if ($canFinancial) {
-                $item['balance'] = $this->accounting->getBalance($customer);
+                $item['balance'] = $balances[$customer->id] ?? 0.0;
             }
             return $item;
         });
@@ -743,6 +777,7 @@ class CrmController extends Controller
             : $customer->orders();
 
         $totalsByMonth = $historyQuery
+            ->whereNotIn('status', self::CANCELLED_ORDER_STATUSES)
             ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as ym, SUM(total) as total")
             ->where('created_at', '>=', $months->first()->copy()->startOfMonth())
             ->groupBy('ym')
@@ -833,7 +868,7 @@ class CrmController extends Controller
                 'event' => $log->event,
                 'label' => match ($log->event) {
                     'created' => 'تم تسجيل العميل',
-                    'updated' => 'تم تحديث بيانات العميل',
+                    'updated' => $this->customerUpdateLabel($log->new_values ?? []),
                     'deleted' => 'تم حذف العميل',
                     default => $log->event,
                 },
@@ -860,14 +895,84 @@ class CrmController extends Controller
         return response()->json(['data' => $events]);
     }
 
+    /**
+     * "تم تحديث بيانات العميل: الاسم، الهاتف" — names what the edit touched,
+     * from the dirty columns AuditObserver already stored. Columns outside
+     * the tracked list (timestamps, internal flags) are not named.
+     */
+    private function customerUpdateLabel(array $newValues): string
+    {
+        $labels = array_values(array_intersect_key(
+            \App\Services\Crm\CrmStaffActivityLogger::TRACKED_CUSTOMER_FIELDS,
+            $newValues,
+        ));
+
+        return $labels === []
+            ? 'تم تحديث بيانات العميل'
+            : 'تم تحديث بيانات العميل: ' . implode('، ', $labels);
+    }
+
+    /**
+     * The customer's complaints tab — the same branch rule as the CRM
+     * complaints list (own branch, legacy null branch, or assigned to the
+     * viewer), plus the sensitivity rule. Complaints at other branches are
+     * not listed; complaintsElsewhere() below tells the viewer they exist.
+     */
     public function complaints(Request $request, Customer $customer): JsonResponse
     {
         $this->access->authorize($request->user(), $customer);
-        $query = $customer->complaints()->with(['assignedTo', 'followups'])->latest();
-        if (! $request->user()->can('crm.view-sensitive-notes')) {
-            $query->where('is_sensitive', false);
-        }
+        $query = $customer->complaints()
+            ->visibleTo($request->user())
+            ->tap(fn ($q) => $this->access->restrictComplaintsToBranch($q, $request->user()))
+            ->with(['assignedTo', 'followups'])
+            ->latest();
+
         return response()->json(['data' => $query->paginate(15)]);
+    }
+
+    /**
+     * GET /api/crm/customers/{customer}/complaints/elsewhere
+     *
+     * "هذا العميل لديه شكاوى في فروع أخرى" — counts only, never the complaints
+     * themselves: a branch employee should know the customer has had
+     * problems elsewhere without reading another branch's tickets. Sensitive
+     * complaints are left out of the count for a viewer not cleared for
+     * them, since even their existence is the disclosure.
+     */
+    public function complaintsElsewhere(Request $request, Customer $customer): JsonResponse
+    {
+        $this->access->authorize($request->user(), $customer);
+        $user = $request->user();
+
+        if ($this->access->isGlobal($user)) {
+            return response()->json(['data' => ['total' => 0, 'open' => 0, 'last_at' => null, 'branches' => []]]);
+        }
+
+        $reachableIds = $this->access
+            ->restrictComplaintsToBranch($customer->complaints()->getQuery(), $user)
+            ->pluck('id');
+
+        $elsewhere = $customer->complaints()
+            ->visibleTo($user)
+            ->whereNotIn('id', $reachableIds)
+            ->get(['id', 'status', 'branch_id', 'created_at']);
+
+        $branchNames = Branch::query()->whereIn('id', $elsewhere->pluck('branch_id')->filter()->unique())->pluck('name', 'id');
+        $openStatuses = [
+            CustomerComplaint::STATUS_NEW, CustomerComplaint::STATUS_OPEN,
+            CustomerComplaint::STATUS_IN_PROGRESS, CustomerComplaint::STATUS_WAITING_CUSTOMER,
+        ];
+
+        return response()->json(['data' => [
+            'total' => $elsewhere->count(),
+            'open' => $elsewhere->whereIn('status', $openStatuses)->count(),
+            'last_at' => $elsewhere->max('created_at')?->toIso8601String(),
+            'branches' => $elsewhere->groupBy('branch_id')->map(fn ($rows, $branchId) => [
+                'branch_id' => $branchId === '' ? null : (int) $branchId,
+                'branch_name' => $branchNames[$branchId] ?? null,
+                'count' => $rows->count(),
+            ])->values(),
+        ]]);
     }
 
     /**
@@ -927,19 +1032,10 @@ class CrmController extends Controller
             $this->recordAssigneeChange($complaint->fresh(), $request->user(), null, (int) $complaint->assigned_user_id);
         }
 
-        // Managers see every new complaint land, not only the ones they
-        // filed themselves — this is the "new" queue's arrival bell. Skipped
-        // when the complaint is urgent: CallCenterService::createComplaint()
-        // already broadcast that to every agent, managers included — a
-        // second "created" notification on top would just be noise.
-        if (! $complaint->isUrgent()) {
-            $this->notifications->notifyOversight(
-                $complaint,
-                $request->user(),
-                'created',
-                "سجّل {$request->user()->name} شكوى جديدة #{$complaint->id}: {$complaint->title}",
-            );
-        }
+        // No "created" notification here: CallCenterService::createComplaint()
+        // already sent exactly one to every handler and every CRM manager
+        // (urgent or not) — a second one from here is what used to double
+        // the managers' bell.
 
         return response()->json([
             'data' => $complaint->load(['customer:id,name,phone', 'order:id,order_number']),
@@ -998,14 +1094,8 @@ class CrmController extends Controller
             $this->recordAssigneeChange($complaint->fresh(), $actor, null, (int) $complaint->assigned_user_id);
         }
 
-        if (! $complaint->isUrgent()) {
-            $this->notifications->notifyOversight(
-                $complaint,
-                $actor,
-                'created',
-                "سجّل {$actor->name} شكوى عامة جديدة #{$complaint->id}: {$complaint->title}",
-            );
-        }
+        // Arrival notification already sent once by createComplaint() — see
+        // createComplaint() above.
 
         return response()->json([
             'data' => $complaint->load(['order:id,order_number']),
@@ -1022,17 +1112,18 @@ class CrmController extends Controller
     public function updateComplaint(Request $request, CustomerComplaint $complaint): JsonResponse
     {
         $actor = $request->user();
-        // A general complaint (no customer_id) has nothing to authorize
-        // against but its own branch.
-        if ($complaint->customer_id) {
-            $this->access->authorize($actor, $complaint->customer);
-        } else {
-            $this->access->authorizeBranch($actor, $complaint->branch_id);
+        // Same reach rule as the complaints list and show(): own branch, a
+        // legacy row with no branch, or assigned to this user by a manager —
+        // and sensitive only with clearance. This used to check only the
+        // customer (a no-op) so any branch could edit another branch's
+        // complaint by id. Refused as a 404, like show(), and logged.
+        if (! $this->access->canReachComplaint($actor, $complaint)) {
+            $this->staffActivity->complaintAccessDenied($actor, $complaint, 'update');
+            abort(404, 'الشكوى غير موجودة.');
         }
 
-        if ($complaint->is_sensitive) {
-            abort_unless($actor->can('crm.view-sensitive-notes'), 403, 'لا تملك صلاحية تعديل شكوى حساسة.');
-        }
+        $trackedBefore = $complaint->only(['status', 'priority', 'severity', 'is_sensitive', 'department', 'assigned_user_id', 'assigned_to', 'title']);
+        $assigneeBefore = $complaint->assigned_user_id !== null ? (int) $complaint->assigned_user_id : null;
 
         $data = $request->validate([
             'status'            => ['nullable', 'in:new,open,in_progress,waiting_customer,resolved,closed,cancelled'],
@@ -1257,6 +1348,16 @@ class CrmController extends Controller
             );
         }
 
+        $complaint = $complaint->fresh();
+        $changes = [];
+        foreach ($trackedBefore as $field => $old) {
+            $new = $complaint->getAttribute($field);
+            if ((string) $old !== (string) $new) {
+                $changes[$field] = ['old' => $old, 'new' => $new];
+            }
+        }
+        $this->staffActivity->complaintUpdated($actor, $complaint, $changes, $assigneeBefore);
+
         return $this->respondWithComplaint($complaint);
     }
 
@@ -1460,6 +1561,7 @@ class CrmController extends Controller
         }
 
         $note->delete();
+        $this->staffActivity->noteDeleted($request->user(), $customer, (string) $note->type, (string) $note->content);
 
         return response()->json(['data' => ['deleted' => true]]);
     }
@@ -1560,12 +1662,15 @@ class CrmController extends Controller
      */
     private function occasionRules(bool $required): array
     {
-        $presence = $required ? 'required' : 'nullable';
+        // On update a field may be omitted, but not sent as null: type, title
+        // and date are NOT NULL columns, so an explicit null used to reach the
+        // database and come back as a 500 instead of a 422.
+        $presence = $required ? 'required' : ['sometimes', 'required'];
 
         return [
-            'occasion_type' => [$presence, Rule::in(self::OCCASION_TYPE_VALUES)],
-            'title' => [$presence, 'string', 'max:255'],
-            'date' => [$presence, 'date'],
+            'occasion_type' => [...(array) $presence, Rule::in(self::OCCASION_TYPE_VALUES)],
+            'title' => [...(array) $presence, 'string', 'max:255'],
+            'date' => [...(array) $presence, 'date'],
             'repeats_annually' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string'],
             'preferred_contact_method' => ['nullable', Rule::in(self::CONTACT_METHOD_VALUES)],
@@ -1592,15 +1697,9 @@ class CrmController extends Controller
     {
         $this->access->authorize($request->user(), $customer);
 
-        $data = $request->validate([
-            'occasion_type' => ['required', Rule::in(self::OCCASION_TYPE_VALUES)],
-            'title' => ['required', 'string', 'max:255'],
-            'date' => ['required', 'date'],
-            'repeats_annually' => ['nullable', 'boolean'],
-            'notes' => ['nullable', 'string'],
-            'preferred_contact_method' => ['nullable', Rule::in(self::CONTACT_METHOD_VALUES)],
-            'is_active' => ['nullable', 'boolean'],
-        ]);
+        // Same rule set as group occasions — including assigned_user_id,
+        // which this path used to drop silently even though the form sends it.
+        $data = $request->validate($this->occasionRules(required: true));
 
         $occasion = $this->callCenter->createOccasion($customer, $data, $request->user()->id);
 
@@ -1620,15 +1719,7 @@ class CrmController extends Controller
         $this->access->authorize($request->user(), $customer);
         $this->assertOccasionBelongsTo($occasion, $customer);
 
-        $data = $request->validate([
-            'occasion_type' => ['nullable', Rule::in(self::OCCASION_TYPE_VALUES)],
-            'title' => ['nullable', 'string', 'max:255'],
-            'date' => ['nullable', 'date'],
-            'repeats_annually' => ['nullable', 'boolean'],
-            'notes' => ['nullable', 'string'],
-            'preferred_contact_method' => ['nullable', Rule::in(self::CONTACT_METHOD_VALUES)],
-            'is_active' => ['nullable', 'boolean'],
-        ]);
+        $data = $request->validate($this->occasionRules(required: false));
 
         return response()->json(['data' => $this->callCenter->updateOccasion($occasion->id, $data)]);
     }
@@ -1805,7 +1896,11 @@ class CrmController extends Controller
         // alerts a manager expects exist by the time they look for them.
         // Cheap and idempotent: checkAndNotify() dedupes on
         // (order_id, threshold_minutes), so repeat visits notify no one twice.
-        $this->delayAlerts->checkAndNotify();
+        // At most once a minute however many managers have the screen open —
+        // the check scans active orders, so a GET should not repeat it.
+        if (\Illuminate\Support\Facades\Cache::add('crm:delay-check:' . now()->format('YmdHi'), true, 120)) {
+            $this->delayAlerts->checkAndNotify();
+        }
 
         $page = $this->orders->delayed($request->user(), $minutes, $filters);
         $customers = $this->customersFor($page->getCollection());
@@ -2000,35 +2095,39 @@ class CrmController extends Controller
 
         $customer = Customer::findOrFail($order->customer_id);
 
-        $feedback = OrderItemFeedback::where('order_item_id', $orderItem->id)->first();
-        abort_unless($feedback, 422, 'قيّم الصنف أولاً قبل تسجيله كشكوى.');
+        // Row-locked for the whole check-then-create: two quick clicks used to
+        // both see "no complaint yet" and file two complaints for one rating.
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($request, $order, $orderItem, $customer) {
+            $feedback = OrderItemFeedback::where('order_item_id', $orderItem->id)->lockForUpdate()->first();
+            abort_unless($feedback, 422, 'قيّم الصنف أولاً قبل تسجيله كشكوى.');
 
-        if ($feedback->complaint_id && ($existing = CustomerComplaint::find($feedback->complaint_id))) {
-            return response()->json([
-                'data' => $existing->load(['order:id,order_number']),
-                'already' => true,
-            ]);
-        }
+            if ($feedback->complaint_id && ($existing = CustomerComplaint::find($feedback->complaint_id))) {
+                return response()->json([
+                    'data' => $existing->load(['order:id,order_number']),
+                    'already' => true,
+                ]);
+            }
 
-        $name = $orderItem->item_name_ar ?: $orderItem->item_name;
-        $body = trim((string) $feedback->notes) !== ''
-            ? trim((string) $feedback->notes)
-            : "شكوى على الصنف «{$name}» (تقييم {$feedback->rating}/5) ضمن الطلب {$order->order_number}.";
+            $name = $orderItem->item_name_ar ?: $orderItem->item_name;
+            $body = trim((string) $feedback->notes) !== ''
+                ? trim((string) $feedback->notes)
+                : "شكوى على الصنف «{$name}» (تقييم {$feedback->rating}/5) ضمن الطلب {$order->order_number}.";
 
-        $complaint = $this->callCenter->createComplaint([
-            'customer_id' => $customer->id,
-            'order_id' => $order->id,
-            'title' => "شكوى على صنف: {$name}",
-            'description' => $body,
-            'type' => 'item',
-            'department' => CustomerComplaint::DEPARTMENT_KITCHEN,
-            'severity' => $feedback->rating <= 2 ? 'warning' : 'info',
-            'priority' => $feedback->rating <= 2 ? 'high' : 'normal',
-            'branch_id' => $order->branch_id,
-        ], $request->user()->id, CustomerComplaint::CHANNEL_CRM);
+            $complaint = $this->callCenter->createComplaint([
+                'customer_id' => $customer->id,
+                'order_id' => $order->id,
+                'title' => "شكوى على صنف: {$name}",
+                'description' => $body,
+                'type' => 'item',
+                'department' => CustomerComplaint::DEPARTMENT_KITCHEN,
+                'severity' => $feedback->rating <= 2 ? 'warning' : 'info',
+                'priority' => $feedback->rating <= 2 ? 'high' : 'normal',
+                'branch_id' => $order->branch_id,
+            ], $request->user()->id, CustomerComplaint::CHANNEL_CRM);
 
-        $feedback->update(['complaint_id' => $complaint->id]);
+            $feedback->update(['complaint_id' => $complaint->id]);
 
-        return response()->json(['data' => $complaint->load(['order:id,order_number'])], 201);
+            return response()->json(['data' => $complaint->load(['order:id,order_number'])], 201);
+        });
     }
 }
