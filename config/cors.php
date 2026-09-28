@@ -19,7 +19,12 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:4173', 'http://127.0.0.1:4173'],
+    'allowed_origins' => array_values(array_filter(array_merge(
+        ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:4173', 'http://127.0.0.1:4173'],
+        // تطبيقات الـAPI الخارجي اللي بتنادي من متصفح (نادر — عادةً server-to-server). كل مفتاح كمان مقيّد
+        // بأصوله الخاصة (external_api_clients.allowed_origins) بـ AuthenticateExternalApiClient.
+        array_map('trim', explode(',', (string) env('EXTERNAL_API_ALLOWED_ORIGINS', ''))),
+    ))),
 
     'allowed_origins_patterns' => [],
 

@@ -20,13 +20,11 @@ return [
     // طباعة تذاكر الأقسام تلقائيًا عند تنفيذ الطلب (فوري أو مجدول). لو false التذاكر بتنشأ بس بدون طباعة.
     'print_on_execute' => (bool) env('CALL_CENTER_PRINT_ON_EXECUTE', true),
 
-    // ربط برنامج التيك أواي: بعد إغلاق الطلب بيتبعت حدث order.closed من الـ outbox. بدون url ما بيتبعت شي
-    // (الأحداث بتضل بالـ outbox بانتظار ضبط الربط) — بدل ما نخترع عنوان مش موجود.
+    // Webhooks برنامج التيك أواي (TakeawayDispatcher): العنوان والسرّ لكل تطبيق بـ external_api_clients
+    // (php artisan external-api:client create ...). هون بس مهلة الطلب وعدد المحاولات قبل ما الحدث يصير dead.
     'takeaway' => [
-        'url' => env('TAKEAWAY_API_URL'),
-        'api_key' => env('TAKEAWAY_API_KEY'),
-        'timeout' => (int) env('TAKEAWAY_API_TIMEOUT', 10),
-        'max_attempts' => (int) env('TAKEAWAY_API_MAX_ATTEMPTS', 8),
+        'timeout' => (int) env('TAKEAWAY_WEBHOOK_TIMEOUT', 10),
+        'max_attempts' => (int) env('TAKEAWAY_WEBHOOK_MAX_ATTEMPTS', 8),
     ],
 
     'slots' => [

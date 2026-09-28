@@ -859,3 +859,16 @@ Route::middleware('auth:sanctum')->prefix('tables')->group(function () {
 });
 
 Route::middleware('auth:sanctum')->post('pos/check-status', [\App\Http\Controllers\Admin\PosRegisterController::class, 'checkStatus']);
+
+// ── API خارجي لبرنامج التيك أواي (تعيين السائقين، متابعة التحضير، التسليم) ──────────────────────
+// مصادقة X-API-Key (external_api_clients، مش Sanctum)، rate limit لكل IP قبل المصادقة ولكل مفتاح بعدها،
+// وأخطاء موحّدة {"error": {"code", "message"}}. العقد: docs/external-takeaway-api.yaml
+Route::prefix('v1/external/takeaway')
+    ->middleware(['throttle:external-takeaway-ip', 'external.client'])
+    ->group(function () {
+        $controller = \App\Http\Controllers\Api\External\TakeawayOrderController::class;
+        Route::get('orders', [$controller, 'index']);
+        Route::get('orders/{id}', [$controller, 'show'])->whereNumber('id');
+        Route::patch('orders/{id}/status', [$controller, 'updateStatus'])->whereNumber('id');
+        Route::patch('orders/{id}/driver', [$controller, 'assignDriver'])->whereNumber('id');
+    });

@@ -185,6 +185,11 @@ class Order extends Model
         'delivered_at' => 'datetime',
         'executed_at' => 'datetime',
         'editing_until' => 'datetime',
+        // حالة التيك أواي (API خارجي) — مش fillable عمدًا: بتنكتب بس من TakeawayOrderService (forceFill)،
+        // عشان ما يوصلها mass assignment من OrderController@update أو أي مسار داخلي تاني.
+        'tw_released_at' => 'datetime',
+        'tw_status_updated_at' => 'datetime',
+        'tw_driver_assigned_at' => 'datetime',
         'execution_attempts' => 'integer',
         'closed_at' => 'datetime',
         'reopened_at' => 'datetime',
