@@ -29,6 +29,7 @@ class Supplier extends Model
         'status',
         'credit_limit',
         'payment_terms',
+        'lead_time_days',
         'opening_balance',
         'is_opening_balance_posted',
         'notes',

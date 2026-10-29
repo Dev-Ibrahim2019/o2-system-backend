@@ -866,3 +866,113 @@ Route::prefix('v1/external/takeaway')
         Route::patch('orders/{id}/status', [$controller, 'updateStatus'])->whereNumber('id');
         Route::patch('orders/{id}/driver', [$controller, 'assignDriver'])->whereNumber('id');
     });
+
+// ── وحدة المخازن والمواد الخام (المرحلة 1: الأساسيات) ──────────────────────────────────────────
+// inventory.access يفتح القراءة؛ كل عملية كتابة لها صلاحيتها. الوصول لمخزن بعينه يُفحص
+// داخل WarehouseController عبر WarehouseAccess (ربط warehouse_user أو inventory.warehouses.all).
+Route::middleware(['auth:sanctum', 'permission:inventory.access'])->prefix('inventory')->group(function () {
+    $catalog = \App\Http\Controllers\Api\Inventory\CatalogController::class;
+    $items = \App\Http\Controllers\Api\Inventory\StockItemController::class;
+    $warehouses = \App\Http\Controllers\Api\Inventory\WarehouseController::class;
+
+    Route::get('dashboard', \App\Http\Controllers\Api\Inventory\InventoryDashboardController::class);
+    Route::get('lookups', [$catalog, 'lookups']);
+    Route::get('sale-items', [$catalog, 'saleItems']);
+
+    Route::get('units', [$catalog, 'units']);
+    Route::post('units', [$catalog, 'storeUnit'])->middleware('permission:inventory.catalog.manage');
+    Route::put('units/{unit}', [$catalog, 'updateUnit'])->middleware('permission:inventory.catalog.manage');
+    Route::delete('units/{unit}', [$catalog, 'destroyUnit'])->middleware('permission:inventory.catalog.manage');
+
+    Route::get('categories', [$catalog, 'categories']);
+    Route::post('categories', [$catalog, 'storeCategory'])->middleware('permission:inventory.catalog.manage');
+    Route::put('categories/{category}', [$catalog, 'updateCategory'])->middleware('permission:inventory.catalog.manage');
+    Route::delete('categories/{category}', [$catalog, 'destroyCategory'])->middleware('permission:inventory.catalog.manage');
+
+    Route::get('items', [$items, 'index']);
+    Route::get('items/{item}', [$items, 'show']);
+    // الصلاحيات المفصّلة (2027_03_07)؛ items.manage القديمة تبقى مقبولة لمن مُنحها مباشرة
+    Route::post('items', [$items, 'store'])->middleware('permission:inventory.items.create|inventory.items.manage');
+    Route::put('items/{item}', [$items, 'update'])->middleware('permission:inventory.items.edit|inventory.items.manage');
+    Route::delete('items/{item}', [$items, 'destroy'])->middleware('permission:inventory.items.delete|inventory.items.manage');
+
+    Route::get('warehouses', [$warehouses, 'index']);
+    Route::get('warehouses/{warehouse}', [$warehouses, 'show']);
+    Route::post('warehouses', [$warehouses, 'store'])->middleware('permission:inventory.warehouses.manage');
+    Route::put('warehouses/{warehouse}', [$warehouses, 'update'])->middleware('permission:inventory.warehouses.manage');
+    Route::delete('warehouses/{warehouse}', [$warehouses, 'destroy'])->middleware('permission:inventory.warehouses.manage');
+    Route::get('warehouses/{warehouse}/users', [$warehouses, 'users'])->middleware('permission:inventory.warehouses.manage');
+    Route::put('warehouses/{warehouse}/users', [$warehouses, 'syncUsers'])->middleware('permission:inventory.warehouses.manage');
+
+    // المرحلة 2: محرك المخزون — كل تسجيل يمر من StockLedger، وكل مخزن يُفحص بـ WarehouseAccess.
+    $ledger = \App\Http\Controllers\Api\Inventory\StockLedgerController::class;
+    $settings = \App\Http\Controllers\Api\Inventory\InventorySettingController::class;
+
+    Route::get('balances', [$ledger, 'balances']);
+    Route::get('kardex', [$ledger, 'kardex']);
+    Route::post('movements/opening', [$ledger, 'opening'])->middleware('permission:inventory.movements.opening');
+    Route::post('movements/{movement}/reverse', [$ledger, 'reverse'])->middleware('permission:inventory.movements.reverse');
+
+    Route::get('settings', [$settings, 'show']);
+    Route::put('settings', [$settings, 'update'])->middleware('permission:inventory.settings.manage');
+
+    // المرحلة 3: مستندات الاستلام والتحويل والهالك، وموردو الأصناف.
+    $documents = \App\Http\Controllers\Api\Inventory\StockDocumentController::class;
+    $supplierItems = \App\Http\Controllers\Api\Inventory\SupplierItemController::class;
+
+    Route::get('documents/meta', [$documents, 'meta']);
+    Route::get('documents', [$documents, 'index']);
+    Route::get('documents/{document}', [$documents, 'show']);
+    Route::post('documents', [$documents, 'store'])->middleware('permission:inventory.documents.manage');
+    Route::put('documents/{document}', [$documents, 'update'])->middleware('permission:inventory.documents.manage');
+    Route::delete('documents/{document}', [$documents, 'destroy'])->middleware('permission:inventory.documents.manage');
+    Route::post('documents/{document}/post', [$documents, 'post'])->middleware('permission:inventory.documents.post');
+    Route::post('documents/{document}/reverse', [$documents, 'reverse'])->middleware('permission:inventory.documents.reverse');
+
+    Route::get('items/{item}/suppliers', [$supplierItems, 'index']);
+    Route::put('items/{item}/suppliers', [$supplierItems, 'sync'])->middleware('permission:inventory.suppliers.manage');
+
+    // المرحلة 4: الوصفات (بنسخ) والجرد الفعلي.
+    $recipes = \App\Http\Controllers\Api\Inventory\RecipeController::class;
+    $counts = \App\Http\Controllers\Api\Inventory\StockCountController::class;
+
+    Route::get('recipes', [$recipes, 'index']);
+    Route::delete('recipes/versions/{recipe}', [$recipes, 'destroy'])->middleware('permission:inventory.recipes.manage');
+    Route::get('recipes/{type}/{id}', [$recipes, 'show'])->whereIn('type', ['product', 'intermediate'])->whereNumber('id');
+    Route::post('recipes/{type}/{id}', [$recipes, 'store'])->whereIn('type', ['product', 'intermediate'])->whereNumber('id')
+        ->middleware('permission:inventory.recipes.manage');
+
+    Route::get('counts', [$counts, 'index']);
+    Route::get('counts/{count}', [$counts, 'show']);
+    Route::post('counts', [$counts, 'store'])->middleware('permission:inventory.counts.manage');
+    Route::put('counts/{count}', [$counts, 'update'])->middleware('permission:inventory.counts.manage');
+    Route::delete('counts/{count}', [$counts, 'destroy'])->middleware('permission:inventory.counts.manage');
+    Route::post('counts/{count}/post', [$counts, 'post'])->middleware('permission:inventory.counts.post');
+
+    // الجودة والرقابة (منطق O2): الدفعات، الإنتاجية اليومية، الإتلاف، الشاورما، قالب القسم، التقارير.
+    // المستندات الجديدة (تفريك، إنتاج، أسياخ، مبيعات معرض) تمر من مسارات documents بصلاحياتها.
+    $quality = \App\Http\Controllers\Api\Inventory\QualityController::class;
+    Route::patch('documents/{document}/delivery', [$documents, 'delivery'])->middleware('permission:inventory.documents.manage');
+    Route::prefix('quality')->group(function () use ($quality) {
+        Route::get('batches', [$quality, 'batches']);
+        Route::get('productivity', [$quality, 'productivity']);
+        Route::post('daily-count', [$quality, 'dailyCount'])->middleware('permission:inventory.counts.manage');
+        Route::get('waste-minutes', [$quality, 'wasteMinutes']);
+        Route::get('shawarma', [$quality, 'shawarma']);
+        Route::post('skewers/{batch}/export', [$quality, 'exportSkewer'])->middleware('permission:inventory.documents.post');
+        Route::get('department-settings', [$quality, 'departmentSettings']);
+        Route::put('department-settings', [$quality, 'saveDepartmentSetting'])->middleware('permission:inventory.warehouses.manage');
+        Route::get('reports/{kind}', [$quality, 'report'])->middleware('permission:inventory.analytics.view');
+    });
+
+    // تحليلات المخزون: بيانات مجمّعة جاهزة للعرض والتصدير.
+    $analytics = \App\Http\Controllers\Api\Inventory\InventoryAnalyticsController::class;
+    Route::middleware('permission:inventory.analytics.view')->prefix('analytics')->group(function () use ($analytics) {
+        Route::get('overview', [$analytics, 'overview']);
+        Route::get('variance', [$analytics, 'variance']);
+        Route::get('item-series', [$analytics, 'itemSeries']);
+        Route::get('ingredient', [$analytics, 'ingredient']);
+        Route::get('product', [$analytics, 'product']);
+        Route::get('export', [$analytics, 'export']);
+    });
+});

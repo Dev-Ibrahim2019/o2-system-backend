@@ -26,6 +26,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'api/*',
         ]);
 
+        // الأدوار المحصورة (storekeeper) لا تصل إلا لمسارات وحدتها — 403 لأي مسار آخر
+        $middleware->api(append: [\App\Http\Middleware\RestrictScopedRoles::class]);
+
         // ── تسجيل middleware aliases ──
         $middleware->alias([
             'role'       => \Spatie\Permission\Middleware\RoleMiddleware::class,
