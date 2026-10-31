@@ -134,6 +134,20 @@ class StockDocumentController extends InventoryController
         });
     }
 
+    /** POST /api/inventory/documents/{document}/duplicate — مسودة جديدة من مستند صرف (بلا دفعات، بتاريخ اليوم). */
+    public function duplicate(Request $request, StockDocument $document): JsonResponse
+    {
+        if ($denied = $this->denyUnlessCanAccess($request, Warehouse::findOrFail($document->warehouse_id))) {
+            return $denied;
+        }
+
+        return $this->attempt(fn () => $this->success(
+            'تم إنشاء مسودة مكرّرة',
+            $this->present($request, $this->documents->duplicate($document, $request->user())),
+            201,
+        ));
+    }
+
     /** POST /api/inventory/documents/{document}/post */
     public function post(Request $request, StockDocument $document): JsonResponse
     {

@@ -928,6 +928,7 @@ Route::middleware(['auth:sanctum', 'permission:inventory.access'])->prefix('inve
     Route::put('documents/{document}', [$documents, 'update'])->middleware('permission:inventory.documents.manage');
     Route::delete('documents/{document}', [$documents, 'destroy'])->middleware('permission:inventory.documents.manage');
     Route::post('documents/{document}/post', [$documents, 'post'])->middleware('permission:inventory.documents.post');
+    Route::post('documents/{document}/duplicate', [$documents, 'duplicate'])->middleware('permission:inventory.documents.manage');
     Route::post('documents/{document}/reverse', [$documents, 'reverse'])->middleware('permission:inventory.documents.reverse');
 
     Route::get('items/{item}/suppliers', [$supplierItems, 'index']);

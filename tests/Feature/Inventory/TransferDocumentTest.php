@@ -201,4 +201,47 @@ class TransferDocumentTest extends TestCase
         $this->actingAs($manager)->postJson("/api/inventory/documents/{$id}/reverse", ['reason' => 'خطأ'])->assertOk()
             ->assertJsonPath('data.status', 'reversed');
     }
+
+    // ── التكرار ───────────────────────────────────────────────────────────────
+
+    public function test_duplicate_creates_a_dated_today_draft_without_batches_or_receipt(): void
+    {
+        $this->seedStock($this->store, '5000', '0.04');
+        $batch = \App\Models\StockBatch::create([
+            'stock_item_id' => $this->meat->id, 'source' => 'receipt', 'sequence' => 1, 'code' => 'RM-MEAT1',
+            'quantity' => 0, 'expiry_date' => now()->addMonth()->toDateString(),
+        ]);
+        $kg = $this->unit('كيلوغرام')->id;
+        $id = $this->transfer([
+            ['stock_item_id' => $this->meat->id, 'quantity' => 1.5, 'unit_id' => $kg, 'notes' => 'للشاورما'],
+        ], ['destination' => 'قسم الشاورما', 'notes' => 'صرف صباحي', 'document_date' => now()->subDays(3)->toDateString()])->json('data.id');
+        StockDocument::find($id)->lines()->update(['batch_id' => $batch->id]);
+
+        $copy = $this->actingAs($this->admin)->postJson("/api/inventory/documents/{$id}/duplicate")->assertCreated()->json('data');
+
+        $this->assertNotSame($id, $copy['id']);
+        $this->assertSame('draft', $copy['status']);
+        $this->assertSame($this->store->id, $copy['warehouse_id']);
+        $this->assertSame($this->kitchen->id, $copy['to_warehouse_id']);
+        $this->assertSame('قسم الشاورما', $copy['destination']);
+        $this->assertSame('صرف صباحي', $copy['notes']);
+        $this->assertNotSame(StockDocument::find($id)->document_date->toDateString(), $copy['document_date']);
+        $this->assertNull($copy['received_at']);
+        $this->assertSame('undelivered', $copy['delivery_status']);
+        $this->assertCount(1, $copy['lines']);
+        $this->assertSame('1.500000', $copy['lines'][0]['quantity']);
+        $this->assertSame($kg, $copy['lines'][0]['unit_id']);
+        $this->assertSame('للشاورما', $copy['lines'][0]['notes']);
+        $this->assertNull($copy['lines'][0]['batch_id']);
+
+        // غير الصرف لا يُكرَّر، ولا يُكرّر من لا يصل لمخزن المصدر
+        $waste = $this->actingAs($this->admin)->postJson('/api/inventory/documents', [
+            'type' => 'waste', 'warehouse_id' => $this->store->id,
+            'lines' => [['stock_item_id' => $this->meat->id, 'quantity' => 1, 'waste_reason' => 'expired']],
+        ])->json('data.id');
+        $this->actingAs($this->admin)->postJson("/api/inventory/documents/{$waste}/duplicate")->assertStatus(422);
+        $outsider = $this->user(['inventory.access', 'inventory.documents.manage']);
+        $this->kitchen->users()->attach($outsider->id, ['created_at' => now()]);
+        $this->actingAs($outsider)->postJson("/api/inventory/documents/{$id}/duplicate")->assertForbidden();
+    }
 }

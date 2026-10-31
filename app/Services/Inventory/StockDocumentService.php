@@ -62,6 +62,33 @@ class StockDocumentService
         });
     }
 
+    /**
+     * تكرار مستند صرف كمسودة جديدة: المخزنان والجهة والملاحظات والأصناف بكمياتها ووحداتها،
+     * بتاريخ اليوم وبلا دفعات (أرصدة الدفعات تغيّرت، فتُختار من جديد).
+     */
+    public function duplicate(StockDocument $doc, User $by): StockDocument
+    {
+        if ($doc->type !== StockDocument::TYPE_TRANSFER) {
+            throw new InventoryRuleException('التكرار لمستندات الصرف فقط.');
+        }
+        $doc->loadMissing('lines');
+
+        return $this->create([
+            'type' => $doc->type,
+            'warehouse_id' => $doc->warehouse_id,
+            'to_warehouse_id' => $doc->to_warehouse_id,
+            'destination' => $doc->destination,
+            'notes' => $doc->notes,
+            'document_date' => null,
+            'lines' => $doc->lines->map(fn ($l) => [
+                'stock_item_id' => $l->stock_item_id,
+                'unit_id' => $l->unit_id,
+                'quantity' => (string) $l->quantity,
+                'notes' => $l->notes,
+            ])->all(),
+        ], $by);
+    }
+
     public function delete(StockDocument $doc): void
     {
         DB::transaction(fn () => $this->lockDraft($doc)->delete());
