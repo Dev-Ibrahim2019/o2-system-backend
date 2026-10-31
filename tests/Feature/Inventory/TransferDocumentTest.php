@@ -202,6 +202,19 @@ class TransferDocumentTest extends TestCase
             ->assertJsonPath('data.status', 'reversed');
     }
 
+    // ── رقم المرجع ────────────────────────────────────────────────────────────
+
+    public function test_reference_number_is_saved_and_searchable(): void
+    {
+        $id = $this->transfer([['stock_item_id' => $this->meat->id, 'quantity' => 1]], ['reference_no' => 'REQ-SHW-0412'])
+            ->assertCreated()->assertJsonPath('data.reference_no', 'REQ-SHW-0412')->json('data.id');
+        $this->transfer([['stock_item_id' => $this->meat->id, 'quantity' => 1]])->assertCreated();
+
+        $found = $this->actingAs($this->admin)->getJson('/api/inventory/documents?type=transfer&search=SHW-04')->assertOk()->json('data.data');
+        $this->assertSame([$id], array_column($found, 'id'));
+        $this->assertSame('REQ-SHW-0412', $found[0]['reference_no']);
+    }
+
     // ── التكرار ───────────────────────────────────────────────────────────────
 
     public function test_duplicate_creates_a_dated_today_draft_without_batches_or_receipt(): void

@@ -60,7 +60,7 @@ class StockDocument extends Model
 
     protected $fillable = [
         'type', 'warehouse_id', 'to_warehouse_id', 'supplier_id', 'supplier_invoice_no',
-        'document_date', 'notes', 'created_by', 'destination', 'delivery_status',
+        'document_date', 'notes', 'created_by', 'destination', 'delivery_status', 'reference_no',
     ];
 
     protected $casts = [

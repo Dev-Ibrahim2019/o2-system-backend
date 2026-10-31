@@ -63,7 +63,8 @@ class StockDocumentController extends InventoryController
             ->when($request->filled('to'), fn ($q) => $q->where('document_date', '<=', $request->query('to')))
             ->when($search !== '', fn ($q) => $q->where(fn ($w) => $w
                 ->where('number', 'like', "%{$search}%")
-                ->orWhere('supplier_invoice_no', 'like', "%{$search}%")))
+                ->orWhere('supplier_invoice_no', 'like', "%{$search}%")
+                ->orWhere('reference_no', 'like', "%{$search}%")))
             ->orderByDesc('document_date')
             ->orderByDesc('id')
             ->paginate(min(max($request->integer('per_page', 25), 1), 100));
@@ -187,6 +188,7 @@ class StockDocumentController extends InventoryController
             'to_warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'supplier_id' => ['nullable', 'integer', 'exists:suppliers,id'],
             'supplier_invoice_no' => ['nullable', 'string', 'max:64'],
+            'reference_no' => ['nullable', 'string', 'max:64'],
             'document_date' => ['nullable', 'date_format:Y-m-d'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'lines' => ['required', 'array', 'min:1', 'max:300'],
