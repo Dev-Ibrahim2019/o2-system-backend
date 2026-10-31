@@ -125,4 +125,80 @@ class TransferDocumentTest extends TestCase
         $this->assertSame('1000.000000', StockBalance::where('warehouse_id', $this->store->id)->value('quantity'));
         $this->assertSame(0, StockMovement::where('source_type', 'stock_document')->count());
     }
+
+    // ── تأكيد الاستلام ────────────────────────────────────────────────────────
+
+    private function postedTransfer(): int
+    {
+        $this->seedStock($this->store, '5000', '0.04');
+        $id = $this->transfer([['stock_item_id' => $this->meat->id, 'quantity' => 1000]], ['delivery_status' => 'delivered'])->json('data.id');
+        $this->postDoc($id)->assertOk();
+
+        return $id;
+    }
+
+    private function receive(int $id, User $as): TestResponse
+    {
+        return $this->actingAs($as)->patchJson("/api/inventory/documents/{$id}/delivery", ['delivery_status' => 'delivered']);
+    }
+
+    public function test_new_transfer_starts_unreceived_and_draft_cannot_be_received(): void
+    {
+        $id = $this->transfer([['stock_item_id' => $this->meat->id, 'quantity' => 1]], ['delivery_status' => 'delivered'])
+            ->assertCreated()->assertJsonPath('data.delivery_status', 'undelivered')->assertJsonPath('data.received_at', null)->json('data.id');
+
+        $this->receive($id, $this->admin)->assertStatus(422);
+    }
+
+    public function test_receipt_confirmation_requires_edit_access_on_the_destination_warehouse(): void
+    {
+        $id = $this->postedTransfer();
+        $perms = ['inventory.access', 'inventory.documents.manage'];
+
+        $sourceKeeper = $this->user($perms);
+        $this->store->users()->attach($sourceKeeper->id, ['created_at' => now()]);
+        $viewer = $this->user($perms);
+        $this->kitchen->users()->attach($viewer->id, ['created_at' => now(), 'access_level' => 'view']);
+        $deptKeeper = $this->user($perms);
+        $this->kitchen->users()->attach($deptKeeper->id, ['created_at' => now(), 'access_level' => 'edit']);
+
+        $this->receive($id, $sourceKeeper)->assertForbidden();
+        $this->receive($id, $viewer)->assertForbidden();
+        $this->assertNull(StockDocument::find($id)->received_at);
+        $this->assertFalse($this->actingAs($viewer)->getJson("/api/inventory/documents/{$id}")->json('data.can_receive'));
+        $this->assertTrue($this->actingAs($deptKeeper)->getJson("/api/inventory/documents/{$id}")->json('data.can_receive'));
+
+        $balanceBefore = StockBalance::where('warehouse_id', $this->kitchen->id)->value('quantity');
+        $this->receive($id, $deptKeeper)->assertOk()
+            ->assertJsonPath('data.received_by', $deptKeeper->id)
+            ->assertJsonPath('data.receiver.name', $deptKeeper->name)
+            ->assertJsonPath('data.delivery_status', 'delivered')
+            ->assertJsonPath('data.can_receive', false);
+        $this->assertNotNull(StockDocument::find($id)->received_at);
+        // التأكيد توثيق فقط: لا حركة ولا تغيير رصيد
+        $this->assertSame($balanceBefore, StockBalance::where('warehouse_id', $this->kitchen->id)->value('quantity'));
+        $this->assertSame(2, StockMovement::where('source_type', 'stock_document')->count());
+
+        $this->receive($id, $deptKeeper)->assertStatus(422);
+        $this->actingAs($this->admin)->patchJson("/api/inventory/documents/{$id}/delivery", ['delivery_status' => 'undelivered'])->assertStatus(422);
+
+        $ids = array_column($this->actingAs($this->admin)->getJson('/api/inventory/documents?type=transfer&received=1')->json('data.data'), 'id');
+        $this->assertSame([$id], $ids);
+        $this->assertSame([], $this->actingAs($this->admin)->getJson('/api/inventory/documents?type=transfer&received=0')->json('data.data'));
+    }
+
+    public function test_received_transfer_can_be_reversed_only_with_reverse_received_permission(): void
+    {
+        $id = $this->postedTransfer();
+        $this->receive($id, $this->admin)->assertOk();
+        $this->assertFalse($this->actingAs($this->admin)->getJson("/api/inventory/documents/{$id}")->json('data.can_reverse'));
+
+        $this->actingAs($this->admin)->postJson("/api/inventory/documents/{$id}/reverse", ['reason' => 'خطأ'])->assertForbidden();
+        $this->assertSame('posted', StockDocument::find($id)->status);
+
+        $manager = $this->user([...self::ADMIN, 'inventory.documents.reverse_received']);
+        $this->assertTrue($this->actingAs($manager)->getJson("/api/inventory/documents/{$id}")->json('data.can_reverse'));
+        $this->actingAs($manager)->postJson("/api/inventory/documents/{$id}/reverse", ['reason' => 'خطأ'])->assertOk()
+            ->assertJsonPath('data.status', 'reversed');
+    }
 }

@@ -67,15 +67,38 @@ class StockDocumentService
         DB::transaction(fn () => $this->lockDraft($doc)->delete());
     }
 
-    /** حالة فاتورة الصرف (مسلّمة / غير مسلّمة) والجهة — لا تمس المخزون فتُعدَّل حتى بعد الترحيل. */
-    public function updateDelivery(StockDocument $doc, ?string $status, ?string $destination): StockDocument
+    /** "الجهة" في مستند الصرف — لا تمس المخزون فتُعدَّل حتى بعد الترحيل. */
+    public function updateDestination(StockDocument $doc, ?string $destination): StockDocument
     {
         if ($doc->type !== StockDocument::TYPE_TRANSFER) {
-            throw new InventoryRuleException('حالة الفاتورة لمستندات الصرف فقط.');
+            throw new InventoryRuleException('الجهة لمستندات الصرف فقط.');
         }
-        $doc->forceFill(['delivery_status' => $status, 'destination' => $destination])->save();
+        $doc->forceFill(['destination' => $destination])->save();
 
         return $this->fresh($doc);
+    }
+
+    /**
+     * تأكيد الاستلام الفعلي في مخزن الوجهة: توثيق فقط (من ومتى)، والأرصدة تحرّكت عند الترحيل.
+     * لا يُلغى التأكيد؛ تصحيح المستلَم بعكسه (لمن يملك عكس المستلَم).
+     */
+    public function confirmReceipt(StockDocument $doc, User $by): StockDocument
+    {
+        return DB::transaction(function () use ($doc, $by) {
+            $doc = StockDocument::whereKey($doc->id)->lockForUpdate()->firstOrFail();
+            if ($doc->type !== StockDocument::TYPE_TRANSFER) {
+                throw new InventoryRuleException('تأكيد الاستلام لمستندات الصرف فقط.');
+            }
+            if ($doc->status !== StockDocument::STATUS_POSTED) {
+                throw new InventoryRuleException('يُؤكَّد استلام مستند مرحّل فقط.');
+            }
+            if ($doc->isReceived()) {
+                throw new InventoryRuleException('استلام هذا المستند مؤكَّد مسبقاً.');
+            }
+            $doc->forceFill(['received_by' => $by->id, 'received_at' => now(), 'delivery_status' => 'delivered'])->save();
+
+            return $this->fresh($doc);
+        });
     }
 
     public function post(StockDocument $doc, User $by): StockDocument
@@ -584,7 +607,8 @@ class StockDocumentService
             $data['to_warehouse_id'] = null;
         }
         if ($type === StockDocument::TYPE_TRANSFER) {
-            $data['delivery_status'] = ($data['delivery_status'] ?? null) ?: 'undelivered';
+            // المسودة غير مستلَمة دائماً؛ الاستلام يُؤكَّد بعد الترحيل من مخزن الوجهة (confirmReceipt).
+            $data['delivery_status'] = 'undelivered';
         } else {
             $data['delivery_status'] = null;
             $data['destination'] = null;
@@ -793,7 +817,7 @@ class StockDocumentService
             'lines.stockItem:id,code,name,base_unit_id,tracks_expiry', 'lines.stockItem.baseUnit:id,name', 'lines.unit:id,name',
             'lines.batch:id,code,expiry_date', 'lines.createdBatch:id,code,expiry_date',
             'warehouse:id,name,code', 'toWarehouse:id,name,code', 'supplier:id,name,code',
-            'creator:id,name', 'poster:id,name', 'reverser:id,name',
+            'creator:id,name', 'poster:id,name', 'reverser:id,name', 'receiver:id,name',
         ]);
     }
 }

@@ -69,6 +69,7 @@ class StockDocument extends Model
         'revenue' => 'decimal:6',
         'posted_at' => 'datetime',
         'reversed_at' => 'datetime',
+        'received_at' => 'datetime',
     ];
 
     public function lines(): HasMany
@@ -109,6 +110,17 @@ class StockDocument extends Model
     public function reverser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reversed_by');
+    }
+
+    /** من أكّد الاستلام الفعلي في مخزن الوجهة (مستند الصرف). */
+    public function receiver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'received_by');
+    }
+
+    public function isReceived(): bool
+    {
+        return $this->received_at !== null;
     }
 
     public function isDraft(): bool

@@ -22,6 +22,9 @@ class StockDocumentController extends InventoryController
 
     private const LINE_COST_FIELDS = ['unit_cost', 'posted_cost'];
 
+    /** عكس مستند صرف بعد تأكيد استلامه (migration 2027_03_08_000001). */
+    private const REVERSE_RECEIVED = 'inventory.documents.reverse_received';
+
     public function __construct(private StockDocumentService $documents, private WarehouseAccess $access) {}
 
     /** GET /api/inventory/documents/meta — الأنواع وأسباب الهالك والموردون النشطون. */
@@ -41,7 +44,7 @@ class StockDocumentController extends InventoryController
         $search = trim((string) $request->query('search', ''));
 
         $page = StockDocument::query()
-            ->with(['warehouse:id,name', 'toWarehouse:id,name', 'supplier:id,name', 'creator:id,name'])
+            ->with(['warehouse:id,name', 'toWarehouse:id,name', 'supplier:id,name', 'creator:id,name', 'receiver:id,name'])
             ->withCount('lines')
             ->when(! $this->access->hasGlobalAccess($user), function ($q) use ($user) {
                 $ids = $this->access->assignedIds($user);
@@ -53,6 +56,9 @@ class StockDocumentController extends InventoryController
                 ->where('warehouse_id', $request->integer('warehouse_id'))
                 ->orWhere('to_warehouse_id', $request->integer('warehouse_id'))))
             ->when($request->filled('supplier_id'), fn ($q) => $q->where('supplier_id', $request->integer('supplier_id')))
+            ->when($request->filled('received'), fn ($q) => $request->boolean('received')
+                ? $q->whereNotNull('received_at')
+                : $q->whereNull('received_at'))
             ->when($request->filled('from'), fn ($q) => $q->where('document_date', '>=', $request->query('from')))
             ->when($request->filled('to'), fn ($q) => $q->where('document_date', '<=', $request->query('to')))
             ->when($search !== '', fn ($q) => $q->where(fn ($w) => $w
@@ -77,7 +83,7 @@ class StockDocumentController extends InventoryController
             'lines.stockItem:id,code,name,base_unit_id,tracks_expiry', 'lines.stockItem.baseUnit:id,name', 'lines.unit:id,name',
             'lines.batch:id,code,expiry_date', 'lines.createdBatch:id,code,expiry_date',
             'warehouse:id,name,code', 'toWarehouse:id,name,code', 'supplier:id,name,code',
-            'creator:id,name', 'poster:id,name', 'reverser:id,name',
+            'creator:id,name', 'poster:id,name', 'reverser:id,name', 'receiver:id,name',
         ]);
 
         return $this->success('تم', $this->present($request, $document));
@@ -148,6 +154,9 @@ class StockDocumentController extends InventoryController
         if ($denied = $this->denyUnlessCanAccess($request, Warehouse::findOrFail($document->warehouse_id))) {
             return $denied;
         }
+        if ($document->isReceived() && ! $request->user()->can(self::REVERSE_RECEIVED)) {
+            return $this->error('استلام هذا المستند مؤكَّد — عكسه يحتاج صلاحية المدير.', 403);
+        }
 
         return $this->attempt(fn () => $this->success(
             'تم عكس المستند',
@@ -186,19 +195,37 @@ class StockDocumentController extends InventoryController
         ];
     }
 
-    /** PATCH /api/inventory/documents/{document}/delivery {delivery_status, destination?} — حالة فاتورة الصرف. */
+    /**
+     * PATCH /api/inventory/documents/{document}/delivery {delivery_status?: delivered, destination?}
+     *
+     * delivered = تأكيد الاستلام الفعلي: لمن له مستوى "تعديل" على مخزن الوجهة فقط، ويخزّن من استلم ومتى.
+     * لا يُلغى التأكيد (undelivered مرفوضة بعد الاستلام). الجهة وحدها تُعدَّل بصلاحية مخزن المصدر.
+     */
     public function delivery(Request $request, StockDocument $document): JsonResponse
     {
         $data = $this->validateAr($request, [
-            'delivery_status' => ['required', Rule::in(['delivered', 'undelivered'])],
+            'delivery_status' => ['nullable', Rule::in(['delivered', 'undelivered'])],
             'destination' => ['nullable', 'string', 'max:150'],
         ]);
+        $status = $data['delivery_status'] ?? null;
+
+        if ($status === 'delivered') {
+            if (! $document->to_warehouse_id || ! $this->access->canEdit($request->user(), $document->to_warehouse_id)) {
+                return $this->error('تأكيد الاستلام لمن له صلاحية على مخزن الوجهة فقط.', 403);
+            }
+
+            return $this->attempt(fn () => $this->success('تم تأكيد الاستلام',
+                $this->present($request, $this->documents->confirmReceipt($document, $request->user()))));
+        }
+        if ($status === 'undelivered' && $document->isReceived()) {
+            return $this->error('لا يُلغى تأكيد الاستلام. صحّح المستند بعكسه.', 422);
+        }
         if ($denied = $this->denyUnlessCanAccess($request, Warehouse::findOrFail($document->warehouse_id))) {
             return $denied;
         }
 
-        return $this->attempt(fn () => $this->success('تم تحديث حالة الفاتورة', $this->present($request,
-            $this->documents->updateDelivery($document, $data['delivery_status'], $data['destination'] ?? $document->destination))));
+        return $this->attempt(fn () => $this->success('تم التحديث', $this->present($request,
+            $this->documents->updateDestination($document, array_key_exists('destination', $data) ? $data['destination'] : $document->destination))));
     }
 
     private function denyUnlessCanSee(Request $request, StockDocument $document): ?JsonResponse
@@ -227,6 +254,14 @@ class StockDocumentController extends InventoryController
             'costs_visible' => $showCosts,
             'breakdown' => $withLines ? $this->documents->breakdownStats($doc) : null,
         ];
+        if ($withLines) {
+            // ما يظهر من أزرار في عرض المستند يحسبه الخادم (الواجهة لا ترى ربط المستخدم بمخزن الوجهة).
+            $posted = $doc->status === StockDocument::STATUS_POSTED;
+            $row['can_receive'] = $posted && $doc->type === StockDocument::TYPE_TRANSFER && ! $doc->isReceived()
+                && $doc->to_warehouse_id && $user->can('inventory.documents.manage') && $this->access->canEdit($user, $doc->to_warehouse_id);
+            $row['can_reverse'] = $posted && $user->can('inventory.documents.reverse')
+                && (! $doc->isReceived() || $user->can(self::REVERSE_RECEIVED));
+        }
         if (! $withLines) {
             unset($row['lines']);
         }
