@@ -248,6 +248,7 @@ class StockDocumentService
     /**
      * الصرف/التحويل: صادر من المصدر بمتوسط تكلفته (ومن الدفعة المختارة)، ثم وارد للوجهة بالتكلفة نفسها
      * وبالدفعة نفسها، فتنتقل القيمة كما هي ويتبع رصيد الدفعة الكمية إلى مخزن القسم.
+     * الصرف لا يتجاوز رصيد المصدر أبداً مهما كانت سياسة الرصيد السالب: لا يُنقل ما ليس موجوداً.
      */
     private function postTransfer(StockDocument $doc, CarbonInterface $at, User $by): string
     {
@@ -265,7 +266,7 @@ class StockDocumentService
             idempotencyKey: $this->key($doc, $l->id, 'out'),
             notes: $this->notes($doc, $l->notes),
             batchId: $l->batch_id,
-        ))->all(), $by);
+        ))->all(), $by, false);
 
         // الوارد بالوحدة الأساسية وبتكلفة الوحدة الأساسية كما سُجّل الصادر.
         $this->ledger->postMany($lines->map(fn ($l, $i) => new StockMovementLine(

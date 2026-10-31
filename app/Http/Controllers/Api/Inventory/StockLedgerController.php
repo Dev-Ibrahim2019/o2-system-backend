@@ -23,6 +23,46 @@ class StockLedgerController extends InventoryController
 {
     public function __construct(private StockLedger $ledger, private WarehouseAccess $access) {}
 
+    /**
+     * GET /api/inventory/items/{item}/stock?warehouse_id=
+     *
+     * رصيد صنف واحد في مخزن واحد بنداء خفيف لسطر المستند: الرصيد ومتوسط التكلفة بالوحدة الأساسية،
+     * ووحدات الصنف بمعاملاتها (لتحويل الرصيد للوحدة المختارة في الواجهة)، ودفعاته المتاحة.
+     */
+    public function itemStock(Request $request, StockItem $item): JsonResponse
+    {
+        $data = $this->validateAr($request, ['warehouse_id' => ['required', 'integer', 'exists:warehouses,id']]);
+        $warehouse = Warehouse::findOrFail($data['warehouse_id']);
+        if ($denied = $this->denyUnlessCanAccess($request, $warehouse)) {
+            return $denied;
+        }
+        $item->load(['baseUnit:id,name', 'units.unit:id,name']);
+        $balance = DB::table('stock_balances')->where('warehouse_id', $warehouse->id)->where('stock_item_id', $item->id)->first(['quantity', 'avg_cost']);
+        $batches = DB::table('stock_batch_balances as bb')
+            ->join('stock_batches as b', 'b.id', '=', 'bb.batch_id')
+            ->where('bb.warehouse_id', $warehouse->id)
+            ->where('b.stock_item_id', $item->id)
+            ->where('bb.quantity', '>', 0)
+            ->orderByRaw('b.expiry_date IS NULL, b.expiry_date')
+            ->orderBy('b.id')
+            ->get(['b.id', 'b.code', 'bb.quantity as qty', 'b.expiry_date as expiry']);
+
+        return $this->success('تم', [
+            'stock_item_id' => $item->id,
+            'code' => $item->code,
+            'name' => $item->name,
+            'tracks_expiry' => (bool) $item->tracks_expiry,
+            'qty' => (string) ($balance->quantity ?? '0'),
+            'unit' => $item->baseUnit?->name,
+            'avg_cost' => CostVisibility::canView($request->user()) ? (string) ($balance->avg_cost ?? '0') : null,
+            'units' => [
+                ['id' => (int) $item->base_unit_id, 'name' => $item->baseUnit?->name, 'factor' => '1'],
+                ...$item->units->map(fn ($u) => ['id' => (int) $u->unit_id, 'name' => $u->unit?->name, 'factor' => (string) $u->factor])->all(),
+            ],
+            'batches' => $batches,
+        ]);
+    }
+
     /** GET /api/inventory/balances?warehouse_id=&search=&category_id=&nonzero=1&per_page= */
     public function balances(Request $request): JsonResponse
     {

@@ -910,6 +910,7 @@ Route::middleware(['auth:sanctum', 'permission:inventory.access'])->prefix('inve
 
     Route::get('balances', [$ledger, 'balances']);
     Route::get('kardex', [$ledger, 'kardex']);
+    Route::get('items/{item}/stock', [$ledger, 'itemStock']);
     Route::post('movements/opening', [$ledger, 'opening'])->middleware('permission:inventory.movements.opening');
     Route::post('movements/{movement}/reverse', [$ledger, 'reverse'])->middleware('permission:inventory.movements.reverse');
 
