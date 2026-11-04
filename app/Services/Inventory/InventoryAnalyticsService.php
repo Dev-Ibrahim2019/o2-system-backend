@@ -599,37 +599,6 @@ class InventoryAnalyticsService
             }
         }
 
-        // إنتاج المصانع: المفترض من مخزن المواد = الوزن المنتج × وصفة المنتج (لكل وحدة أساسية منه).
-        // المنتج هنا صنف مخزني فمفتاحه "s{id}" حتى لا يختلط بأصناف المنيو.
-        if ($productId === null) {
-            $production = DB::table('stock_documents as d')
-                ->join('stock_document_lines as l', 'l.stock_document_id', '=', 'd.id')
-                ->join('stock_batches as b', 'b.id', '=', 'l.created_batch_id')
-                ->where('d.type', 'production')->where('d.status', 'posted')
-                ->whereBetween('d.document_date', [$f['from'], $f['to']])
-                ->get(['d.warehouse_id', 'd.document_date', 'l.stock_item_id', 'b.quantity']);
-            foreach ($production as $r) {
-                $w = (int) $r->warehouse_id;
-                if ($allowedW !== null && ! isset($allowedW[$w])) {
-                    continue;
-                }
-                $day = substr((string) $r->document_date, 0, 10);
-                $p = 's'.$r->stock_item_id;
-                $sold["{$w}|{$p}|{$day}"] = $this->add($sold["{$w}|{$p}|{$day}"] ?? '0', (string) $r->quantity);
-                $recipe = $this->bookVersion("s:{$r->stock_item_id}", $day);
-                if (! $recipe) {
-                    continue;
-                }
-                foreach ($this->explodeCached($recipe, $day) as $i => $perUnit) {
-                    if ($allowedI !== null && ! isset($allowedI[$i])) {
-                        continue;
-                    }
-                    $key = "{$w}|{$p}|{$i}|{$day}";
-                    $contrib[$key] = $this->add($contrib[$key] ?? '0', bcmul((string) $r->quantity, $perUnit, self::S));
-                }
-            }
-        }
-
         return ['contrib' => $contrib, 'sold' => $sold, 'unrecipe' => $unrecipe, 'unattributed' => $unattributed];
     }
 

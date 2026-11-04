@@ -25,7 +25,5 @@ final class StockMovementLine
         public readonly ?int $sourceId = null,
         public readonly ?string $idempotencyKey = null,
         public readonly ?string $notes = null,
-        /** الدفعة: الصادر لا يتجاوز رصيدها في المخزن، والوارد يُضاف لرصيدها فيه. */
-        public readonly ?int $batchId = null,
     ) {}
 }

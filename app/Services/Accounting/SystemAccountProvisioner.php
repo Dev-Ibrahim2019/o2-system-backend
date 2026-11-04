@@ -41,6 +41,22 @@ class SystemAccountProvisioner
         );
     }
 
+    /**
+     * مشتريات المواد (فاتورة المشتريات الموحّدة). مصروف لا أصل: حركات المخزون (صرف، إتلاف، جرد) لا ترحّل
+     * قيوداً بعد، فحساب "مخزون" كان سيتضخّم بلا مقابل. يُستبدل بحساب المخزون حين تُبنى قيود تكلفة الاستهلاك.
+     * (5120 محجوز في دليل الحسابات لمصروف التأمينات.)
+     */
+    public function ensurePurchasesAccount(): Account
+    {
+        return $this->ensureAccount('5310', 'مشتريات المواد', 'Materials Purchases', 'expense', 'debit', '5');
+    }
+
+    /** ضريبة المدخلات القابلة للخصم (ضريبة مشتريات من مورّد مسجّل). */
+    public function ensureInputVatAccount(): Account
+    {
+        return $this->ensureAccount('1150', 'ضريبة المدخلات', 'Input VAT', 'asset', 'debit', '11');
+    }
+
     private function ensureAccount(
         string $code,
         string $name,

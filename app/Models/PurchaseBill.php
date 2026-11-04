@@ -17,6 +17,9 @@ class PurchaseBill extends Model
         'status', 'subtotal', 'tax_total', 'discount', 'total', 'paid_amount',
         'reference', 'notes', 'branch_id', 'journal_entry_id',
         'created_by', 'approved_by', 'approved_at',
+        // فاتورة المشتريات الموحّدة (2027_03_09_000001)
+        'is_inventory', 'warehouse_id', 'supplier_invoice_no', 'exchange_rate', 'payment_mode',
+        'paid_on_post', 'cash_account_id', 'tax_recoverable',
     ];
 
     protected $casts = [
@@ -25,8 +28,19 @@ class PurchaseBill extends Model
         'discount' => 'decimal:4',
         'total' => 'decimal:4',
         'paid_amount' => 'decimal:4',
+        'paid_on_post' => 'decimal:4',
+        'exchange_rate' => 'decimal:6',
+        'is_inventory' => 'boolean',
+        'tax_recoverable' => 'boolean',
+        'bill_date' => 'date:Y-m-d',
+        'due_date' => 'date:Y-m-d',
         'approved_at' => 'datetime',
+        'posted_at' => 'datetime',
+        'reversed_at' => 'datetime',
     ];
+
+    /** حالات الفاتورة المرحّلة (لها استلام وقيد). "متأخرة" تُحسب من الاستحقاق ولا تُخزَّن. */
+    public const POSTED_STATUSES = ['unpaid', 'partially_paid', 'paid', 'overdue'];
 
     public static function boot()
     {
@@ -38,10 +52,11 @@ class PurchaseBill extends Model
         });
     }
 
-    public static function generateBillNumber(): string
+    /** PB-YYYY-NNNNNN للفواتير القديمة، PI-YYYY-NNNNNN لفاتورة المشتريات الموحّدة. */
+    public static function generateBillNumber(string $prefix = 'PB'): string
     {
         $year = date('Y');
-        $last = static::where('bill_number', 'like', "PB-{$year}-%")
+        $last = static::withTrashed()->where('bill_number', 'like', "{$prefix}-{$year}-%")
             ->orderByRaw("CAST(SUBSTRING(bill_number, 9) AS UNSIGNED) DESC")
             ->first();
         if ($last) {
@@ -49,7 +64,50 @@ class PurchaseBill extends Model
         } else {
             $num = 1;
         }
-        return sprintf("PB-%s-%06d", $year, $num);
+        return sprintf("%s-%s-%06d", $prefix, $year, $num);
+    }
+
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class);
+    }
+
+    public function cashAccount(): BelongsTo
+    {
+        return $this->belongsTo(Account::class, 'cash_account_id');
+    }
+
+    /** الاستلام المخزني الذي أنشأه ترحيل الفاتورة. */
+    public function stockDocument(): BelongsTo
+    {
+        return $this->belongsTo(StockDocument::class);
+    }
+
+    /** قيد الفاتورة في الدفتر العام (مخزون/مشتريات + ضريبة مدخلات / ذمم الموردين). */
+    public function transaction(): BelongsTo
+    {
+        return $this->belongsTo(Transaction::class, 'journal_entry_id');
+    }
+
+    /** سندات الصرف المربوطة (المدفوع عند الترحيل والتسديدات اللاحقة). */
+    public function vouchers(): HasMany
+    {
+        return $this->hasMany(Voucher::class);
+    }
+
+    public function poster(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'posted_by');
+    }
+
+    public function reverser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reversed_by');
+    }
+
+    public function isPosted(): bool
+    {
+        return in_array($this->status, self::POSTED_STATUSES, true);
     }
 
     public function items(): HasMany

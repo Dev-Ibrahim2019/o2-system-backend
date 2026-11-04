@@ -25,6 +25,7 @@ class InventorySettingController extends InventoryController
             'expiry_critical_days' => ['sometimes', 'integer', 'min:0', 'max:3650'],
             'showroom_max_days' => ['sometimes', 'integer', 'min:1', 'max:365'],
             'spice_grams_per_kg' => ['sometimes', 'numeric', 'min:0', 'max:1000'],
+            'price_alert_percent' => ['sometimes', 'numeric', 'min:0', 'max:1000'],
         ]);
 
         return $this->success('تم حفظ إعدادات المخزون', $this->payload(InventorySetting::set($data, $request->user()->id)));
@@ -40,6 +41,7 @@ class InventorySettingController extends InventoryController
             'expiry_critical_days' => $s->expiry_critical_days,
             'showroom_max_days' => $s->showroom_max_days,
             'spice_grams_per_kg' => (string) $s->spice_grams_per_kg,
+            'price_alert_percent' => (string) $s->price_alert_percent,
             'business_timezone' => config('inventory.business_timezone'),
             'accounting_day_start' => config('inventory.accounting_day_start'),
             'updated_at' => $s->updated_at?->toIso8601String(),

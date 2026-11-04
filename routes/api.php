@@ -931,6 +931,24 @@ Route::middleware(['auth:sanctum', 'permission:inventory.access'])->prefix('inve
     Route::post('documents/{document}/duplicate', [$documents, 'duplicate'])->middleware('permission:inventory.documents.manage');
     Route::post('documents/{document}/reverse', [$documents, 'reverse'])->middleware('permission:inventory.documents.reverse');
 
+    // فاتورة المشتريات الموحّدة: استلام مخزني + ذمة مورّد + سند صرف + قيد، في ترحيل واحد.
+    $purchases = \App\Http\Controllers\Api\Inventory\PurchaseInvoiceController::class;
+    Route::prefix('purchases')->group(function () use ($purchases) {
+        Route::get('meta', [$purchases, 'meta'])->middleware('permission:purchases.view');
+        Route::get('supplier-summary/{supplier}', [$purchases, 'supplierSummary'])->middleware('permission:purchases.view');
+        Route::get('last-prices', [$purchases, 'lastPrices'])->middleware('permission:purchases.view');
+        Route::get('check-invoice-no', [$purchases, 'checkInvoiceNo'])->middleware('permission:purchases.view');
+        Route::get('/', [$purchases, 'index'])->middleware('permission:purchases.view');
+        Route::get('{bill}', [$purchases, 'show'])->whereNumber('bill')->middleware('permission:purchases.view');
+        Route::post('/', [$purchases, 'store'])->middleware('permission:purchases.create');
+        Route::put('{bill}', [$purchases, 'update'])->whereNumber('bill')->middleware('permission:purchases.create');
+        Route::delete('{bill}', [$purchases, 'destroy'])->whereNumber('bill')->middleware('permission:purchases.create');
+        Route::post('{bill}/duplicate', [$purchases, 'duplicate'])->whereNumber('bill')->middleware('permission:purchases.create');
+        Route::post('{bill}/post', [$purchases, 'post'])->whereNumber('bill')->middleware('permission:purchases.post');
+        Route::post('{bill}/reverse', [$purchases, 'reverse'])->whereNumber('bill')->middleware('permission:purchases.reverse');
+        Route::post('{bill}/pay', [$purchases, 'pay'])->whereNumber('bill')->middleware('permission:purchases.pay');
+    });
+
     Route::get('items/{item}/suppliers', [$supplierItems, 'index']);
     Route::put('items/{item}/suppliers', [$supplierItems, 'sync'])->middleware('permission:inventory.suppliers.manage');
 

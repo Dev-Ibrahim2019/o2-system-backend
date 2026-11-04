@@ -10,9 +10,15 @@ class PurchaseBillItem extends Model
     protected $fillable = [
         'purchase_bill_id', 'product_id', 'description', 'quantity', 'unit_price',
         'tax_rate', 'tax_amount', 'discount', 'total_before_tax', 'line_total', 'account_id',
+        'line_no', 'line_kind', 'stock_item_id', 'unit_id', 'discount_pct', 'allocated_discount',
+        'expiry_date', 'stock_unit_cost',
     ];
 
     protected $casts = [
+        'discount_pct' => 'decimal:4',
+        'allocated_discount' => 'decimal:4',
+        'stock_unit_cost' => 'decimal:6',
+        'expiry_date' => 'date:Y-m-d',
         'quantity' => 'decimal:4',
         'unit_price' => 'decimal:4',
         'tax_rate' => 'decimal:2',
@@ -35,5 +41,15 @@ class PurchaseBillItem extends Model
     public function account(): BelongsTo
     {
         return $this->belongsTo(Account::class);
+    }
+
+    public function stockItem(): BelongsTo
+    {
+        return $this->belongsTo(StockItem::class);
+    }
+
+    public function unit(): BelongsTo
+    {
+        return $this->belongsTo(StockUnit::class, 'unit_id');
     }
 }

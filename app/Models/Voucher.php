@@ -17,6 +17,8 @@ class Voucher extends Model
         'entity_type',
         'entity_id',
         'entity_name',
+        'purchase_bill_id',
+        'transaction_id',
         'amount',
         'balance_before',
         'currency',

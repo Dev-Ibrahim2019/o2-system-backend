@@ -9,8 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class StockDocumentLine extends Model
 {
     protected $fillable = [
-        'line_no', 'stock_item_id', 'unit_id', 'quantity', 'unit_cost', 'waste_reason', 'notes',
-        'batch_id', 'direction', 'cartons', 'production_date', 'expiry_date', 'value_ratio', 'is_prime', 'sale_price',
+        'line_no', 'stock_item_id', 'unit_id', 'quantity', 'unit_cost', 'waste_reason', 'notes', 'cartons',
     ];
 
     protected $casts = [
@@ -18,22 +17,7 @@ class StockDocumentLine extends Model
         'unit_cost' => 'decimal:6',
         'posted_cost' => 'decimal:6',
         'cartons' => 'decimal:2',
-        'value_ratio' => 'decimal:4',
-        'sale_price' => 'decimal:6',
-        'is_prime' => 'boolean',
-        'production_date' => 'date:Y-m-d',
-        'expiry_date' => 'date:Y-m-d',
     ];
-
-    public function batch(): BelongsTo
-    {
-        return $this->belongsTo(StockBatch::class);
-    }
-
-    public function createdBatch(): BelongsTo
-    {
-        return $this->belongsTo(StockBatch::class, 'created_batch_id');
-    }
 
     public function document(): BelongsTo
     {

@@ -21,22 +21,10 @@ class StockDocument extends Model
 
     public const TYPE_WASTE = 'waste';
 
-    public const TYPE_BREAKDOWN = 'breakdown';
-
-    public const TYPE_PRODUCTION = 'production';
-
-    public const TYPE_SKEWER = 'skewer';
-
-    public const TYPE_SHOWROOM_SALE = 'showroom_sale';
-
     public const TYPES = [
         self::TYPE_RECEIPT => ['label' => 'استلام مشتريات', 'prefix' => 'GRN'],
         self::TYPE_TRANSFER => ['label' => 'صرف / تحويل مخزني', 'prefix' => 'TRF'],
         self::TYPE_WASTE => ['label' => 'إتلاف', 'prefix' => 'WST'],
-        self::TYPE_BREAKDOWN => ['label' => 'تفريك', 'prefix' => 'BRK'],
-        self::TYPE_PRODUCTION => ['label' => 'إنتاج مصنع', 'prefix' => 'PRD'],
-        self::TYPE_SKEWER => ['label' => 'إنتاج أسياخ شاورما', 'prefix' => 'SKW'],
-        self::TYPE_SHOWROOM_SALE => ['label' => 'مبيعات معرض', 'prefix' => 'SHS'],
     ];
 
     public const STATUS_DRAFT = 'draft';
@@ -66,7 +54,6 @@ class StockDocument extends Model
     protected $casts = [
         'document_date' => 'date:Y-m-d',
         'total_cost' => 'decimal:6',
-        'revenue' => 'decimal:6',
         'posted_at' => 'datetime',
         'reversed_at' => 'datetime',
         'received_at' => 'datetime',

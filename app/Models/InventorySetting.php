@@ -16,6 +16,7 @@ class InventorySetting extends Model
     protected $fillable = [
         'allow_negative_stock', 'variance_alert_percent', 'updated_by',
         'expiry_warning_days', 'expiry_critical_days', 'showroom_max_days', 'spice_grams_per_kg',
+        'price_alert_percent',
     ];
 
     protected $casts = [

@@ -85,7 +85,6 @@ class StockLedger
                 'idempotency_key' => null,
                 'notes' => mb_substr($reason, 0, 500),
                 'reversal_of_id' => (int) $locked->id,
-                'batch_id' => $locked->batch_id ? (int) $locked->batch_id : null,
             ];
 
             return $this->apply([$entry], $by, $allowNegative)[0];
@@ -178,19 +177,7 @@ class StockLedger
                 'idempotency_key' => $line->idempotencyKey,
                 'notes' => $line->notes !== null ? mb_substr($line->notes, 0, 500) : null,
                 'reversal_of_id' => null,
-                'batch_id' => $line->batchId,
             ];
-        }
-
-        // الدفعة يجب أن تكون للصنف نفسه.
-        $batchIds = array_filter(array_column($entries, 'batch_id'));
-        if ($batchIds !== []) {
-            $owners = DB::table('stock_batches')->whereIn('id', $batchIds)->pluck('stock_item_id', 'id');
-            foreach ($entries as $e) {
-                if ($e['batch_id'] && (int) ($owners[$e['batch_id']] ?? 0) !== (int) $e['stock_item_id']) {
-                    throw new InventoryRuleException("الدفعة المختارة لا تخص الصنف \"{$e['item_name']}\".");
-                }
-            }
         }
 
         return $entries;
@@ -215,19 +202,9 @@ class StockLedger
         // نُفِّذ داخل المعاملة لتعارض مع FOR UPDATE لدى عمليتين متزامنتين وأنتج Deadlock.)
         $this->ensureBalanceRows($pairs);
 
-        // أرصدة الدفعات بالطريقة نفسها: تُنشأ قبل المعاملة، وتُقفل داخلها بترتيب ثابت بعد أرصدة الأصناف.
-        $batchPairs = [];
-        foreach ($entries as $e) {
-            if (! empty($e['batch_id'])) {
-                $batchPairs[$e['batch_id'].':'.$e['warehouse_id']] = [(int) $e['batch_id'], (int) $e['warehouse_id']];
-            }
-        }
-        uasort($batchPairs, fn ($a, $b) => $a <=> $b);
-        $this->ensureBatchRows($batchPairs);
-
         // إعادة المحاولة عند Deadlock (حتى 3 مرات): المعاملة تُعاد كاملة من أرصدة مقفلة جديدة،
         // فلا يتكرر خصم ولا يضيع.
-        return DB::transaction(function () use ($entries, $pairs, $batchPairs, $by, $allowNegative) {
+        return DB::transaction(function () use ($entries, $pairs, $by, $allowNegative) {
             // قفل أسطر الأرصدة بترتيب ثابت (المخزن ثم الصنف) حتى لا تنتظر عمليتان بعضهما بالتبادل.
             $balances = [];
             foreach ($pairs as $key => [$warehouseId, $itemId]) {
@@ -238,16 +215,6 @@ class StockLedger
                     $row = $this->lockBalance($warehouseId, $itemId);
                 }
                 $balances[$key] = ['quantity' => (string) $row->quantity, 'avg_cost' => (string) $row->avg_cost];
-            }
-
-            $batchBalances = [];
-            foreach ($batchPairs as $bkey => [$batchId, $warehouseId]) {
-                $row = DB::table('stock_batch_balances')->where('batch_id', $batchId)->where('warehouse_id', $warehouseId)->lockForUpdate()->first();
-                if ($row === null) {
-                    $this->ensureBatchRows([[$batchId, $warehouseId]]);
-                    $row = DB::table('stock_batch_balances')->where('batch_id', $batchId)->where('warehouse_id', $warehouseId)->lockForUpdate()->first();
-                }
-                $batchBalances[$bkey] = (string) $row->quantity;
             }
 
             $result = [];
@@ -277,23 +244,7 @@ class StockLedger
                     ));
                 }
 
-                // الصادر من دفعة لا يتجاوز رصيدها في هذا المخزن — مهما كانت سياسة الرصيد السالب.
-                $bkey = ! empty($e['batch_id']) ? $e['batch_id'].':'.$e['warehouse_id'] : null;
-                if ($bkey !== null) {
-                    $batchAfter = bcadd($batchBalances[$bkey], $e['quantity'], UnitConverter::SCALE);
-                    if (bccomp($batchAfter, '0', UnitConverter::SCALE) < 0) {
-                        $code = DB::table('stock_batches')->where('id', $e['batch_id'])->value('code');
-                        throw new InventoryRuleException(sprintf(
-                            'رصيد الدفعة %s غير كافٍ: المتاح %s والمطلوب %s (بالوحدة الأساسية).',
-                            $code,
-                            self::trim($batchBalances[$bkey]),
-                            self::trim(bcmul($e['quantity'], '-1', UnitConverter::SCALE)),
-                        ));
-                    }
-                }
-
                 $movement = StockMovement::create([
-                    'batch_id' => $e['batch_id'] ?? null,
                     'warehouse_id' => $e['warehouse_id'],
                     'stock_item_id' => $e['stock_item_id'],
                     'type' => $e['type'],
@@ -324,20 +275,6 @@ class StockLedger
                         'updated_at' => now(),
                     ]);
 
-                if ($bkey !== null) {
-                    $batchBalances[$bkey] = bcadd($batchBalances[$bkey], $e['quantity'], UnitConverter::SCALE);
-                    DB::table('stock_batch_balances')
-                        ->where('batch_id', $e['batch_id'])
-                        ->where('warehouse_id', $e['warehouse_id'])
-                        ->update([
-                            'quantity' => $batchBalances[$bkey],
-                            // أول وصول للدفعة لهذا المخزن (مدة التخزين في المعرض تُحسب منه).
-                            'arrived_at' => DB::raw('COALESCE(arrived_at, '.DB::getPdo()->quote(
-                                \Carbon\CarbonImmutable::instance($e['occurred_at'])->utc()->toDateTimeString()).')'),
-                            'updated_at' => now(),
-                        ]);
-                }
-
                 $balances[$key] = ['quantity' => $after['quantity'], 'avg_cost' => $after['avg_cost']];
                 $result[$i] = $movement;
             }
@@ -363,19 +300,6 @@ class StockLedger
                     'quantity' => 0,
                     'avg_cost' => 0,
                     'updated_at' => now(),
-                ]);
-            }
-        }
-    }
-
-    /** @param  array<array{0: int, 1: int}>  $pairs  [batch_id, warehouse_id] */
-    private function ensureBatchRows(array $pairs): void
-    {
-        foreach ($pairs as [$batchId, $warehouseId]) {
-            $exists = DB::table('stock_batch_balances')->where('batch_id', $batchId)->where('warehouse_id', $warehouseId)->exists();
-            if (! $exists) {
-                DB::table('stock_batch_balances')->insertOrIgnore([
-                    'batch_id' => $batchId, 'warehouse_id' => $warehouseId, 'quantity' => 0, 'updated_at' => now(),
                 ]);
             }
         }

@@ -28,7 +28,7 @@ class StockDocumentTest extends TestCase
     private const ADMIN = [
         'inventory.access', 'inventory.warehouses.all', 'inventory.costs.view',
         'inventory.documents.manage', 'inventory.documents.post', 'inventory.documents.reverse',
-        'inventory.suppliers.manage', 'inventory.items.manage',
+        'inventory.suppliers.manage', 'inventory.items.manage', 'inventory.receipts.direct',
     ];
 
     private User $admin;
@@ -325,7 +325,7 @@ class StockDocumentTest extends TestCase
 
     public function test_posting_requires_post_permission(): void
     {
-        $clerk = $this->user(['inventory.access', 'inventory.warehouses.all', 'inventory.documents.manage']);
+        $clerk = $this->user(['inventory.access', 'inventory.warehouses.all', 'inventory.documents.manage', 'inventory.receipts.direct']);
         $id = $this->receipt([['stock_item_id' => $this->meat->id, 'quantity' => 1, 'unit_cost' => 1]], as: $clerk)
             ->assertCreated()->json('data.id');
 

@@ -33,30 +33,60 @@ class SupplierAccountingService
         ?string  $reference = null,
         ?int     $branchId  = null,
     ): Transaction {
+        return $this->recordPurchaseInvoice(
+            supplier: $supplier,
+            debits: [['account_id' => $expenseAccountId, 'amount' => $amount, 'description' => "مشتريات من {$supplier->name}"]],
+            date: $date,
+            reference: $reference,
+            branchId: $branchId,
+        );
+    }
+
+    /**
+     * فاتورة مورد بعدة حسابات مدينة (فاتورة المشتريات الموحّدة: مشتريات + مصاريف + ضريبة مدخلات).
+     *
+     * القيد:
+     *   مدين:  كل حساب في $debits بمبلغه
+     *   دائن:  2110 (ذمم الموردين) بمجموعها | subledger: supplier X
+     *
+     * @param  array<int, array{account_id: int, amount: float|string, description?: string}>  $debits
+     */
+    public function recordPurchaseInvoice(
+        Supplier $supplier,
+        array    $debits,
+        string   $date,
+        ?string  $reference = null,
+        ?int     $branchId  = null,
+        ?string  $description = null,
+        ?string  $sourceType = null,
+        ?int     $sourceId = null,
+    ): Transaction {
         $apAccountId = $this->getAccountId(self::AP_ACCOUNT_CODE);
+        $debits = array_values(array_filter($debits, fn ($d) => (float) $d['amount'] > 0));
+        $total = array_reduce($debits, fn ($c, $d) => bcadd($c, (string) $d['amount'], 4), '0');
 
         return $this->postingService->createAndPost(
             data: [
                 'date'        => $date,
                 'type'        => 'purchase',
                 'reference'   => $reference,
-                'description' => "فاتورة مورد: {$supplier->name}",
+                'description' => $description ?? "فاتورة مورد: {$supplier->name}",
                 'branch_id'   => $branchId,
-                'source_type' => Supplier::class,
-                'source_id'   => $supplier->id,
+                'source_type' => $sourceType ?? Supplier::class,
+                'source_id'   => $sourceId ?? $supplier->id,
                 'prefix'      => 'BILL',
             ],
             entries: [
-                [
-                    'account_id'  => $expenseAccountId,
-                    'debit'       => $amount,
+                ...array_map(fn ($d) => [
+                    'account_id'  => $d['account_id'],
+                    'debit'       => $d['amount'],
                     'credit'      => 0,
-                    'description' => "مشتريات من {$supplier->name}",
-                ],
+                    'description' => $d['description'] ?? "مشتريات من {$supplier->name}",
+                ], $debits),
                 [
                     'account_id'     => $apAccountId,
                     'debit'          => 0,
-                    'credit'         => $amount,
+                    'credit'         => $total,
                     'description'    => "دين المورد: {$supplier->name}",
                     'subledger_type' => 'supplier',
                     'subledger_id'   => $supplier->id,

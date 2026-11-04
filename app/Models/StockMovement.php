@@ -71,11 +71,6 @@ class StockMovement extends Model
         return $this->belongsTo(Warehouse::class);
     }
 
-    public function batch(): BelongsTo
-    {
-        return $this->belongsTo(StockBatch::class);
-    }
-
     public function enteredUnit(): BelongsTo
     {
         return $this->belongsTo(StockUnit::class, 'entered_unit_id');
