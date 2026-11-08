@@ -15,17 +15,14 @@ class InventorySetting extends Model
 
     protected $fillable = [
         'allow_negative_stock', 'variance_alert_percent', 'updated_by',
-        'expiry_warning_days', 'expiry_critical_days', 'showroom_max_days', 'spice_grams_per_kg',
-        'price_alert_percent',
+        'price_alert_percent', 'deduct_sales', 'deduct_sales_from',
     ];
 
     protected $casts = [
         'allow_negative_stock' => 'boolean',
+        'deduct_sales' => 'boolean',
+        'deduct_sales_from' => 'datetime',
         'variance_alert_percent' => 'decimal:2',
-        'expiry_warning_days' => 'integer',
-        'expiry_critical_days' => 'integer',
-        'showroom_max_days' => 'integer',
-        'spice_grams_per_kg' => 'decimal:3',
     ];
 
     public static function current(): self

@@ -46,7 +46,6 @@ class StockItem extends Model
         'barcode',
         'supplier_code',
         'safety_stock',
-        'tracks_expiry',
         'is_active',
         'notes',
         'created_by',
@@ -54,7 +53,6 @@ class StockItem extends Model
 
     protected $casts = [
         'is_stored' => 'boolean',
-        'tracks_expiry' => 'boolean',
         'is_active' => 'boolean',
         'safety_stock' => 'decimal:6',
         'last_cost' => 'decimal:6',

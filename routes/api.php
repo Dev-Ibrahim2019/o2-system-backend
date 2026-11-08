@@ -911,17 +911,25 @@ Route::middleware(['auth:sanctum', 'permission:inventory.access'])->prefix('inve
     Route::get('balances', [$ledger, 'balances']);
     Route::get('kardex', [$ledger, 'kardex']);
     Route::get('items/{item}/stock', [$ledger, 'itemStock']);
+    // الحركات المخزنية الموحدة (قراءة فقط): المستندات والجرد وأرصدة أول المدة.
+    $journal = \App\Http\Controllers\Api\Inventory\StockJournalController::class;
+    Route::get('journal', [$journal, 'index']);
+    Route::get('journal/opening/{movement}', [$journal, 'opening']);
+    // أرصدة المخازن في تاريخ (من دفتر الحركات): فهرس، حسب التصنيف، كشف جرد، صنف × مخزن.
+    Route::get('reports/balances', [\App\Http\Controllers\Api\Inventory\StockReportController::class, 'balances']);
     Route::post('movements/opening', [$ledger, 'opening'])->middleware('permission:inventory.movements.opening');
     Route::post('movements/{movement}/reverse', [$ledger, 'reverse'])->middleware('permission:inventory.movements.reverse');
 
     Route::get('settings', [$settings, 'show']);
     Route::put('settings', [$settings, 'update'])->middleware('permission:inventory.settings.manage');
+    Route::post('sales-deduction/retry', [$settings, 'retrySalesDeduction'])->middleware('permission:inventory.settings.manage');
 
     // المرحلة 3: مستندات الاستلام والتحويل والهالك، وموردو الأصناف.
     $documents = \App\Http\Controllers\Api\Inventory\StockDocumentController::class;
     $supplierItems = \App\Http\Controllers\Api\Inventory\SupplierItemController::class;
 
     Route::get('documents/meta', [$documents, 'meta']);
+    Route::get('documents/navigate', [$documents, 'navigate']);
     Route::get('documents', [$documents, 'index']);
     Route::get('documents/{document}', [$documents, 'show']);
     Route::post('documents', [$documents, 'store'])->middleware('permission:inventory.documents.manage');
@@ -968,22 +976,15 @@ Route::middleware(['auth:sanctum', 'permission:inventory.access'])->prefix('inve
     Route::put('counts/{count}', [$counts, 'update'])->middleware('permission:inventory.counts.manage');
     Route::delete('counts/{count}', [$counts, 'destroy'])->middleware('permission:inventory.counts.manage');
     Route::post('counts/{count}/post', [$counts, 'post'])->middleware('permission:inventory.counts.post');
+    // أدوات ورقة الجرد: إعادة الاحتساب، الأصناف غير المدرجة وإضافتها، دمج مسودات المخزن نفسه، تكرار الكشف.
+    Route::post('counts/{count}/recalculate', [$counts, 'recalculate'])->middleware('permission:inventory.counts.manage');
+    Route::get('counts/{count}/missing', [$counts, 'missing']);
+    Route::post('counts/{count}/lines', [$counts, 'addLines'])->middleware('permission:inventory.counts.manage');
+    Route::post('counts/{count}/merge', [$counts, 'merge'])->middleware('permission:inventory.counts.manage');
+    Route::post('counts/{count}/duplicate', [$counts, 'duplicate'])->middleware('permission:inventory.counts.manage');
 
-    // الجودة والرقابة (منطق O2): الدفعات، الإنتاجية اليومية، الإتلاف، الشاورما، قالب القسم، التقارير.
-    // المستندات الجديدة (تفريك، إنتاج، أسياخ، مبيعات معرض) تمر من مسارات documents بصلاحياتها.
-    $quality = \App\Http\Controllers\Api\Inventory\QualityController::class;
+    // تأكيد استلام الصرفية في مخزن الوجهة.
     Route::patch('documents/{document}/delivery', [$documents, 'delivery'])->middleware('permission:inventory.documents.manage');
-    Route::prefix('quality')->group(function () use ($quality) {
-        Route::get('batches', [$quality, 'batches']);
-        Route::get('productivity', [$quality, 'productivity']);
-        Route::post('daily-count', [$quality, 'dailyCount'])->middleware('permission:inventory.counts.manage');
-        Route::get('waste-minutes', [$quality, 'wasteMinutes']);
-        Route::get('shawarma', [$quality, 'shawarma']);
-        Route::post('skewers/{batch}/export', [$quality, 'exportSkewer'])->middleware('permission:inventory.documents.post');
-        Route::get('department-settings', [$quality, 'departmentSettings']);
-        Route::put('department-settings', [$quality, 'saveDepartmentSetting'])->middleware('permission:inventory.warehouses.manage');
-        Route::get('reports/{kind}', [$quality, 'report'])->middleware('permission:inventory.analytics.view');
-    });
 
     // تحليلات المخزون: بيانات مجمّعة جاهزة للعرض والتصدير.
     $analytics = \App\Http\Controllers\Api\Inventory\InventoryAnalyticsController::class;

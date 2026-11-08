@@ -15,6 +15,9 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Event;
 use App\Events\OrderPaid;
 use App\Listeners\GrantLoyaltyPoints;
+use App\Models\Order;
+use App\Services\Inventory\SaleConsumptionService;
+use Illuminate\Support\Facades\DB;
 use App\Policies\CallCenterPaymentPolicy;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -51,5 +54,16 @@ class AppServiceProvider extends ServiceProvider
         // the project's other cross-cutting hooks (Supplier::observe in
         // AccountingServiceProvider) are wired the same explicit way.
         Event::listen(OrderPaid::class, GrantLoyaltyPoints::class);
+
+        // خصم المخزون حسب الوصفات عند الدفع (لا يوقف البيع أبداً): DeductStockForPaidOrder يُسجَّل تلقائياً
+        // باكتشاف المستمعين في app/Listeners (php artisan event:list) — تسجيله هنا أيضاً كان يشغّله مرتين.
+        // وعكسه عند إلغاء أو استرجاع طلب مدفوع:
+        Order::updated(function (Order $order) {
+            $cancelled = $order->wasChanged('status') && $order->status === 'cancelled';
+            $refunded = $order->wasChanged('payment_status') && $order->payment_status === Order::PAYMENT_STATUS_REFUNDED;
+            if ($cancelled || $refunded) {
+                DB::afterCommit(fn () => app(SaleConsumptionService::class)->reverse($order, $cancelled ? 'إلغاء الطلب' : 'استرجاع الطلب'));
+            }
+        });
     }
 }

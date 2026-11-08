@@ -33,6 +33,16 @@ class WarehouseController extends InventoryController
             ->orderBy('name')
             ->get();
 
+        // أمناء كل مخزن (مستوى "تعديل") — يُعرضون في رأس الصرفية بجانب المخزن.
+        $keepers = DB::table('warehouse_user as wu')
+            ->join('users as u', 'u.id', '=', 'wu.user_id')
+            ->whereIn('wu.warehouse_id', $list->pluck('id'))
+            ->where('wu.access_level', 'edit')
+            ->orderBy('u.name')
+            ->get(['wu.warehouse_id', 'u.name'])
+            ->groupBy('warehouse_id');
+        $list->each(fn (Warehouse $w) => $w->setAttribute('keepers', $keepers->get($w->id)?->pluck('name')->values()->all() ?? []));
+
         return $this->success('تم', $list);
     }
 
@@ -134,7 +144,6 @@ class WarehouseController extends InventoryController
             'type' => ['sometimes', Rule::in([Warehouse::TYPE_STANDARD, Warehouse::TYPE_TRANSIT])],
             'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
-            'role' => ['sometimes', Rule::in(array_keys(Warehouse::ROLES))],
             'is_default_sales' => ['sometimes', 'boolean'],
             'is_active' => ['sometimes', 'boolean'],
             'notes' => ['nullable', 'string', 'max:2000'],

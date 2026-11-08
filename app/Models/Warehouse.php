@@ -18,15 +18,7 @@ class Warehouse extends Model
     public const TYPE_STANDARD = 'standard';
     public const TYPE_TRANSIT = 'transit';
 
-    protected $fillable = ['branch_id', 'department_id', 'role', 'name', 'code', 'type', 'is_default_sales', 'is_active', 'notes'];
-
-    /** دور مخزن القسم: مخزن القسم نفسه، أو مواد خام المصنع، أو منتجات المصنع، أو المعرض. */
-    public const ROLES = [
-        'department' => 'مخزن القسم',
-        'factory_raw' => 'مواد خام المصنع',
-        'factory_products' => 'منتجات المصنع',
-        'showroom' => 'المعرض',
-    ];
+    protected $fillable = ['branch_id', 'department_id', 'name', 'code', 'type', 'is_default_sales', 'is_active', 'notes'];
 
     /** القسم الذي تُنسب مبيعاته (في فرع المخزن) لهذا المخزن — أساس الاستهلاك النظري لكل مخزن. */
     public function department(): BelongsTo

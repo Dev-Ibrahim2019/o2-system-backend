@@ -267,7 +267,6 @@ class PurchaseInvoiceController extends InventoryController
             'lines.*.unit_price' => ['required', 'numeric', 'min:0'],
             'lines.*.discount_pct' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'lines.*.tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
-            'lines.*.expiry_date' => ['nullable', 'date_format:Y-m-d'],
         ];
     }
 

@@ -184,10 +184,6 @@ class RecipeService
     {
         $exploded = $this->explode($recipe, $day);
         $costs = $this->currentUnitCosts(array_keys($exploded));
-        // سعر آخر دفعة للمكوّن (طريقة O2) — للمقارنة فقط؛ الحساب بالمتوسط المرجّح.
-        $lastBatch = \App\Models\StockBatch::whereIn('stock_item_id', array_keys($exploded) ?: [0])
-            ->whereIn('id', fn ($q) => $q->from('stock_batches')->selectRaw('MAX(id)')->groupBy('stock_item_id'))
-            ->pluck('unit_cost', 'stock_item_id');
         $weight = array_reduce($exploded, fn ($c, $q) => bcadd($c, $q, self::WORK), '0');
 
         $total = '0';
@@ -200,7 +196,6 @@ class RecipeService
                 'quantity' => UnitConverter::round($qty),
                 'unit_cost' => $costs[$id],
                 'cost' => UnitConverter::round($cost),
-                'last_batch_price' => isset($lastBatch[$id]) ? (string) $lastBatch[$id] : null,
                 // نسبة المكوّن من وزن المواد = كميته ÷ مجموع كميات المكوّنات × 100
                 'weight_percent' => bccomp($weight, '0', 6) > 0 ? bcdiv(bcmul($qty, '100', self::WORK), $weight, 2) : null,
             ];

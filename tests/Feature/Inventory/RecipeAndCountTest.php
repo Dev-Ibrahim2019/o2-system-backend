@@ -284,10 +284,12 @@ class RecipeAndCountTest extends TestCase
         $this->assertSame('6500.000000', $this->balance($this->chicken)->quantity);
     }
 
-    public function test_posted_count_is_locked_and_one_open_sheet_per_warehouse(): void
+    public function test_posted_count_is_locked_and_several_drafts_are_allowed(): void
     {
         $id = $this->countSheet();
-        $this->actingAs($this->admin)->postJson('/api/inventory/counts', ['warehouse_id' => $this->kitchen->id])->assertStatus(422);
+        // مسودة ثانية للمخزن نفسه مسموحة (عدّاد آخر) — تُدمج قبل التثبيت.
+        $second = $this->countSheet();
+        $this->actingAs($this->admin)->deleteJson("/api/inventory/counts/{$second}")->assertOk();
 
         $this->actingAs($this->admin)->postJson("/api/inventory/counts/{$id}/post")->assertStatus(422);   // لا معدود
         $this->actingAs($this->admin)->putJson("/api/inventory/counts/{$id}", ['lines' => [
@@ -299,6 +301,72 @@ class RecipeAndCountTest extends TestCase
         $this->actingAs($this->admin)->deleteJson("/api/inventory/counts/{$id}")->assertStatus(422);
         // بعد الترحيل يمكن فتح جرد جديد.
         $this->countSheet();
+    }
+
+    public function test_merging_drafts_sums_counts_and_overlapping_drafts_cannot_post_separately(): void
+    {
+        $this->seedStock($this->chicken, '30000', '0.04');
+        $a = $this->countSheet();
+        $b = $this->countSheet();
+        $put = fn (int $id, array $lines) => $this->actingAs($this->admin)->putJson("/api/inventory/counts/{$id}", ['lines' => $lines])->assertOk();
+        $put($a, [['stock_item_id' => $this->chicken->id, 'entered_quantity' => 10000]]);
+        // كرتونة = 10000 غ (وحدة مختلفة عن الورقة الأولى)
+        $put($b, [
+            ['stock_item_id' => $this->chicken->id, 'unit_id' => $this->unit('كرتونة')->id, 'entered_quantity' => 1],
+            ['stock_item_id' => $this->garlic->id, 'entered_quantity' => 500],
+        ]);
+
+        // كل ورقة وحدها كانت ستجعل الثانية تلغي الأولى في الدجاج.
+        $this->actingAs($this->admin)->postJson("/api/inventory/counts/{$a}/post")->assertStatus(422);
+        $this->assertSame([$b], array_column($this->actingAs($this->admin)->getJson("/api/inventory/counts/{$a}")->json('data.other_drafts'), 'id'));
+
+        $merged = $this->actingAs($this->admin)->postJson("/api/inventory/counts/{$a}/merge", ['count_ids' => [$b]])->assertOk()->json('data');
+        $lines = collect($merged['lines'])->keyBy('stock_item_id');
+        $this->assertSame('20000.000000', $lines[$this->chicken->id]['counted_quantity']);
+        $this->assertSame($this->chicken->base_unit_id, $lines[$this->chicken->id]['unit_id']);   // وحدتان مختلفتان ← الأساسية
+        $this->assertSame('500.000000', $lines[$this->garlic->id]['counted_quantity']);
+        $this->assertStringContainsString('دُمج معه', $merged['notes']);
+        $this->actingAs($this->admin)->getJson("/api/inventory/counts/{$b}")->assertNotFound();
+
+        $this->actingAs($this->admin)->postJson("/api/inventory/counts/{$a}/post")->assertOk();
+        $this->assertSame('20000.000000', $this->balance($this->chicken)->quantity);
+
+        // الدمج للمسودات فقط
+        $c = $this->countSheet();
+        $this->actingAs($this->admin)->postJson("/api/inventory/counts/{$c}/merge", ['count_ids' => [$a]])->assertStatus(422);
+    }
+
+    public function test_recalculate_missing_items_duplicate_and_date_filter(): void
+    {
+        $this->seedStock($this->chicken, '10000', '0.04');
+        $id = $this->countSheet();
+        app(StockLedger::class)->post(new StockMovementLine($this->kitchen->id, $this->chicken->id, 'sale', '-3000'));
+
+        $sheet = $this->actingAs($this->admin)->postJson("/api/inventory/counts/{$id}/recalculate")->assertOk()->json('data');
+        $chicken = collect($sheet['lines'])->firstWhere('stock_item_id', $this->chicken->id);
+        $this->assertSame('7000.000000', $chicken['expected_quantity']);
+        $this->assertSame('0.040000', $chicken['avg_cost']);
+
+        // صنف أُنشئ بعد الورقة وله رصيد: يظهر في الفحص ويُضاف للورقة.
+        $salt = $this->item('ملح', 'SALT');
+        $this->seedStock($salt, '250', '0.002');
+        $missing = $this->actingAs($this->admin)->getJson("/api/inventory/counts/{$id}/missing")->assertOk()->json('data');
+        $this->assertSame([$salt->id], array_column($missing, 'id'));
+        $added = $this->actingAs($this->admin)->postJson("/api/inventory/counts/{$id}/lines", ['stock_item_ids' => [$salt->id]])->assertOk()->json('data.lines');
+        $this->assertSame('250.000000', collect($added)->firstWhere('stock_item_id', $salt->id)['expected_quantity']);
+        $this->assertSame([], $this->actingAs($this->admin)->getJson("/api/inventory/counts/{$id}/missing")->json('data'));
+
+        $copy = $this->actingAs($this->admin)->postJson("/api/inventory/counts/{$id}/duplicate")->assertCreated()->json('data');
+        $this->assertSame('draft', $copy['status']);
+        $this->assertCount(count($added), $copy['lines']);
+        $this->assertNull(collect($copy['lines'])->firstWhere('counted_quantity', '!==', null));
+        $this->assertStringContainsString('نسخة من', $copy['notes']);
+
+        $today = $this->actingAs($this->admin)->getJson("/api/inventory/counts?from={$this->today}&to={$this->today}")->json('data');
+        $this->assertEqualsCanonicalizing([$id, $copy['id']], array_column($today['data'], 'id'));
+        $this->assertSame($this->today, $today['data'][0]['day']);
+        $yesterday = now()->subDays(2)->toDateString();
+        $this->assertSame(0, $this->actingAs($this->admin)->getJson("/api/inventory/counts?to={$yesterday}")->json('data.summary.count'));
     }
 
     public function test_count_requires_post_permission_and_warehouse_access(): void

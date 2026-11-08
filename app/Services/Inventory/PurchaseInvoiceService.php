@@ -89,7 +89,6 @@ class PurchaseInvoiceService
                     'tax_amount' => $m['tax'],
                     'total_before_tax' => $m['taxable'],
                     'line_total' => $m['total'],
-                    'expiry_date' => $l['expiry_date'],
                     'account_id' => $l['account_id'],
                     'stock_unit_cost' => $l['kind'] === 'stock' ? $m['unit_cost_ils'] : null,
                 ]);
@@ -193,7 +192,6 @@ class PurchaseInvoiceService
                         'unit_id' => $l->unit_id,
                         'quantity' => (string) $l->quantity,
                         'unit_cost' => (string) $l->stock_unit_cost,
-                        'expiry_date' => $l->expiry_date?->toDateString(),
                         'notes' => null,
                     ])->all(),
                 ], $by);
@@ -457,7 +455,7 @@ class PurchaseInvoiceService
                     'kind' => 'stock', 'stock_item_id' => $item->id, 'unit_id' => $unitId, 'description' => mb_substr($item->name, 0, 255),
                     'quantity' => (string) $l['quantity'], 'unit_price' => (string) (($l['unit_price'] ?? null) ?: '0'),
                     'discount_pct' => (string) (($l['discount_pct'] ?? null) ?: '0'), 'tax_rate' => (string) (($l['tax_rate'] ?? null) ?: '0'),
-                    'expiry_date' => ($l['expiry_date'] ?? null) ?: null, 'account_id' => null,
+                    'account_id' => null,
                 ];
             } else {
                 $account = Account::find($l['account_id'] ?? 0);
@@ -471,7 +469,7 @@ class PurchaseInvoiceService
                     'kind' => 'expense', 'stock_item_id' => null, 'unit_id' => null, 'description' => mb_substr(trim($l['description']), 0, 255),
                     'quantity' => '1', 'unit_price' => (string) (($l['unit_price'] ?? null) ?: '0'),
                     'discount_pct' => '0', 'tax_rate' => (string) (($l['tax_rate'] ?? null) ?: '0'),
-                    'expiry_date' => null, 'account_id' => $account->id,
+                    'account_id' => $account->id,
                 ];
             }
         }
@@ -489,11 +487,6 @@ class PurchaseInvoiceService
         }
         if (! $bill->warehouse?->is_active) {
             throw new InventoryRuleException('المخزن المستلم موقوف أو غير محدد.');
-        }
-        foreach ($bill->items as $l) {
-            if ($l->line_kind === 'stock' && $l->stockItem?->tracks_expiry && ! $l->expiry_date) {
-                throw new InventoryRuleException("الصنف \"{$l->stockItem->name}\" يتتبع الصلاحية — أدخل تاريخ الانتهاء.");
-            }
         }
     }
 
@@ -577,19 +570,15 @@ class PurchaseInvoiceService
     }
 
     /**
-     * قبل عكس الاستلام: هل ما زال كل صنف (ودفعته) موجوداً في المخزن؟ وإلا رسالة بكل صنف وكم ينقص.
+     * قبل عكس الاستلام: هل ما زال كل صنف موجوداً في المخزن؟ وإلا رسالة بكل صنف وكم ينقص.
      */
     private function assertStockSufficient(StockDocument $grn): void
     {
         $need = [];
-        $batchNeed = [];
         foreach ($grn->lines as $l) {
             $factor = (int) $l->unit_id === (int) $l->stockItem->base_unit_id ? '1' : (string) ($l->stockItem->units->firstWhere('unit_id', $l->unit_id)?->factor ?? '1');
             $base = UnitConverter::toBase((string) $l->quantity, $factor);
             $need[$l->stock_item_id] = bcadd($need[$l->stock_item_id] ?? '0', $base, 6);
-            if ($l->created_batch_id) {
-                $batchNeed[$l->created_batch_id] = ['item' => $l->stockItem, 'qty' => $base];
-            }
         }
         $short = [];
         foreach ($need as $itemId => $qty) {
@@ -598,23 +587,17 @@ class PurchaseInvoiceService
                 $short[] = $this->shortage($grn->lines->firstWhere('stock_item_id', $itemId)->stockItem, $qty, $have);
             }
         }
-        foreach ($batchNeed as $batchId => $b) {
-            $have = (string) (DB::table('stock_batch_balances')->where('warehouse_id', $grn->warehouse_id)->where('batch_id', $batchId)->value('quantity') ?? '0');
-            if (bccomp($have, $b['qty'], 6) < 0) {
-                $short[] = $this->shortage($b['item'], $b['qty'], $have, DB::table('stock_batches')->where('id', $batchId)->value('code'));
-            }
-        }
         if ($short !== []) {
             $short = array_values(array_unique($short));
             throw new InventoryRuleException('لا يمكن عكس الفاتورة — صُرف جزء من أصنافها: '.implode('، ', $short).'.', ['shortages' => $short]);
         }
     }
 
-    private function shortage(StockItem $item, string $need, string $have, ?string $batch = null): string
+    private function shortage(StockItem $item, string $need, string $have): string
     {
         $t = fn ($v) => rtrim(rtrim(number_format((float) $v, 3, '.', ''), '0'), '.');
 
-        return sprintf('%s%s: مطلوب %s %s، المتاح %s، ينقص %s', $item->name, $batch ? " (دفعة {$batch})" : '',
+        return sprintf('%s: مطلوب %s %s، المتاح %s، ينقص %s', $item->name,
             $t($need), $item->baseUnit?->name ?? '', $t($have), $t(bcsub($need, $have, 6)));
     }
 
@@ -647,11 +630,10 @@ class PurchaseInvoiceService
     {
         return $bill->fresh([
             'items' => fn ($q) => $q->orderBy('line_no'),
-            'items.stockItem:id,code,name,base_unit_id,purchase_unit_id,tracks_expiry', 'items.stockItem.baseUnit:id,name',
+            'items.stockItem:id,code,name,base_unit_id,purchase_unit_id', 'items.stockItem.baseUnit:id,name',
             'items.unit:id,name', 'items.account:id,code,name',
             'supplier:id,name,code,tax_number,payment_terms', 'warehouse:id,name,code,branch_id', 'cashAccount:id,code,name',
-            'stockDocument:id,number,status', 'stockDocument.lines:id,stock_document_id,line_no,stock_item_id,created_batch_id',
-            'stockDocument.lines.createdBatch:id,code,expiry_date',
+            'stockDocument:id,number,status',
             'vouchers:id,number,purchase_bill_id,amount,voucher_date,status,payment_method_name',
             'creator:id,name', 'poster:id,name', 'reverser:id,name',
         ]);

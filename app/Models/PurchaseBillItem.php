@@ -11,14 +11,13 @@ class PurchaseBillItem extends Model
         'purchase_bill_id', 'product_id', 'description', 'quantity', 'unit_price',
         'tax_rate', 'tax_amount', 'discount', 'total_before_tax', 'line_total', 'account_id',
         'line_no', 'line_kind', 'stock_item_id', 'unit_id', 'discount_pct', 'allocated_discount',
-        'expiry_date', 'stock_unit_cost',
+        'stock_unit_cost',
     ];
 
     protected $casts = [
         'discount_pct' => 'decimal:4',
         'allocated_discount' => 'decimal:4',
         'stock_unit_cost' => 'decimal:6',
-        'expiry_date' => 'date:Y-m-d',
         'quantity' => 'decimal:4',
         'unit_price' => 'decimal:4',
         'tax_rate' => 'decimal:2',

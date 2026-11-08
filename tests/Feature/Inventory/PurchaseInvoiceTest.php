@@ -7,7 +7,6 @@ use App\Models\Branch;
 use App\Models\Entry;
 use App\Models\PurchaseBill;
 use App\Models\StockBalance;
-use App\Models\StockBatch;
 use App\Models\StockDocument;
 use App\Models\StockItem;
 use App\Models\StockItemUnit;
@@ -247,24 +246,6 @@ class PurchaseInvoiceTest extends TestCase
         $this->assertSame(0, StockDocument::count());
         $this->assertSame(0, Transaction::count());
         $this->assertNull($this->balance());
-    }
-
-    public function test_expiry_tracked_item_needs_expiry_and_gets_an_automatic_batch(): void
-    {
-        $this->meat->update(['tracks_expiry' => true]);
-        $id = $this->create([$this->meatLine('2', '40')])->json('data.id');
-        $this->postBill($id)->assertStatus(422);
-
-        $expiry = now()->addMonth()->toDateString();
-        $this->actingAs($this->buyer)->putJson("/api/inventory/purchases/{$id}", [
-            'supplier_id' => $this->supplier->id, 'warehouse_id' => $this->store->id, 'payment_mode' => 'credit',
-            'lines' => [$this->meatLine('2', '40', ['expiry_date' => $expiry])],
-        ])->assertOk();
-        $this->postBill($id)->assertOk();
-
-        $batch = StockBatch::sole();
-        $this->assertSame('RM-MEAT1', $batch->code);
-        $this->assertSame($expiry, $batch->expiry_date->toDateString());
     }
 
     public function test_linked_receipt_cannot_be_reversed_alone_and_direct_receipt_needs_permission(): void

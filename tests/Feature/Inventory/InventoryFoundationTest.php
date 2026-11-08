@@ -74,7 +74,6 @@ class InventoryFoundationTest extends TestCase
             'barcode' => '6291000000011',
             'supplier_code' => 'SUP-77',
             'safety_stock' => 5000,
-            'tracks_expiry' => true,
             'is_stored' => false, // يُتجاهل: المادة الخام تُخزَّن دائماً
             'units' => [
                 ['unit_id' => $this->unit('كيلوغرام')->id, 'factor' => 1000],

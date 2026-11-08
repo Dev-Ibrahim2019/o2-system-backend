@@ -53,11 +53,8 @@ class WarehouseService
             if ($type === Warehouse::TYPE_TRANSIT) {
                 throw new InventoryRuleException('مخزن "قيد النقل" لا يُربط بقسم.');
             }
-            // قسم واحد ← مخزن واحد لكل دور في الفرع (مخزن القسم، مواد المصنع، منتجات المصنع، المعرض).
-            $role = $data['role'] ?? $warehouse?->role ?? 'department';
             $taken = Warehouse::where('branch_id', $branchId)
                 ->where('department_id', $departmentId)
-                ->where('role', $role)
                 ->when($warehouse, fn ($q) => $q->where('id', '!=', $warehouse->id))
                 ->value('name');
             if ($taken) {

@@ -9,14 +9,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class StockDocumentLine extends Model
 {
     protected $fillable = [
-        'line_no', 'stock_item_id', 'unit_id', 'quantity', 'unit_cost', 'waste_reason', 'notes', 'cartons',
+        'line_no', 'stock_item_id', 'to_warehouse_id', 'unit_id', 'quantity', 'unit_cost', 'waste_reason', 'notes',
     ];
 
     protected $casts = [
         'quantity' => 'decimal:6',
         'unit_cost' => 'decimal:6',
         'posted_cost' => 'decimal:6',
-        'cartons' => 'decimal:2',
     ];
 
     public function document(): BelongsTo
@@ -32,5 +31,11 @@ class StockDocumentLine extends Model
     public function unit(): BelongsTo
     {
         return $this->belongsTo(StockUnit::class);
+    }
+
+    /** مخزن الوجهة لهذا السطر في الصرفية (فارغ = مخزن الرأس). */
+    public function toWarehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class, 'to_warehouse_id');
     }
 }

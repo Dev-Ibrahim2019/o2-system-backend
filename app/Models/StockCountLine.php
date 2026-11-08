@@ -14,8 +14,6 @@ class StockCountLine extends Model
         'expected_quantity' => 'decimal:6',
         'entered_quantity' => 'decimal:6',
         'counted_quantity' => 'decimal:6',
-        'dissected_quantity' => 'decimal:6',
-        'marinated_quantity' => 'decimal:6',
         'variance_quantity' => 'decimal:6',
         'unit_cost' => 'decimal:6',
         'variance_value' => 'decimal:6',

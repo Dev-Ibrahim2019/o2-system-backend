@@ -127,7 +127,6 @@ class StockItemService
             $data['is_stored'] = true;
         } elseif ($type === StockItem::TYPE_NON_STOCK) {
             $data['is_stored'] = false;
-            $data['tracks_expiry'] = false;
         }
 
         $baseUnitId = (int) ($data['base_unit_id'] ?? $current?->base_unit_id);

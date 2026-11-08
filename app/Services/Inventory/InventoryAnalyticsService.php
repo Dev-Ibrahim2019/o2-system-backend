@@ -7,7 +7,6 @@ use App\Models\Item;
 use App\Models\Recipe;
 use App\Models\StockItem;
 use App\Models\User;
-use App\Models\Warehouse;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -660,19 +659,8 @@ class InventoryAnalyticsService
      */
     private function salesWarehouses(): array
     {
-        $deptMap = [];
-        $defaults = [];
-        foreach (Warehouse::where('type', Warehouse::TYPE_STANDARD)->get(['id', 'branch_id', 'department_id', 'role', 'is_default_sales']) as $w) {
-            // مبيعات القسم (الوجبات) تُنسب لمخزن القسم نفسه، لا لمخازن المصنع أو المعرض.
-            if ($w->department_id && ($w->role ?? 'department') === 'department') {
-                $deptMap[$w->branch_id][$w->department_id] = $w->id;
-            }
-            if ($w->is_default_sales) {
-                $defaults[$w->branch_id] = $w->id;
-            }
-        }
-
-        return [$deptMap, $defaults];
+        // نفس نسبة البيع للمخازن التي يستخدمها خصم البيع (SaleConsumptionService).
+        return SalesWarehouses::map();
     }
 
     /**

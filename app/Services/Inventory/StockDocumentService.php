@@ -19,8 +19,8 @@ use Illuminate\Support\Facades\DB;
  * معاملة واحدة مع تحديث حالة المستند، فإن رُفض سطر لا يتغيّر شيء (القاعدة 3). كل حركة تحمل
  * مفتاح منع تكرار من رقم المستند والسطر، فإعادة إرسال الترحيل لا تخصم مرتين (القاعدة 4).
  *
- * الأنواع: استلام، صرف/تحويل، إتلاف. المرحّل يُصحَّح بعكسه كاملاً، وسياسة الرصيد السالب تنطبق على العكس
- * (لا يُعكس استلام صُرف منه ولم يعد الرصيد يكفي).
+ * الأنواع: استلام، صرفية أصناف (تحويل)، إتلاف. المرحّل يُصحَّح بعكسه كاملاً، وسياسة الرصيد السالب تنطبق على العكس
+ * (لا يُعكس استلام صُرف منه ولم يعد الرصيد يكفي). في الصرفية لكل سطر مخزن وجهة (افتراضياً مخزن الرأس).
  */
 class StockDocumentService
 {
@@ -59,7 +59,8 @@ class StockDocumentService
     }
 
     /**
-     * تكرار مستند صرف كمسودة جديدة: المخزنان والجهة والملاحظات والأصناف بكمياتها ووحداتها، بتاريخ اليوم.
+     * تكرار مستند صرف كمسودة جديدة: المخزنان والجهة والملاحظات والأصناف بكمياتها ووحداتها ووجهة كل سطر،
+     * بتاريخ اليوم ووقته. الرصيد والتكلفة يُحسبان من جديد عند الترحيل.
      */
     public function duplicate(StockDocument $doc, User $by): StockDocument
     {
@@ -74,9 +75,12 @@ class StockDocumentService
             'to_warehouse_id' => $doc->to_warehouse_id,
             'destination' => $doc->destination,
             'notes' => $doc->notes,
+            'quantities_only' => $doc->quantities_only,
             'document_date' => null,
+            'document_time' => null,
             'lines' => $doc->lines->map(fn ($l) => [
                 'stock_item_id' => $l->stock_item_id,
+                'to_warehouse_id' => $l->to_warehouse_id,
                 'unit_id' => $l->unit_id,
                 'quantity' => (string) $l->quantity,
                 'notes' => $l->notes,
@@ -101,12 +105,15 @@ class StockDocumentService
     }
 
     /**
-     * تأكيد الاستلام الفعلي في مخزن الوجهة: توثيق فقط (من ومتى)، والأرصدة تحرّكت عند الترحيل.
-     * لا يُلغى التأكيد؛ تصحيح المستلَم بعكسه (لمن يملك عكس المستلَم).
+     * تأكيد الاستلام الفعلي في مخازن الوجهة: توثيق فقط (من ومتى)، والأرصدة تحرّكت عند الترحيل.
+     * $warehouseIds = الوجهات التي يملك المستخدم تأكيدها (يحسبها المتحكم من صلاحياته). المستند يصبح
+     * "مستلَماً" عند اكتمال كل الوجهات. لا يُلغى التأكيد؛ تصحيح المستلَم بعكسه (لمن يملك عكس المستلَم).
+     *
+     * @param  array<int>  $warehouseIds
      */
-    public function confirmReceipt(StockDocument $doc, User $by): StockDocument
+    public function confirmReceipt(StockDocument $doc, User $by, array $warehouseIds): StockDocument
     {
-        return DB::transaction(function () use ($doc, $by) {
+        return DB::transaction(function () use ($doc, $by, $warehouseIds) {
             $doc = StockDocument::whereKey($doc->id)->lockForUpdate()->firstOrFail();
             if ($doc->type !== StockDocument::TYPE_TRANSFER) {
                 throw new InventoryRuleException('تأكيد الاستلام لمستندات الصرف فقط.');
@@ -117,7 +124,20 @@ class StockDocumentService
             if ($doc->isReceived()) {
                 throw new InventoryRuleException('استلام هذا المستند مؤكَّد مسبقاً.');
             }
-            $doc->forceFill(['received_by' => $by->id, 'received_at' => now(), 'delivery_status' => 'delivered'])->save();
+            $doc->load(['lines', 'receipts']);
+            $received = $doc->receipts->pluck('warehouse_id')->map(fn ($id) => (int) $id)->all();
+            $pending = array_values(array_diff($doc->destinationIds(), $received));
+            $targets = array_values(array_intersect($pending, array_map('intval', $warehouseIds)));
+            if ($targets === []) {
+                throw new InventoryRuleException('لا توجد وجهة بانتظار تأكيدك في هذه الصرفية.');
+            }
+            $at = now();
+            foreach ($targets as $warehouseId) {
+                $doc->receipts()->create(['warehouse_id' => $warehouseId, 'received_by' => $by->id, 'received_at' => $at]);
+            }
+            if (count($targets) === count($pending)) {
+                $doc->forceFill(['received_by' => $by->id, 'received_at' => $at, 'delivery_status' => 'delivered'])->save();
+            }
 
             return $this->fresh($doc);
         });
@@ -220,8 +240,9 @@ class StockDocumentService
     }
 
     /**
-     * الصرف/التحويل: صادر من المصدر بمتوسط تكلفته، ثم وارد للوجهة بالتكلفة نفسها، فتنتقل القيمة كما هي.
-     * الصرف لا يتجاوز رصيد المصدر أبداً مهما كانت سياسة الرصيد السالب: لا يُنقل ما ليس موجوداً.
+     * الصرف/التحويل: صادر من المصدر بمتوسط تكلفته، ثم وارد لمخزن وجهة السطر بالتكلفة نفسها، فتنتقل القيمة كما هي.
+     * الصرف لا يتجاوز رصيد المصدر أبداً مهما كانت سياسة الرصيد السالب: لا يُنقل ما ليس موجوداً
+     * (الصنف المكرر في عدة أسطر يُحسب تراكمياً على رصيد المصدر).
      */
     private function postTransfer(StockDocument $doc, CarbonInterface $at, User $by): string
     {
@@ -241,7 +262,7 @@ class StockDocumentService
 
         // الوارد بالوحدة الأساسية وبتكلفة الوحدة الأساسية كما سُجّل الصادر.
         $this->ledger->postMany($lines->map(fn ($l, $i) => new StockMovementLine(
-            warehouseId: $doc->to_warehouse_id,
+            warehouseId: (int) ($l->to_warehouse_id ?: $doc->to_warehouse_id),
             stockItemId: $l->stock_item_id,
             type: 'transfer_in',
             quantity: bcmul((string) $out[$i]->quantity, '-1', UnitConverter::SCALE),
@@ -302,6 +323,9 @@ class StockDocumentService
         $type = $data['type'];
         $today = $this->accountingDay->of(now());
         $data['document_date'] = ($data['document_date'] ?? null) ?: $today;
+        // وقت الرأس للعرض والطباعة (افتراضياً الآن بتوقيت المنشأة)؛ لحظة الحركات تبقى من occurredAt().
+        $data['document_time'] = ($data['document_time'] ?? null)
+            ?: ($current?->document_time ?? now()->setTimezone(config('inventory.business_timezone', config('app.timezone')))->format('H:i:s'));
         if ($data['document_date'] > $today) {
             throw new InventoryRuleException('تاريخ المستند لا يمكن أن يكون في المستقبل.', ['document_date' => ['اختر اليوم أو يوماً سابقاً.']]);
         }
@@ -336,10 +360,12 @@ class StockDocumentService
             }
             // المسودة غير مستلَمة دائماً؛ الاستلام يُؤكَّد بعد الترحيل من مخزن الوجهة (confirmReceipt).
             $data['delivery_status'] = 'undelivered';
+            $data['quantities_only'] = (bool) ($data['quantities_only'] ?? false);
         } else {
             $data['to_warehouse_id'] = null;
             $data['delivery_status'] = null;
             $data['destination'] = null;
+            $data['quantities_only'] = false;
         }
 
         $items = StockItem::with('units')->whereIn('id', array_column($data['lines'], 'stock_item_id'))->get()->keyBy('id');
@@ -351,6 +377,16 @@ class StockDocumentService
             }
             if (! $item->is_active) {
                 throw new InventoryRuleException("السطر {$n}: الصنف \"{$item->name}\" موقوف.");
+            }
+            if ($type === StockDocument::TYPE_TRANSFER) {
+                // وجهة السطر: ما اختاره المستخدم للسطر وحده، وإلا مخزن الرأس.
+                $line['to_warehouse_id'] = (int) (($line['to_warehouse_id'] ?? null) ?: $data['to_warehouse_id']);
+                if ($line['to_warehouse_id'] === (int) $data['warehouse_id']) {
+                    throw new InventoryRuleException("السطر {$n}: مخزن الوجهة هو مخزن المصدر نفسه.",
+                        ["lines.{$i}.to_warehouse_id" => ['اختر مخزناً آخر.']]);
+                }
+            } else {
+                $line['to_warehouse_id'] = null;
             }
             // الوحدة الافتراضية: وحدة الشراء للاستلام، والأساسية لغيره.
             $default = $type === StockDocument::TYPE_RECEIPT ? ($item->purchase_unit_id ?? $item->base_unit_id) : $item->base_unit_id;
@@ -365,11 +401,10 @@ class StockDocumentService
                 }
             } else {
                 $line['unit_cost'] = null;
-                $line['cartons'] = null;
             }
             if ($type === StockDocument::TYPE_WASTE) {
                 if (! array_key_exists($line['waste_reason'] ?? '', StockDocument::WASTE_REASONS)) {
-                    throw new InventoryRuleException("السطر {$n}: اختر سبب الإتلاف.");
+                    throw new InventoryRuleException("السطر {$n}: اختر سبب الهالك.");
                 }
             } else {
                 $line['waste_reason'] = null;
@@ -388,12 +423,12 @@ class StockDocumentService
             $doc->lines()->create([
                 'line_no' => $i + 1,
                 'stock_item_id' => (int) $line['stock_item_id'],
+                'to_warehouse_id' => $line['to_warehouse_id'] ?? null,
                 'unit_id' => (int) $line['unit_id'],
                 'quantity' => (string) $line['quantity'],
                 'unit_cost' => $line['unit_cost'] !== null ? (string) $line['unit_cost'] : null,
                 'waste_reason' => $line['waste_reason'] ?? null,
                 'notes' => $line['notes'] ?? null,
-                'cartons' => $line['cartons'] ?? null,
             ]);
         }
     }
@@ -410,7 +445,8 @@ class StockDocumentService
 
     private function assertCanPost(StockDocument $doc): void
     {
-        $inactive = Warehouse::whereIn('id', array_filter([$doc->warehouse_id, $doc->to_warehouse_id]))
+        $ids = [$doc->warehouse_id, $doc->to_warehouse_id, ...$doc->lines->pluck('to_warehouse_id')->all()];
+        $inactive = Warehouse::whereIn('id', array_unique(array_filter($ids)))
             ->where('is_active', false)
             ->value('name');
         if ($inactive) {
@@ -448,6 +484,7 @@ class StockDocumentService
     {
         return $doc->fresh([
             'lines.stockItem:id,code,name,base_unit_id', 'lines.stockItem.baseUnit:id,name', 'lines.unit:id,name',
+            'lines.toWarehouse:id,name,code', 'receipts.receiver:id,name',
             'warehouse:id,name,code', 'toWarehouse:id,name,code', 'supplier:id,name,code',
             'creator:id,name', 'poster:id,name', 'reverser:id,name', 'receiver:id,name',
         ]);

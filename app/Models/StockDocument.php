@@ -23,8 +23,8 @@ class StockDocument extends Model
 
     public const TYPES = [
         self::TYPE_RECEIPT => ['label' => 'استلام مشتريات', 'prefix' => 'GRN'],
-        self::TYPE_TRANSFER => ['label' => 'صرف / تحويل مخزني', 'prefix' => 'TRF'],
-        self::TYPE_WASTE => ['label' => 'إتلاف', 'prefix' => 'WST'],
+        self::TYPE_TRANSFER => ['label' => 'صرفية أصناف', 'prefix' => 'TRF'],
+        self::TYPE_WASTE => ['label' => 'هالك', 'prefix' => 'WST'],
     ];
 
     public const STATUS_DRAFT = 'draft';
@@ -49,6 +49,7 @@ class StockDocument extends Model
     protected $fillable = [
         'type', 'warehouse_id', 'to_warehouse_id', 'supplier_id', 'supplier_invoice_no',
         'document_date', 'notes', 'created_by', 'destination', 'delivery_status', 'reference_no',
+        'document_time', 'quantities_only',
     ];
 
     protected $casts = [
@@ -57,6 +58,7 @@ class StockDocument extends Model
         'posted_at' => 'datetime',
         'reversed_at' => 'datetime',
         'received_at' => 'datetime',
+        'quantities_only' => 'boolean',
     ];
 
     public function lines(): HasMany
@@ -105,9 +107,55 @@ class StockDocument extends Model
         return $this->belongsTo(User::class, 'received_by');
     }
 
+    /** تأكيدات الاستلام لكل مخزن وجهة (2027_03_10_000002). */
+    public function receipts(): HasMany
+    {
+        return $this->hasMany(StockDocumentReceipt::class);
+    }
+
+    /**
+     * مخازن الوجهة الفعلية للصرفية: وجهة كل سطر، وإلا مخزن الرأس (الصرفيات القديمة لها وجهة واحدة).
+     *
+     * @return array<int>
+     */
+    public function destinationIds(): array
+    {
+        if ($this->type !== self::TYPE_TRANSFER) {
+            return [];
+        }
+        $ids = $this->lines->map(fn ($l) => (int) ($l->to_warehouse_id ?: $this->to_warehouse_id))->filter()->unique()->values()->all();
+
+        return $ids !== [] ? $ids : array_values(array_filter([(int) $this->to_warehouse_id]));
+    }
+
+    /** مكتمل الاستلام (كل الوجهات). */
     public function isReceived(): bool
     {
         return $this->received_at !== null;
+    }
+
+    /** أُكّد استلامه في وجهة واحدة على الأقل (يكفي لاشتراط صلاحية عكس المستلَم). */
+    public function hasAnyReceipt(): bool
+    {
+        return $this->isReceived() || $this->receipts()->exists();
+    }
+
+    /** received | partial | pending — للصرفية المرحّلة فقط، وإلا null. */
+    public function receiptStatus(): ?string
+    {
+        if ($this->type !== self::TYPE_TRANSFER || $this->status === self::STATUS_DRAFT) {
+            return null;
+        }
+        if ($this->isReceived()) {
+            return 'received';
+        }
+        $count = $this->relationLoaded('receipts') ? $this->receipts->count() : $this->receipts()->count();
+        if ($count > 0) {
+            return 'partial';
+        }
+
+        // المعكوس بلا أي استلام: لا ينتظر استلاماً.
+        return $this->status === self::STATUS_REVERSED ? null : 'pending';
     }
 
     public function isDraft(): bool
