@@ -163,7 +163,8 @@ class StockJournalController extends InventoryController
 
         $counts = DB::table('stock_counts as c')
             ->join('warehouses as w', 'w.id', '=', 'c.warehouse_id')
-            ->where('c.status', 'posted')
+            // المعكوس يبقى في السجل (حركاته وعكسها في الكاردكس) بحالته "معكوس" مثل المستندات.
+            ->whereIn('c.status', ['posted', 'reversed'])
             ->when($ids !== null, fn ($q) => $q->whereIn('c.warehouse_id', $ids))
             ->selectRaw(<<<'SQL'
                 'count' as source, c.id as id, c.number as number, 'count' as kind, c.status as status,

@@ -21,7 +21,13 @@ class StockCount extends Model
         'business_day' => 'date:Y-m-d',
         'variance_value' => 'decimal:6',
         'posted_at' => 'datetime',
+        'reversed_at' => 'datetime',
     ];
+
+    public function reverser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reversed_by');
+    }
 
     public function lines(): HasMany
     {

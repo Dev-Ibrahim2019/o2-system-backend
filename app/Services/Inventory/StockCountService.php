@@ -5,6 +5,7 @@ namespace App\Services\Inventory;
 use App\Models\StockCount;
 use App\Models\StockCountLine;
 use App\Models\StockItem;
+use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
 use Illuminate\Support\Collection;
@@ -42,6 +43,53 @@ class StockCountService
         }
 
         return $this->newSheet($warehouse, $items, $notes, $by);
+    }
+
+    /**
+     * ورقة جرد بأصناف محددة (جرد القسم: أصناف مخزن القسم فقط).
+     *
+     * @param  Collection<int, int>  $itemIds
+     */
+    public function createFor(Warehouse $warehouse, Collection $itemIds, ?string $notes, User $by): StockCount
+    {
+        $this->assertActive($warehouse);
+        $items = StockItem::whereIn('id', $itemIds)->where('is_stored', true)->orderBy('name')->pluck('id');
+        if ($items->isEmpty()) {
+            throw new InventoryRuleException('لا توجد أصناف مخزنية لجردها.');
+        }
+
+        return $this->newSheet($warehouse, $items, $notes, $by);
+    }
+
+    /**
+     * عكس جرد معتمد: كل تسوية سجّلها تُعكس بحركة معاكسة (بتكلفتها نفسها)، ويصبح الجرد "معكوساً".
+     * الجرد المعتمد لا يُعدَّل؛ هذا هو طريق تصحيحه، ثم يُعمل جرد جديد.
+     */
+    public function reverse(StockCount $count, string $reason, User $by): StockCount
+    {
+        return DB::transaction(function () use ($count, $reason, $by) {
+            $count = StockCount::whereKey($count->id)->lockForUpdate()->firstOrFail();
+            if ($count->status === 'reversed') {
+                throw new InventoryRuleException('هذا الجرد معكوس مسبقاً.');
+            }
+            if ($count->status !== 'posted') {
+                throw new InventoryRuleException('لا يُعكس إلا جرد معتمد. المسودة تُعدَّل أو تُحذف.');
+            }
+            $movements = StockMovement::whereIn('id', $count->lines()->whereNotNull('movement_id')->pluck('movement_id'))
+                ->orderBy('stock_item_id')->get();
+            foreach ($movements as $movement) {
+                // عكس الزيادة قد ينزل بالرصيد تحت الصفر إن صُرف منه بعد الجرد — مثل عكس البيع، لا يُرفض.
+                $this->ledger->reverse($movement, "عكس الجرد {$count->number}: {$reason}", $by, allowNegative: true);
+            }
+            $count->forceFill([
+                'status' => 'reversed',
+                'reversed_by' => $by->id,
+                'reversed_at' => now(),
+                'reversal_reason' => mb_substr($reason, 0, 500),
+            ])->save();
+
+            return $count->fresh();
+        }, 3);
     }
 
     /** تكرار الكشف: مسودة جديدة للمخزن نفسه بأصناف الورقة نفسها، بالرصيد الحالي وبلا معدود. */
@@ -228,6 +276,9 @@ class StockCountService
             $count = StockCount::whereKey($count->id)->lockForUpdate()->firstOrFail();
             if ($count->status === 'posted') {
                 return $count;
+            }
+            if ($count->status === 'reversed') {
+                throw new InventoryRuleException('هذا الجرد معكوس ولا يُعتمد مرة أخرى. اعمل جرداً جديداً.');
             }
             $lines = $count->lines()->whereNotNull('counted_quantity')->orderBy('stock_item_id')->get();
             if ($lines->isEmpty()) {

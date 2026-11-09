@@ -982,6 +982,28 @@ Route::middleware(['auth:sanctum', 'permission:inventory.access'])->prefix('inve
     Route::post('counts/{count}/lines', [$counts, 'addLines'])->middleware('permission:inventory.counts.manage');
     Route::post('counts/{count}/merge', [$counts, 'merge'])->middleware('permission:inventory.counts.manage');
     Route::post('counts/{count}/duplicate', [$counts, 'duplicate'])->middleware('permission:inventory.counts.manage');
+    // عكس جرد معتمد (تُعكس تسوياته) — الجرد المعتمد لا يُعدَّل.
+    Route::post('counts/{count}/reverse', [$counts, 'reverse'])->middleware('permission:inventory.counts.reverse');
+
+    // صفحة الأقسام: مبيعات واستهلاك وجرد كل قسم في فرع. التقارير بصلاحية التحليلات، والجرد بصلاحيات الجرد.
+    $departments = \App\Http\Controllers\Api\Inventory\DepartmentReportController::class;
+    Route::prefix('departments')->group(function () use ($departments) {
+        $view = 'permission:inventory.analytics.view|inventory.counts.manage';
+        Route::get('summary', [$departments, 'summary'])->middleware($view);
+        Route::get('summary/export', [$departments, 'summaryExport'])->middleware($view);
+        Route::get('{department}', [$departments, 'show'])->whereNumber('department')->middleware($view);
+        Route::middleware('permission:inventory.analytics.view')->group(function () use ($departments) {
+            Route::get('{department}/sale-items', [$departments, 'saleItems'])->whereNumber('department');
+            Route::get('{department}/consumption', [$departments, 'consumption'])->whereNumber('department');
+            Route::get('{department}/stats', [$departments, 'stats'])->whereNumber('department');
+        });
+        Route::get('{department}/export', [$departments, 'export'])->whereNumber('department')->middleware($view);
+        Route::get('{department}/stock-count/preview', [$departments, 'countPreview'])->whereNumber('department')->middleware($view);
+        Route::get('{department}/stock-count/movements', [$departments, 'countMovements'])->whereNumber('department')->middleware($view);
+        Route::get('{department}/stock-counts', [$departments, 'countHistory'])->whereNumber('department')->middleware($view);
+        Route::get('{department}/stock-counts/{count}', [$departments, 'countShow'])->whereNumber(['department', 'count'])->middleware($view);
+        Route::post('{department}/stock-counts', [$departments, 'countSave'])->whereNumber('department')->middleware('permission:inventory.counts.manage');
+    });
 
     // تأكيد استلام الصرفية في مخزن الوجهة.
     Route::patch('documents/{document}/delivery', [$documents, 'delivery'])->middleware('permission:inventory.documents.manage');

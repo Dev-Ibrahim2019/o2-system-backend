@@ -110,9 +110,9 @@ class TransferDocumentTest extends TestCase
         $this->assertNull($this->actingAs($keeper)->getJson($url)->assertOk()->json('data.avg_cost'));
     }
 
-    public function test_transfer_never_exceeds_source_balance_even_when_negative_stock_is_allowed(): void
+    public function test_transfer_beyond_source_balance_is_rejected_when_negative_stock_is_off(): void
     {
-        InventorySetting::current()->update(['allow_negative_stock' => true]);
+        InventorySetting::current()->update(['allow_negative_stock' => false]);
         $this->seedStock($this->store, '1000', '0.04');
 
         // 2 كغ = 2000 غ والرصيد 1000 غ فقط
@@ -123,6 +123,22 @@ class TransferDocumentTest extends TestCase
         $this->assertSame('draft', StockDocument::find($id)->status);
         $this->assertSame('1000.000000', StockBalance::where('warehouse_id', $this->store->id)->value('quantity'));
         $this->assertSame(0, StockMovement::where('source_type', 'stock_document')->count());
+    }
+
+    public function test_transfer_beyond_source_balance_posts_and_goes_negative_when_allowed(): void
+    {
+        InventorySetting::current()->update(['allow_negative_stock' => true]);
+        $this->seedStock($this->store, '1000', '0.04');
+
+        // 2 كغ = 2000 غ والرصيد 1000 غ فقط ← يُرحَّل، المصدر −1000 غ، والوجهة تستلم 2000 غ بالتكلفة نفسها
+        $id = $this->transfer([['stock_item_id' => $this->meat->id, 'quantity' => 2, 'unit_id' => $this->unit('كيلوغرام')->id]])
+            ->assertCreated()->json('data.id');
+        $this->postDoc($id)->assertOk();
+
+        $this->assertSame('posted', StockDocument::find($id)->status);
+        $this->assertSame('-1000.000000', StockBalance::where('warehouse_id', $this->store->id)->value('quantity'));
+        $this->assertSame('2000.000000', StockBalance::where('warehouse_id', $this->kitchen->id)->value('quantity'));
+        $this->assertSame('0.040000', StockBalance::where('warehouse_id', $this->kitchen->id)->value('avg_cost'));
     }
 
     // ── تأكيد الاستلام ────────────────────────────────────────────────────────

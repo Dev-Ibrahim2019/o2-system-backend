@@ -3,6 +3,7 @@
 namespace App\Services\Inventory;
 
 use App\Models\Account;
+use App\Models\InventorySetting;
 use App\Models\PurchaseBill;
 use App\Models\StockDocument;
 use App\Models\StockItem;
@@ -288,7 +289,10 @@ class PurchaseInvoiceService
 
             if ($bill->stock_document_id) {
                 $grn = StockDocument::with('lines.stockItem.units', 'lines.stockItem.baseUnit')->findOrFail($bill->stock_document_id);
-                $this->assertStockSufficient($grn);
+                // مع السماح بالرصيد السالب يُعكس الاستلام ولو صُرف منه (يصبح الرصيد سالباً) — مثل باقي العمليات.
+                if (! InventorySetting::current()->allow_negative_stock) {
+                    $this->assertStockSufficient($grn);
+                }
                 $this->documents->reverse($grn, $note, $by);
             }
 

@@ -41,7 +41,7 @@ class StockCountController extends InventoryController
             ->when($search !== '', fn ($q) => $q->where(fn ($w) => $w->where('number', 'like', "%{$search}%")->orWhere('notes', 'like', "%{$search}%")))
             // المثبّت بيوم تثبيته، والمسودة باليوم المحاسبي لإنشائها (حدود اليوم بتوقيت UTC).
             ->when($from || $to, fn ($q) => $q->where(fn ($w) => $w
-                ->where(fn ($p) => $p->where('status', 'posted')
+                ->where(fn ($p) => $p->whereIn('status', ['posted', 'reversed'])
                     ->when($from, fn ($x) => $x->where('count_date', '>=', $from))
                     ->when($to, fn ($x) => $x->where('count_date', '<=', $to)))
                 ->orWhere(fn ($d) => $d->where('status', 'draft')
@@ -147,6 +147,20 @@ class StockCountController extends InventoryController
         ));
     }
 
+    /** POST /api/inventory/counts/{count}/reverse {reason} — عكس جرد معتمد (تُعكس تسوياته في الكاردكس). */
+    public function reverse(Request $request, StockCount $count): JsonResponse
+    {
+        $data = $this->validateAr($request, ['reason' => ['required', 'string', 'max:300']]);
+        if ($denied = $this->denyUnlessCanAccess($request, Warehouse::findOrFail($count->warehouse_id))) {
+            return $denied;
+        }
+
+        return $this->attempt(fn () => $this->success(
+            'تم عكس الجرد وتسوياته',
+            $this->present($request, $this->counts->reverse($count, $data['reason'], $request->user())),
+        ));
+    }
+
     /** POST /api/inventory/counts/{count}/recalculate — الكمية بالمخزن من الرصيد الحالي. */
     public function recalculate(Request $request, StockCount $count): JsonResponse
     {
@@ -209,7 +223,7 @@ class StockCountController extends InventoryController
     private function present(Request $request, StockCount $count): array
     {
         $count->load([
-            'warehouse:id,name,code', 'creator:id,name', 'poster:id,name',
+            'warehouse:id,name,code', 'creator:id,name', 'poster:id,name', 'reverser:id,name',
             'lines' => fn ($q) => $q->join('stock_items', 'stock_items.id', '=', 'stock_count_lines.stock_item_id')
                 ->orderBy('stock_items.code')->select('stock_count_lines.*'),
             'lines.stockItem:id,code,name,base_unit_id,safety_stock', 'lines.stockItem.baseUnit:id,name',
