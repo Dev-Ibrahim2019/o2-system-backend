@@ -32,6 +32,9 @@ class StockMovement extends Model
         'transfer_in' => ['label' => 'تحويل وارد', 'direction' => 'in'],
         'adjustment' => ['label' => 'تسوية جرد', 'direction' => 'both'],
         'waste' => ['label' => 'هالك', 'direction' => 'out'],
+        'purchase_return' => ['label' => 'مرتجع مشتريات', 'direction' => 'out'],
+        // قيمة فقط (كمية صفر): محاذاة ترحيل الدفعات / تصحيح تكلفة بلا حركة أصلية. لا تُسجَّل من StockMovementLine.
+        'revaluation' => ['label' => 'إعادة تقييم', 'direction' => 'value'],
     ];
 
     /** الأنواع التي يُسمح بعكسها يدوياً من الواجهة. بقية الأنواع تُعكس من مستنداتها (إلغاء طلب، مرتجع...). */

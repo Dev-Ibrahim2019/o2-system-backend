@@ -95,6 +95,57 @@ class SupplierAccountingService
         );
     }
 
+    /**
+     * مرتجع مشتريات / تخفيض سعر من المورّد — عكس قيد الفاتورة:
+     *   مدين:  2110 (ذمم الموردين) | subledger: supplier X  — مجموع الدائن
+     *   دائن:  حسابات $credits (المشتريات، ضريبة المدخلات)
+     *
+     * @param  array<int, array{account_id:int, amount:string|float, description?:string}>  $credits
+     */
+    public function recordPurchaseReturn(
+        Supplier $supplier,
+        array    $credits,
+        string   $date,
+        ?string  $reference = null,
+        ?int     $branchId  = null,
+        ?string  $description = null,
+        ?string  $sourceType = null,
+        ?int     $sourceId = null,
+    ): Transaction {
+        $apAccountId = $this->getAccountId(self::AP_ACCOUNT_CODE);
+        $credits = array_values(array_filter($credits, fn ($c) => (float) $c['amount'] > 0));
+        $total = array_reduce($credits, fn ($c, $d) => bcadd($c, (string) $d['amount'], 4), '0');
+
+        return $this->postingService->createAndPost(
+            data: [
+                'date'        => $date,
+                'type'        => 'adjustment',
+                'reference'   => $reference,
+                'description' => $description ?? "مرتجع مشتريات: {$supplier->name}",
+                'branch_id'   => $branchId,
+                'source_type' => $sourceType ?? Supplier::class,
+                'source_id'   => $sourceId ?? $supplier->id,
+                'prefix'      => 'PRN',
+            ],
+            entries: [
+                [
+                    'account_id'     => $apAccountId,
+                    'debit'          => $total,
+                    'credit'         => 0,
+                    'description'    => "مرتجع للمورد: {$supplier->name}",
+                    'subledger_type' => 'supplier',
+                    'subledger_id'   => $supplier->id,
+                ],
+                ...array_map(fn ($c) => [
+                    'account_id'  => $c['account_id'],
+                    'debit'       => 0,
+                    'credit'      => $c['amount'],
+                    'description' => $c['description'] ?? "مرتجع مشتريات - {$supplier->name}",
+                ], $credits),
+            ],
+        );
+    }
+
     // ──────────────────────────────────────────────────────────
     // 2. دفعة للمورد (Supplier Payment)
     // ──────────────────────────────────────────────────────────

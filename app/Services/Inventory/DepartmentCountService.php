@@ -39,7 +39,7 @@ class DepartmentCountService
     /** الأعمدة التي تُعرض موجبة وهي صادرة (الحركة سالبة). */
     private const OUTGOING = ['transfers_out', 'sale', 'waste'];
 
-    public function __construct(private StockCountService $counts) {}
+    public function __construct(private StockCountService $counts, private StockLedger $ledger) {}
 
     /**
      * @return array{lines: array<int, array<string, mixed>>, totals: array<string, mixed>, threshold: string, count: ?array<string, mixed>}
@@ -83,7 +83,9 @@ class DepartmentCountService
                 continue;
             }
             $net = (string) ($m->net ?? '0');
-            $avg = bccomp((string) $b->avg_cost, '0', self::S) > 0 ? (string) $b->avg_cost : (string) ($b->last_cost ?? '0');
+            // سعر الزيادة = آخر دفعة؛ قيمة المتوقع = قيمة دفعاته؛ العجز يُقدَّر بالأقدم أولاً (لا متوسط).
+            $avg = $this->ledger->layers()->latestCost($warehouse->id, (int) $id);
+            $expectedValue = $this->ledger->layers()->value($warehouse->id, (int) $id);
             $counted = $hasDraft && $draftLines[$id]->counted_quantity !== null ? (string) $draftLines[$id]->counted_quantity : null;
             $row = [
                 'stock_item_id' => (int) $id,
@@ -101,11 +103,11 @@ class DepartmentCountService
                 'other' => $this->fmt((string) ($m->other ?? '0')),
                 'expected' => $this->fmt($expected),
                 'unit_cost' => $this->fmt($avg),
-                'expected_value' => $this->fmt(bcmul($expected, $avg, self::S)),
+                'expected_value' => $this->fmt($expectedValue),
                 'counted' => $counted === null ? null : $this->fmt($counted),
-                ...$this->variance($counted, $expected, $avg),
+                ...$this->variance($counted, $expected, $avg, $warehouse->id, (int) $id),
             ];
-            $tot['expected_value'] = bcadd($tot['expected_value'], bcmul($expected, $avg, self::S), self::S);
+            $tot['expected_value'] = bcadd($tot['expected_value'], $expectedValue, self::S);
             if ($counted !== null) {
                 $tot['counted_lines']++;
                 $tot['variance_value'] = bcadd($tot['variance_value'], $row['variance_value'], self::S);
@@ -341,16 +343,20 @@ class DepartmentCountService
     }
 
     /** @return array{variance_quantity:?string, variance_value:?string, variance_percent:?string} */
-    private function variance(?string $counted, string $expected, string $unitCost): array
+    private function variance(?string $counted, string $expected, string $unitCost, int $warehouseId, int $itemId): array
     {
         if ($counted === null) {
             return ['variance_quantity' => null, 'variance_value' => null, 'variance_percent' => null];
         }
         $diff = bcsub($counted, $expected, self::S);
+        // العجز يخرج من الدفعات بالأقدم أولاً (تقدير)، والزيادة تدخل بسعر آخر دفعة.
+        $value = bccomp($diff, '0', self::S) < 0
+            ? bcmul($this->ledger->layers()->estimateIssue($warehouseId, $itemId, bcmul($diff, '-1', self::S)), '-1', self::S)
+            : bcmul($diff, $unitCost, self::S);
 
         return [
             'variance_quantity' => $this->fmt($diff),
-            'variance_value' => $this->fmt(bcmul($diff, $unitCost, self::S)),
+            'variance_value' => $this->fmt($value),
             'variance_percent' => $this->percent($diff, $expected),
         ];
     }

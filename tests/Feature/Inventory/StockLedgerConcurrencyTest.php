@@ -41,6 +41,9 @@ class StockLedgerConcurrencyTest extends TestCase
             // TRUNCATE لا يطلق Triggers الحذف — مقبول هنا لأنها قاعدة الاختبار وبياناتها من هذا الاختبار فقط.
             DB::statement('SET FOREIGN_KEY_CHECKS=0');
             DB::table('stock_balances')->truncate();
+            foreach (['stock_layer_revaluations', 'stock_layer_allocations', 'stock_layer_shortages', 'stock_draft_allocations', 'stock_layers'] as $table) {
+                DB::table($table)->truncate();
+            }
             DB::table('stock_movements')->truncate();
             DB::table('stock_item_units')->whereIn('stock_item_id', $this->created['items'] ?? [])->delete();
             DB::table('stock_items')->whereIn('id', $this->created['items'] ?? [])->delete();
@@ -100,6 +103,10 @@ class StockLedgerConcurrencyTest extends TestCase
         foreach ([$a, $b] as $item) {
             $balance = DB::table('stock_balances')->where('warehouse_id', $warehouse->id)->where('stock_item_id', $item->id)->first();
             $this->assertEquals($expected, (float) $balance->quantity, "رصيد {$item->name}");
+            // الدفعة الوحيدة (أول المدة) نقصت بالضبط ما صُرف، ومجموع التخصيصات = المصروف.
+            $this->assertEquals($expected, (float) DB::table('stock_layers')->where('stock_item_id', $item->id)->sum('qty_remaining'));
+            $this->assertEquals(self::WORKERS * self::ITERATIONS, (float) DB::table('stock_layer_allocations')
+                ->join('stock_layers as l', 'l.id', '=', 'stock_layer_allocations.layer_id')->where('l.stock_item_id', $item->id)->sum('quantity'));
 
             // كل صرف رأى الرصيد بعد سابقه: لقطات الرصيد بعد الحركة 999..800 كلٌّ منها مرة واحدة بالضبط.
             $snapshots = DB::table('stock_movements')
@@ -110,5 +117,39 @@ class StockLedgerConcurrencyTest extends TestCase
                 ->all();
             $this->assertSame(range(self::START - 1, $expected), $snapshots);
         }
+    }
+
+    /** اختبار الدفعات 4: عمليتا صرف متزامنتان من الدفعة نفسها (60 + 60 من 100) — تنجح واحدة فقط، والمتبقي لا يصبح سالباً. */
+    public function test_two_concurrent_issues_from_the_same_layer_never_overdraw(): void
+    {
+        $gram = StockUnit::where('name', 'غرام')->firstOrFail();
+        $branch = Branch::factory()->create();
+        $warehouse = Warehouse::create(['name' => 'مخزن دفعات', 'code' => 'WH-LAYER', 'branch_id' => $branch->id]);
+        $item = StockItem::create(['type' => 'raw', 'name' => 'زيت', 'code' => 'CONC-L', 'base_unit_id' => $gram->id, 'is_stored' => true]);
+        $this->created = ['branch' => $branch->id, 'warehouse' => $warehouse->id, 'items' => [$item->id]];
+        app(StockLedger::class)->post(new StockMovementLine($warehouse->id, $item->id, 'opening', '100', unitCost: '2'));
+        $layerId = (int) DB::table('stock_layers')->where('stock_item_id', $item->id)->value('id');
+
+        $env = array_merge(getenv(), ['APP_ENV' => 'testing', 'DB_CONNECTION' => 'mysql', 'DB_DATABASE' => 'o2_restaurant_test',
+            'CACHE_STORE' => 'array', 'TELESCOPE_ENABLED' => 'false', 'PULSE_ENABLED' => 'false', 'NIGHTWATCH_ENABLED' => 'false']);
+        $processes = [];
+        for ($w = 0; $w < 2; $w++) {
+            $cmd = [PHP_BINARY, base_path('tests/Support/stock_layer_worker.php'), (string) $warehouse->id, (string) $item->id, (string) $layerId, '60'];
+            $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, base_path(), $env);
+            $processes[] = [$proc, $pipes];
+        }
+        $outcomes = [];
+        foreach ($processes as [$proc, $pipes]) {
+            $outcomes[] = trim(stream_get_contents($pipes[1]));
+            $err = stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            $this->assertSame(0, proc_close($proc), $err);
+        }
+        sort($outcomes);
+
+        $this->assertSame(['ok', 'rejected'], $outcomes);
+        $this->assertSame('40.000000', DB::table('stock_layers')->where('id', $layerId)->value('qty_remaining'));
+        $this->assertSame('40.000000', DB::table('stock_balances')->where('stock_item_id', $item->id)->value('quantity'));
     }
 }

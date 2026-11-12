@@ -137,20 +137,21 @@ class StockLedgerTest extends TestCase
         $this->assertSame($m->id, $b->last_movement_id);
     }
 
-    public function test_weighted_average_through_the_ledger(): void
+    public function test_fifo_cost_through_the_ledger(): void
     {
-        // 10 كغ بتكلفة 40 ثم 10 كغ بتكلفة 50 → المتوسط 45 للكيلو (0.045 للغرام)
+        // دفعتان: 10 كغ بـ 40 ثم 10 كغ بـ 50. صرف 15.75 كغ بالأقدم أولاً = 10 كغ × 40 + 5.75 كغ × 50 = 687.5 (لا متوسط)
         $this->in($this->meat, '10000', '0.04');
         $this->in($this->meat, '10000', '0.05', 'purchase');
 
         $b = $this->balance($this->meat);
         $this->assertSame('20000.000000', $b->quantity);
-        $this->assertSame('0.045000', $b->avg_cost);
+        $this->assertSame('0.045000', $b->avg_cost);   // للعرض فقط: قيمة الدفعات ÷ الكمية
 
         $sale = $this->out($this->meat, '15750');
-        $this->assertSame('0.045000', $sale->unit_cost);
-        $this->assertSame('-708.750000', $sale->total_cost);
+        $this->assertSame('-687.500000', $sale->total_cost);
         $this->assertSame('4250.000000', $this->balance($this->meat)->quantity);
+        // المتبقي من الدفعة الثانية فقط، بسعرها
+        $this->assertSame('0.050000', $this->balance($this->meat)->avg_cost);
     }
 
     public function test_balance_after_snapshots_form_a_chain(): void
@@ -449,12 +450,17 @@ class StockLedgerTest extends TestCase
     {
         $admin = $this->user(self::ADMIN);
         $opening = $this->in($this->meat, '1000', '0.04');
-        $this->out($this->meat, '100');
+        $sale = $this->out($this->meat, '100');
         $url = "/api/inventory/kardex?warehouse_id={$this->gaza->id}&stock_item_id={$this->meat->id}";
 
+        // صُرف من دفعة أول المدة: لا تُعكس حتى يُعكس الصرف.
         $rows = $this->actingAs($admin)->getJson($url)->assertOk()->json('data.rows');
-        $this->assertTrue($rows[0]['can_reverse']);
+        $this->assertFalse($rows[0]['can_reverse']);
         $this->assertFalse($rows[1]['can_reverse']);
+
+        $this->ledger()->reverse($sale, 'x');
+        $rows = $this->actingAs($admin)->getJson($url)->json('data.rows');
+        $this->assertTrue($rows[0]['can_reverse']);
 
         $this->ledger()->reverse($opening, 'x', null, allowNegative: true);
         $rows = $this->actingAs($admin)->getJson($url)->json('data.rows');

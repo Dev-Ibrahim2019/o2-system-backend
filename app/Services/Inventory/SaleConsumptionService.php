@@ -131,6 +131,7 @@ class SaleConsumptionService
                 sourceType: self::SOURCE_TYPE,
                 sourceId: $order->id,
                 idempotencyKey: "sale:{$order->id}:{$orderItemId}:{$stockItemId}",
+                sourceLineId: $orderItemId,
                 notes: $order->order_number,
             );
         }

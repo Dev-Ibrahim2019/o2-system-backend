@@ -25,5 +25,13 @@ final class StockMovementLine
         public readonly ?int $sourceId = null,
         public readonly ?string $idempotencyKey = null,
         public readonly ?string $notes = null,
+        /** للصادر: التوزيع اليدوي على الدفعات [{layer_id, quantity}] بالوحدة الأساسية (التحديد المعيّن)؛ null = الأقدم أولاً. */
+        public readonly ?array $allocations = null,
+        /** سطر المستند / الطلب / الجرد الذي تخصه الحركة (يُحفظ على التخصيصات والنقص المعلّق). */
+        public readonly ?int $sourceLineId = null,
+        /** للوارد: بيانات الدفعة (source_type, source_id, source_line_id, purchase_bill_id, supplier_id, received_at). */
+        public readonly ?array $layer = null,
+        /** لوارد التحويل: حركة الصادر التي تُنسخ دفعاتها (السعر وتاريخ الاستلام ومرجع الفاتورة الأصلية). */
+        public readonly ?int $mirrorOf = null,
     ) {}
 }

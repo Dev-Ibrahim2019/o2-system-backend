@@ -417,7 +417,7 @@ class DepartmentReportService
     public function consumptionQuery(array $p, ?int $branchId): Builder
     {
         return DB::table('stock_movements as m')
-            ->leftJoin('stock_movements as orig', 'orig.id', '=', 'm.reversal_of_id')
+            ->leftJoin('stock_movements as orig', 'orig.id', '=', DB::raw('COALESCE(m.reversal_of_id, m.adjusts_movement_id)'))
             ->join('order_items as oi', 'oi.id', '=', self::orderItemIdSql())
             ->join('orders as o', 'o.id', '=', 'm.source_id')
             ->where('m.type', 'sale')

@@ -3,6 +3,8 @@
 namespace App\Services\Inventory;
 
 use App\Models\StockDocument;
+use App\Models\StockDraftAllocation;
+use App\Models\StockLayer;
 use App\Models\StockItem;
 use App\Models\Supplier;
 use App\Models\User;
@@ -165,6 +167,7 @@ class StockDocumentService
                 StockDocument::TYPE_RECEIPT => $this->postReceipt($doc, $at, $by),
                 StockDocument::TYPE_TRANSFER => $this->postTransfer($doc, $at, $by),
                 StockDocument::TYPE_WASTE => $this->postWaste($doc, $at, $by),
+                StockDocument::TYPE_PURCHASE_RETURN => $this->postPurchaseReturn($doc, $at, $by),
             };
 
             $doc->forceFill([
@@ -225,6 +228,15 @@ class StockDocumentService
             sourceId: $doc->id,
             idempotencyKey: $this->key($doc, $l->id),
             notes: $this->notes($doc, $l->notes),
+            sourceLineId: $l->id,
+            // كل سطر ينشئ دفعة: سطر فاتورة المشتريات (إن جاء منها) أو سطر الاستلام المباشر، بمورّده.
+            layer: [
+                'source_type' => $doc->purchase_bill_id ? 'purchase_invoice' : 'receipt',
+                'source_id' => $doc->purchase_bill_id ?? $doc->id,
+                'source_line_id' => $l->purchase_bill_item_id ?? $l->id,
+                'purchase_bill_id' => $doc->purchase_bill_id,
+                'supplier_id' => $doc->supplier_id,
+            ],
         ))->all(), $by);
 
         $total = '0';
@@ -259,20 +271,24 @@ class StockDocumentService
             sourceId: $doc->id,
             idempotencyKey: $this->key($doc, $l->id, 'out'),
             notes: $this->notes($doc, $l->notes),
+            allocations: $this->draftAllocations($l->id),
+            sourceLineId: $l->id,
         ))->all(), $by);
 
-        // الوارد بالوحدة الأساسية وبتكلفة الوحدة الأساسية كما سُجّل الصادر.
+        // الوارد بالوحدة الأساسية، ودفعاته في الوجهة نسخة من دفعات الصادر: نفس السعر ونفس تاريخ الاستلام ومرجع الفاتورة.
         $this->ledger->postMany($lines->map(fn ($l, $i) => new StockMovementLine(
             warehouseId: (int) ($l->to_warehouse_id ?: $doc->to_warehouse_id),
             stockItemId: $l->stock_item_id,
             type: 'transfer_in',
             quantity: bcmul((string) $out[$i]->quantity, '-1', UnitConverter::SCALE),
-            unitCost: (string) $out[$i]->unit_cost,
             occurredAt: $at,
             sourceType: StockDocument::SOURCE_TYPE,
             sourceId: $doc->id,
             idempotencyKey: $this->key($doc, $l->id, 'in'),
             notes: $this->notes($doc, $l->notes),
+            sourceLineId: $l->id,
+            layer: ['source_line_id' => $l->id],
+            mirrorOf: (int) $out[$i]->id,
         ))->all(), $by);
 
         $total = '0';
@@ -300,17 +316,58 @@ class StockDocumentService
             sourceId: $doc->id,
             idempotencyKey: $this->key($doc, $l->id),
             notes: $this->notes($doc, StockDocument::WASTE_REASONS[$l->waste_reason] ?? null),
+            allocations: $this->draftAllocations($l->id),
+            sourceLineId: $l->id,
         ))->all(), $by);
 
+        return $this->postedOutgoingTotal($lines, $movements);
+    }
+
+    /**
+     * مرتجع المشتريات: يخرج من دفعة محددة (الافتراضي دفعة سطر الفاتورة نفسه) بسعرها، ولا يتجاوز المتبقي فيها —
+     * لا نقص معلّق للمرتجع مهما كان إعداد الرصيد السالب.
+     */
+    private function postPurchaseReturn(StockDocument $doc, CarbonInterface $at, User $by): string
+    {
+        $lines = $doc->lines->values();
+        $movements = $this->ledger->postMany($lines->map(fn ($l) => new StockMovementLine(
+            warehouseId: $doc->warehouse_id,
+            stockItemId: $l->stock_item_id,
+            type: 'purchase_return',
+            quantity: bcmul((string) $l->quantity, '-1', UnitConverter::SCALE),
+            unitId: $l->unit_id,
+            occurredAt: $at,
+            sourceType: StockDocument::SOURCE_TYPE,
+            sourceId: $doc->id,
+            idempotencyKey: $this->key($doc, $l->id),
+            notes: $this->notes($doc, $l->notes),
+            allocations: $this->draftAllocations($l->id),
+            sourceLineId: $l->id,
+        ))->all(), $by, false);
+
+        return $this->postedOutgoingTotal($lines, $movements);
+    }
+
+    /** قيمة الصادر موجبة في المستند (الحركة نفسها سالبة)، وتُحفظ على كل سطر. */
+    private function postedOutgoingTotal($lines, array $movements): string
+    {
         $total = '0';
         foreach ($lines as $i => $l) {
-            // قيمة الصادر موجبة في المستند (الحركة نفسها سالبة).
             $value = bcmul((string) $movements[$i]->total_cost, '-1', 6);
             $l->forceFill(['posted_cost' => $value])->save();
             $total = bcadd($total, $value, 6);
         }
 
         return $total;
+    }
+
+    /** @return array<int, array{layer_id:int, quantity:string}>|null توزيع المسودة على الدفعات (null = الأقدم أولاً). */
+    private function draftAllocations(int $lineId): ?array
+    {
+        $rows = StockDraftAllocation::where('owner_type', StockDraftAllocation::DOCUMENT_LINE)->where('owner_id', $lineId)
+            ->orderBy('id')->get(['layer_id', 'quantity']);
+
+        return $rows->isEmpty() ? null : $rows->map(fn ($r) => ['layer_id' => (int) $r->layer_id, 'quantity' => (string) $r->quantity])->all();
     }
 
     // ── التحقق والأدوات ───────────────────────────────────────────────────────
@@ -347,7 +404,8 @@ class StockDocumentService
                         ['supplier_invoice_no' => ['رقم فاتورة مكرّر لنفس المورّد.']]);
                 }
             }
-        } else {
+        } elseif ($type !== StockDocument::TYPE_PURCHASE_RETURN) {
+            // مرتجع المشتريات يحتفظ بمورّد الفاتورة؛ بقية الأنواع بلا مورّد.
             $data['supplier_id'] = null;
             $data['supplier_invoice_no'] = null;
         }
@@ -419,11 +477,13 @@ class StockDocumentService
     /** @param  array<int, array<string, mixed>>  $lines */
     private function syncLines(StockDocument $doc, array $lines): void
     {
+        StockDraftAllocation::where('owner_type', StockDraftAllocation::DOCUMENT_LINE)->whereIn('owner_id', $doc->lines()->pluck('id'))->delete();
         $doc->lines()->delete();
         foreach (array_values($lines) as $i => $line) {
-            $doc->lines()->create([
+            $created = $doc->lines()->create([
                 'line_no' => $i + 1,
                 'stock_item_id' => (int) $line['stock_item_id'],
+                'purchase_bill_item_id' => $line['purchase_bill_item_id'] ?? null,
                 'to_warehouse_id' => $line['to_warehouse_id'] ?? null,
                 'unit_id' => (int) $line['unit_id'],
                 'quantity' => (string) $line['quantity'],
@@ -431,6 +491,33 @@ class StockDocumentService
                 'waste_reason' => $line['waste_reason'] ?? null,
                 'notes' => $line['notes'] ?? null,
             ]);
+            $this->saveDraftAllocations($doc, $created->id, (int) $line['stock_item_id'], $line['allocations'] ?? null);
+        }
+    }
+
+    /**
+     * توزيع المستخدم لسطر صادر على الدفعات (بالوحدة الأساسية). يُتحقق هنا أن الدفعة للصنف نفسه في مخزن المستند؛
+     * ومجموعه وكفاية كل دفعة يُتحقق منها عند الترحيل (تحت القفل).
+     *
+     * @param  array<int, array{layer_id:int|string, quantity:int|float|string}>|null  $allocations
+     */
+    private function saveDraftAllocations(StockDocument $doc, int $lineId, int $itemId, ?array $allocations): void
+    {
+        if (! $allocations || $doc->type === StockDocument::TYPE_RECEIPT) {
+            return;
+        }
+        $layers = StockLayer::whereIn('id', array_column($allocations, 'layer_id'))->get(['id', 'warehouse_id', 'stock_item_id'])->keyBy('id');
+        foreach ($allocations as $a) {
+            $qty = UnitConverter::round((string) ($a['quantity'] ?? '0'));
+            if (bccomp($qty, '0', UnitConverter::SCALE) <= 0) {
+                continue;
+            }
+            $layer = $layers->get((int) $a['layer_id']);
+            if (! $layer || (int) $layer->warehouse_id !== (int) $doc->warehouse_id || (int) $layer->stock_item_id !== $itemId) {
+                throw new InventoryRuleException("الدفعة #{$a['layer_id']} ليست لهذا الصنف في مخزن المستند.");
+            }
+            StockDraftAllocation::create(['owner_type' => StockDraftAllocation::DOCUMENT_LINE, 'owner_id' => $lineId,
+                'layer_id' => $layer->id, 'quantity' => $qty]);
         }
     }
 
@@ -486,6 +573,8 @@ class StockDocumentService
         return $doc->fresh([
             'lines.stockItem:id,code,name,base_unit_id', 'lines.stockItem.baseUnit:id,name', 'lines.unit:id,name',
             'lines.toWarehouse:id,name,code', 'receipts.receiver:id,name',
+            'lines.draftAllocations.layer.purchaseBill:id,bill_number', 'lines.draftAllocations.layer.origin.purchaseBill:id,bill_number',
+            'lines.layerAllocations.layer.purchaseBill:id,bill_number', 'lines.layerAllocations.layer.origin.purchaseBill:id,bill_number',
             'warehouse:id,name,code', 'toWarehouse:id,name,code', 'supplier:id,name,code',
             'creator:id,name', 'poster:id,name', 'reverser:id,name', 'receiver:id,name',
         ]);

@@ -266,7 +266,8 @@ class StockDocumentController extends InventoryController
     private function rules(bool $creating): array
     {
         return [
-            'type' => [$creating ? 'required' : 'prohibited', Rule::in(array_keys(StockDocument::TYPES))],
+            // مرتجع المشتريات يُنشأ من فاتورته فقط (purchases/{bill}/returns).
+            'type' => [$creating ? 'required' : 'prohibited', Rule::in([StockDocument::TYPE_RECEIPT, StockDocument::TYPE_TRANSFER, StockDocument::TYPE_WASTE])],
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
             'to_warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'supplier_id' => ['nullable', 'integer', 'exists:suppliers,id'],
@@ -284,6 +285,10 @@ class StockDocumentController extends InventoryController
             'lines.*.unit_cost' => ['nullable', 'numeric', 'min:0'],
             'lines.*.waste_reason' => ['nullable', Rule::in(array_keys(StockDocument::WASTE_REASONS))],
             'lines.*.notes' => ['nullable', 'string', 'max:500'],
+            // التحديد المعيّن: توزيع السطر على الدفعات بالوحدة الأساسية (فارغ = الأقدم أولاً).
+            'lines.*.allocations' => ['nullable', 'array'],
+            'lines.*.allocations.*.layer_id' => ['required', 'integer', 'exists:stock_layers,id'],
+            'lines.*.allocations.*.quantity' => ['required', 'numeric', 'gt:0'],
             'destination' => ['nullable', 'string', 'max:150'],
             'delivery_status' => ['nullable', Rule::in(['delivered', 'undelivered'])],
         ];

@@ -21,10 +21,13 @@ class StockDocument extends Model
 
     public const TYPE_WASTE = 'waste';
 
+    public const TYPE_PURCHASE_RETURN = 'purchase_return';
+
     public const TYPES = [
         self::TYPE_RECEIPT => ['label' => 'استلام مشتريات', 'prefix' => 'GRN'],
         self::TYPE_TRANSFER => ['label' => 'صرفية أصناف', 'prefix' => 'TRF'],
         self::TYPE_WASTE => ['label' => 'هالك', 'prefix' => 'WST'],
+        self::TYPE_PURCHASE_RETURN => ['label' => 'مرتجع مشتريات', 'prefix' => 'PRT'],
     ];
 
     public const STATUS_DRAFT = 'draft';

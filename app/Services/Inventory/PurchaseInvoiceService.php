@@ -3,8 +3,9 @@
 namespace App\Services\Inventory;
 
 use App\Models\Account;
-use App\Models\InventorySetting;
 use App\Models\PurchaseBill;
+use App\Models\StockLayer;
+use App\Models\StockMovement;
 use App\Models\StockDocument;
 use App\Models\StockItem;
 use App\Models\Supplier;
@@ -91,6 +92,8 @@ class PurchaseInvoiceService
                     'total_before_tax' => $m['taxable'],
                     'line_total' => $m['total'],
                     'account_id' => $l['account_id'],
+                    'allocate_to_stock' => $l['allocate_to_stock'],
+                    'allocated_expense' => $m['allocated_expense'] ?? '0',
                     'stock_unit_cost' => $l['kind'] === 'stock' ? $m['unit_cost_ils'] : null,
                 ]);
             }
@@ -193,6 +196,7 @@ class PurchaseInvoiceService
                         'unit_id' => $l->unit_id,
                         'quantity' => (string) $l->quantity,
                         'unit_cost' => (string) $l->stock_unit_cost,
+                        'purchase_bill_item_id' => $l->id,
                         'notes' => null,
                     ])->all(),
                 ], $by);
@@ -289,10 +293,8 @@ class PurchaseInvoiceService
 
             if ($bill->stock_document_id) {
                 $grn = StockDocument::with('lines.stockItem.units', 'lines.stockItem.baseUnit')->findOrFail($bill->stock_document_id);
-                // مع السماح بالرصيد السالب يُعكس الاستلام ولو صُرف منه (يصبح الرصيد سالباً) — مثل باقي العمليات.
-                if (! InventorySetting::current()->allow_negative_stock) {
-                    $this->assertStockSufficient($grn);
-                }
+                // إلغاء ترحيل الفاتورة مسموح فقط إن لم يُصرف شيء من دفعاتها (ولا مرتجع لها).
+                $this->assertStockSufficient($grn);
                 $this->documents->reverse($grn, $note, $by);
             }
 
@@ -459,7 +461,7 @@ class PurchaseInvoiceService
                     'kind' => 'stock', 'stock_item_id' => $item->id, 'unit_id' => $unitId, 'description' => mb_substr($item->name, 0, 255),
                     'quantity' => (string) $l['quantity'], 'unit_price' => (string) (($l['unit_price'] ?? null) ?: '0'),
                     'discount_pct' => (string) (($l['discount_pct'] ?? null) ?: '0'), 'tax_rate' => (string) (($l['tax_rate'] ?? null) ?: '0'),
-                    'account_id' => null,
+                    'account_id' => null, 'allocate_to_stock' => false,
                 ];
             } else {
                 $account = Account::find($l['account_id'] ?? 0);
@@ -473,7 +475,7 @@ class PurchaseInvoiceService
                     'kind' => 'expense', 'stock_item_id' => null, 'unit_id' => null, 'description' => mb_substr(trim($l['description']), 0, 255),
                     'quantity' => '1', 'unit_price' => (string) (($l['unit_price'] ?? null) ?: '0'),
                     'discount_pct' => '0', 'tax_rate' => (string) (($l['tax_rate'] ?? null) ?: '0'),
-                    'account_id' => $account->id,
+                    'account_id' => $account->id, 'allocate_to_stock' => (bool) ($l['allocate_to_stock'] ?? false),
                 ];
             }
         }
@@ -504,6 +506,7 @@ class PurchaseInvoiceService
             'discount_pct' => (string) $l->discount_pct,
             'tax_rate' => (string) $l->tax_rate,
             'account_id' => $l->account_id,
+            'allocate_to_stock' => (bool) $l->allocate_to_stock,
         ])->all();
     }
 
@@ -574,21 +577,17 @@ class PurchaseInvoiceService
     }
 
     /**
-     * قبل عكس الاستلام: هل ما زال كل صنف موجوداً في المخزن؟ وإلا رسالة بكل صنف وكم ينقص.
+     * قبل عكس الاستلام: كل دفعة من دفعات الفاتورة لم يُمس منها شيء؟ وإلا رسالة بكل صنف وكم صُرف منه.
      */
     private function assertStockSufficient(StockDocument $grn): void
     {
-        $need = [];
-        foreach ($grn->lines as $l) {
-            $factor = (int) $l->unit_id === (int) $l->stockItem->base_unit_id ? '1' : (string) ($l->stockItem->units->firstWhere('unit_id', $l->unit_id)?->factor ?? '1');
-            $base = UnitConverter::toBase((string) $l->quantity, $factor);
-            $need[$l->stock_item_id] = bcadd($need[$l->stock_item_id] ?? '0', $base, 6);
-        }
         $short = [];
-        foreach ($need as $itemId => $qty) {
-            $have = (string) (DB::table('stock_balances')->where('warehouse_id', $grn->warehouse_id)->where('stock_item_id', $itemId)->value('quantity') ?? '0');
-            if (bccomp($have, $qty, 6) < 0) {
-                $short[] = $this->shortage($grn->lines->firstWhere('stock_item_id', $itemId)->stockItem, $qty, $have);
+        $layers = StockLayer::with('stockItem.baseUnit')
+            ->whereIn('movement_id', StockMovement::where('source_type', StockDocument::SOURCE_TYPE)->where('source_id', $grn->id)->select('id'))
+            ->get();
+        foreach ($layers as $layer) {
+            if (bccomp((string) $layer->qty_remaining, (string) $layer->qty_in, 6) < 0) {
+                $short[] = $this->shortage($layer->stockItem, (string) $layer->qty_in, (string) $layer->qty_remaining);
             }
         }
         if ($short !== []) {

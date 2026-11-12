@@ -911,6 +911,13 @@ Route::middleware(['auth:sanctum', 'permission:inventory.access'])->prefix('inve
     Route::get('balances', [$ledger, 'balances']);
     Route::get('kardex', [$ledger, 'kardex']);
     Route::get('items/{item}/stock', [$ledger, 'itemStock']);
+    // الدفعات (Cost Layers): المتاح للصرف، تتبّع دفعة، وتقاريرها.
+    $layers = \App\Http\Controllers\Api\Inventory\StockLayerController::class;
+    Route::get('items/{item}/layers', [$layers, 'available']);
+    Route::get('layers/{layer}', [$layers, 'show'])->whereNumber('layer');
+    Route::get('reports/layers', [$layers, 'itemLayers']);
+    Route::get('reports/issue-costs', [$layers, 'issueCosts']);
+    Route::get('reports/layers-check', [$layers, 'check']);
     // الحركات المخزنية الموحدة (قراءة فقط): المستندات والجرد وأرصدة أول المدة.
     $journal = \App\Http\Controllers\Api\Inventory\StockJournalController::class;
     Route::get('journal', [$journal, 'index']);
@@ -955,6 +962,10 @@ Route::middleware(['auth:sanctum', 'permission:inventory.access'])->prefix('inve
         Route::post('{bill}/post', [$purchases, 'post'])->whereNumber('bill')->middleware('permission:purchases.post');
         Route::post('{bill}/reverse', [$purchases, 'reverse'])->whereNumber('bill')->middleware('permission:purchases.reverse');
         Route::post('{bill}/pay', [$purchases, 'pay'])->whereNumber('bill')->middleware('permission:purchases.pay');
+        Route::get('{bill}/layers', [$purchases, 'layers'])->whereNumber('bill')->middleware('permission:purchases.view');
+        Route::post('{bill}/returns', [$purchases, 'storeReturn'])->whereNumber('bill')->middleware('permission:purchases.post');
+        Route::post('returns/{document}/reverse', [$purchases, 'reverseReturn'])->whereNumber('document')->middleware('permission:purchases.reverse');
+        Route::post('{bill}/cost-adjustments', [$purchases, 'storeCostAdjustment'])->whereNumber('bill')->middleware('permission:purchases.post');
     });
 
     Route::get('items/{item}/suppliers', [$supplierItems, 'index']);

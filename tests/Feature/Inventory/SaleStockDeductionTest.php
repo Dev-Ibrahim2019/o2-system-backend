@@ -125,6 +125,25 @@ class SaleStockDeductionTest extends TestCase
         return StockBalance::where('warehouse_id', ($wh ?? $this->kitchen)->id)->where('stock_item_id', $item->id)->value('quantity');
     }
 
+    public function test_7_sale_beyond_stock_leaves_a_pending_shortage_settled_when_stock_arrives(): void
+    {
+        $this->enable();
+        // 200 سندويش × 120 غ = 24000 غ دجاج والمتاح 20000: الناقص 4000 غ نقص معلّق بسعر آخر دفعة (0.04) — البيع لا يتوقف.
+        $order = $this->sell([[$this->sandwich, 200, null]]);
+        $this->assertSame('paid', $order->payment_status);
+        $shortage = \App\Models\StockLayerShortage::where('stock_item_id', $this->chicken->id)->firstOrFail();
+        $this->assertSame(['4000.000000', '0.040000'], [$shortage->qty_open, $shortage->provisional_unit_cost]);
+        $posting = StockSalePosting::where('order_id', $order->id)->firstOrFail();
+        $before = (string) $posting->total_cost;
+
+        // وصول دجاج بسعر 0.05: يُسوّى النقص منه أولاً، وتكلفة الطلب تُصحَّح بالفرق 4000 × 0.01 = 40.
+        app(StockLedger::class)->post(new StockMovementLine($this->kitchen->id, $this->chicken->id, 'transfer_in', '10000', unitCost: '0.05'));
+        $this->assertSame('settled', $shortage->fresh()->status);
+        $this->assertEqualsWithDelta((float) $before + 40, (float) $posting->fresh()->total_cost, 0.0001);
+        $this->assertSame('6000.000000', $this->qty($this->chicken));
+        $this->assertSame([], app(\App\Services\Inventory\StockLayerReportService::class)->reconcile()['mismatches']);
+    }
+
     public function test_disabled_by_default_sale_changes_nothing(): void
     {
         $order = $this->sell([[$this->sandwich, 2, null]]);

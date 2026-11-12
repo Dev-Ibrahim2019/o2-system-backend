@@ -159,17 +159,17 @@ class RecipeService
         if ($stockItemIds === []) {
             return [];
         }
-        $avg = DB::table('stock_balances')
-            ->whereIn('stock_item_id', $stockItemIds)
-            ->where('quantity', '>', 0)
-            ->groupBy('stock_item_id')
-            ->selectRaw('stock_item_id, SUM(quantity * avg_cost) / SUM(quantity) as cost')
-            ->pluck('cost', 'stock_item_id');
+        // تكلفة الوصفة التقديرية بسعر آخر دفعة للمادة (لا متوسط مرجّح)، وإلا آخر تكلفة شراء مسجّلة.
+        $latest = DB::table('stock_layers as l')
+            ->whereIn('l.stock_item_id', $stockItemIds)->where('l.is_provisional', false)
+            ->whereRaw('l.id = (SELECT l2.id FROM stock_layers l2 WHERE l2.stock_item_id = l.stock_item_id AND l2.is_provisional = 0
+                ORDER BY l2.received_at DESC, l2.id DESC LIMIT 1)')
+            ->pluck('l.unit_cost', 'l.stock_item_id');
         $last = StockItem::whereIn('id', $stockItemIds)->pluck('last_cost', 'id');
 
         $costs = [];
         foreach ($stockItemIds as $id) {
-            $costs[$id] = UnitConverter::round((string) ($avg[$id] ?? $last[$id] ?? '0'));
+            $costs[$id] = UnitConverter::round((string) ($latest[$id] ?? $last[$id] ?? '0'));
         }
 
         return $costs;

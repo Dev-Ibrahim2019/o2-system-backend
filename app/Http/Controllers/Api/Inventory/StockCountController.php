@@ -109,6 +109,10 @@ class StockCountController extends InventoryController
             'lines.*.stock_item_id' => ['required', 'integer', 'distinct'],
             'lines.*.unit_id' => ['nullable', 'integer', 'exists:stock_units,id'],
             'lines.*.entered_quantity' => ['nullable', 'numeric', 'min:0'],
+            'lines.*.unit_cost' => ['nullable', 'numeric', 'min:0'],
+            'lines.*.allocations' => ['nullable', 'array'],
+            'lines.*.allocations.*.layer_id' => ['required', 'integer', 'exists:stock_layers,id'],
+            'lines.*.allocations.*.quantity' => ['required', 'numeric', 'gt:0'],
         ]);
         if ($denied = $this->denyUnlessCanAccess($request, Warehouse::findOrFail($count->warehouse_id))) {
             return $denied;

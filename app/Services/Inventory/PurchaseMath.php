@@ -114,6 +114,47 @@ final class PurchaseMath
             $t['tax'] = bcadd($t['tax'], $tax, 2);
             $t['total'] = bcadd($t['total'], $total, 2);
         }
+        // المصاريف المحمّلة (نقل، جمارك...): أسطر مصاريف عليها allocate_to_stock تُوزَّع على الأسطر المخزنية بنسبة قيمتها
+        // (الخاضع بعد الخصم)، فتدخل تكلفة الدفعة. القيد لا يتغير (المصروف على حسابه).
+        $landed = '0';
+        $stockBase = '0';
+        $largest = null;
+        foreach ($out as $i => $l) {
+            $out[$i]['allocated_expense'] = '0.00';
+            if ($l['kind'] !== 'stock' && ! empty($lines[$i]['allocate_to_stock'])) {
+                $landed = bcadd($landed, $l['cost_ils'], 2);
+            } elseif ($l['kind'] === 'stock') {
+                $stockBase = bcadd($stockBase, $l['taxable'], 2);
+                if ($largest === null || bccomp($l['taxable'], $out[$largest]['taxable'], 2) > 0) {
+                    $largest = $i;
+                }
+            }
+        }
+        if (bccomp($landed, '0', 2) > 0) {
+            if ($largest === null || bccomp($stockBase, '0', 2) <= 0) {
+                throw new InventoryRuleException('المصاريف المحمّلة على الأصناف تحتاج أصنافاً مخزنية بقيمة في الفاتورة.');
+            }
+            $allocated = '0';
+            foreach ($out as $i => $l) {
+                if ($l['kind'] !== 'stock') {
+                    continue;
+                }
+                $share = self::round(bcdiv(bcmul($landed, $l['taxable'], 12), $stockBase, 12), self::AMOUNT_SCALE);
+                $out[$i]['allocated_expense'] = $share;
+                $allocated = bcadd($allocated, $share, 2);
+            }
+            $out[$largest]['allocated_expense'] = bcadd($out[$largest]['allocated_expense'], bcsub($landed, $allocated, 2), 2);
+            foreach ($out as $i => $l) {
+                if ($l['kind'] !== 'stock' || bccomp($l['quantity'], '0', 6) <= 0) {
+                    continue;
+                }
+                // تكلفة الوحدة = (تكلفة السطر بالشيكل + حصته من المصاريف) ÷ الكمية
+                $costBase = $taxRecoverable ? $l['taxable'] : $l['total'];
+                $out[$i]['unit_cost_ils'] = self::round(
+                    bcdiv(bcadd(bcmul($costBase, $rate, 12), $l['allocated_expense'], 12), $l['quantity'], 12), self::COST_SCALE);
+            }
+        }
+
         // دائن المورّد = مجموع المدين بالشيكل (يتوازن القيد مهما كان تقريب سعر الصرف)
         $gl['payable'] = array_reduce($gl['expenses'], fn ($c, $v) => bcadd($c, $v, 2), bcadd($gl['purchases'], $gl['input_vat'], 2));
 

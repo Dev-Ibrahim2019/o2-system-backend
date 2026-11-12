@@ -23,7 +23,88 @@ use Illuminate\Validation\Rule;
  */
 class PurchaseInvoiceController extends InventoryController
 {
-    public function __construct(private PurchaseInvoiceService $purchases, private WarehouseAccess $access) {}
+    public function __construct(
+        private PurchaseInvoiceService $purchases,
+        private WarehouseAccess $access,
+        private \App\Services\Inventory\PurchaseLayerService $layers,
+    ) {}
+
+    /** GET purchases/{bill}/layers — دفعات الفاتورة (الوارد، المصروف، المرتجع، المتبقي، السعر) ومرتجعاتها وتسويات أسعارها. */
+    public function layers(Request $request, PurchaseBill $bill): JsonResponse
+    {
+        if ($denied = $this->denyUnlessCanSee($request, $bill)) {
+            return $denied;
+        }
+        $costs = \App\Services\Inventory\CostVisibility::canView($request->user());
+        $strip = fn (array $row, array $keys) => $costs ? $row : \App\Services\Inventory\CostVisibility::strip($row, $keys);
+
+        return $this->success('تم', [
+            'layers' => array_map(fn ($r) => $strip($r, ['unit_cost', 'value']), $this->layers->layersOf($bill)),
+            'returns' => $this->layers->returnsOf($bill)->map(fn ($d) => $strip([
+                'id' => $d->id, 'number' => $d->number, 'status' => $d->status, 'document_date' => $d->document_date?->toDateString(),
+                'total_cost' => $d->total_cost, 'notes' => $d->notes, 'creator' => $d->creator?->name,
+                'lines' => $d->lines->map(fn ($l) => ['stock_item' => $l->stockItem?->name, 'quantity' => $l->quantity, 'unit' => $l->unit?->name,
+                    'posted_cost' => $costs ? $l->posted_cost : null])->all(),
+            ], ['total_cost']))->all(),
+            'adjustments' => $this->layers->adjustmentsOf($bill)->map(fn ($a) => $strip([
+                'id' => $a->id, 'number' => $a->number, 'reason' => $a->reason, 'total_value' => $a->total_value,
+                'posted_at' => $a->posted_at?->toIso8601String(), 'creator' => $a->creator?->name,
+                'lines' => $a->lines->map(fn ($l) => ['stock_item' => $l->layer?->stockItem?->name, 'old_unit_cost' => $costs ? $l->old_unit_cost : null,
+                    'new_unit_cost' => $costs ? $l->new_unit_cost : null, 'quantity' => $l->quantity, 'value' => $costs ? $l->value : null])->all(),
+            ], ['total_value']))->all(),
+            'costs_visible' => $costs,
+        ]);
+    }
+
+    /** POST purchases/{bill}/returns {reason?, lines:[{purchase_bill_item_id, quantity, unit_id?, allocations?:[{layer_id, quantity}]}]} */
+    public function storeReturn(Request $request, PurchaseBill $bill): JsonResponse
+    {
+        $data = $this->validateAr($request, [
+            'reason' => ['nullable', 'string', 'max:300'],
+            'lines' => ['required', 'array', 'min:1'],
+            'lines.*.purchase_bill_item_id' => ['required', 'integer', 'distinct'],
+            'lines.*.quantity' => ['required', 'numeric', 'gt:0'],
+            'lines.*.unit_id' => ['nullable', 'integer', 'exists:stock_units,id'],
+            'lines.*.allocations' => ['nullable', 'array'],
+            'lines.*.allocations.*.layer_id' => ['required', 'integer', 'exists:stock_layers,id'],
+            'lines.*.allocations.*.quantity' => ['required', 'numeric', 'gt:0'],
+        ]);
+        if ($denied = $this->denyWrite($request, $bill)) {
+            return $denied;
+        }
+
+        return $this->attempt(fn () => $this->success('تم ترحيل المرتجع وقيده',
+            $this->layers->createReturn($bill, $data['lines'], $data['reason'] ?? null, $request->user()), 201));
+    }
+
+    /** POST purchases/returns/{document}/reverse {reason} */
+    public function reverseReturn(Request $request, \App\Models\StockDocument $document): JsonResponse
+    {
+        $data = $this->validateAr($request, ['reason' => ['required', 'string', 'max:500']]);
+        if ($denied = $this->denyUnlessCanAccess($request, Warehouse::findOrFail($document->warehouse_id))) {
+            return $denied;
+        }
+
+        return $this->attempt(fn () => $this->success('تم عكس المرتجع وقيده',
+            $this->layers->reverseReturn($document, $data['reason'], $request->user())));
+    }
+
+    /** POST purchases/{bill}/cost-adjustments {reason, lines:[{purchase_bill_item_id, unit_cost}]} — تسوية سعر بعد الصرف. */
+    public function storeCostAdjustment(Request $request, PurchaseBill $bill): JsonResponse
+    {
+        $data = $this->validateAr($request, [
+            'reason' => ['required', 'string', 'max:500'],
+            'lines' => ['required', 'array', 'min:1'],
+            'lines.*.purchase_bill_item_id' => ['required', 'integer', 'distinct'],
+            'lines.*.unit_cost' => ['required', 'numeric', 'min:0'],
+        ]);
+        if ($denied = $this->denyWrite($request, $bill)) {
+            return $denied;
+        }
+
+        return $this->attempt(fn () => $this->success('تم ترحيل تسوية السعر',
+            $this->layers->adjustCost($bill, $data['lines'], $data['reason'], $request->user()), 201));
+    }
 
     /** GET purchases/meta — الموردون والمخازن والحسابات ونسب الضريبة وإعداد تحذير السعر. */
     public function meta(Request $request): JsonResponse
@@ -263,6 +344,7 @@ class PurchaseInvoiceController extends InventoryController
             'lines.*.unit_id' => ['nullable', 'integer', 'exists:stock_units,id'],
             'lines.*.description' => ['nullable', 'string', 'max:255'],
             'lines.*.account_id' => ['nullable', 'integer', 'exists:accounts,id'],
+            'lines.*.allocate_to_stock' => ['nullable', 'boolean'],
             'lines.*.quantity' => ['nullable', 'numeric', 'gt:0'],
             'lines.*.unit_price' => ['required', 'numeric', 'min:0'],
             'lines.*.discount_pct' => ['nullable', 'numeric', 'min:0', 'max:100'],
@@ -326,6 +408,9 @@ class PurchaseInvoiceController extends InventoryController
                 'edit' => $bill->is_inventory && $bill->status === 'draft' && $user->can('purchases.create'),
                 'post' => $bill->is_inventory && $bill->status === 'draft' && $user->can('purchases.post'),
                 'reverse' => $bill->is_inventory && $bill->isPosted() && $user->can('purchases.reverse'),
+                // مرتجع وتسوية سعر لفاتورة مرحّلة باستلام مخزني.
+                'return' => $bill->is_inventory && $bill->isPosted() && $bill->stock_document_id !== null && $user->can('purchases.post'),
+                'adjust_cost' => $bill->is_inventory && $bill->isPosted() && $bill->stock_document_id !== null && $user->can('purchases.post'),
                 'pay' => $bill->is_inventory && in_array($bill->status, ['unpaid', 'partially_paid', 'overdue'], true) && $user->can('purchases.pay'),
             ],
         ];

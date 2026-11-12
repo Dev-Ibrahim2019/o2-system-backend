@@ -170,8 +170,11 @@ class StockLedgerController extends InventoryController
                 'type_label' => StockMovement::typeLabel($m->type),
                 'reversal_of_id' => $m->reversal_of_id,
                 'is_reversed' => $m->reversedBy !== null,
+                // الوارد يُعكس فقط إن لم يُصرف شيء من دفعته (الدفعات).
                 'can_reverse' => $m->reversal_of_id === null && $m->reversedBy === null
-                    && in_array($m->type, StockMovement::MANUALLY_REVERSIBLE, true),
+                    && in_array($m->type, StockMovement::MANUALLY_REVERSIBLE, true)
+                    && ! \App\Models\StockLayer::where('movement_id', $m->id)->whereColumn('qty_remaining', '<', 'qty_in')->exists(),
+                'is_cost_adjustment' => $m->adjusts_movement_id !== null || $m->type === 'revaluation',
                 'warehouse' => $m->warehouse ? ['id' => $m->warehouse->id, 'name' => $m->warehouse->name, 'code' => $m->warehouse->code] : null,
                 'quantity' => $m->quantity,
                 'quantity_in' => $incoming ? (string) $m->quantity : '0',

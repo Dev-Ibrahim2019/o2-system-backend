@@ -4,6 +4,7 @@ namespace App\Services\Inventory;
 
 use App\Models\StockCount;
 use App\Models\StockCountLine;
+use App\Models\StockDraftAllocation;
 use App\Models\StockItem;
 use App\Models\StockMovement;
 use App\Models\User;
@@ -134,7 +135,18 @@ class StockCountService
                     'unit_id' => $unitId,
                     'entered_quantity' => UnitConverter::toBase($entered, '1'),
                     'counted_quantity' => $counted,
+                    // سعر الزيادة (للوحدة الأساسية) إن أدخله المستخدم؛ فارغ = سعر آخر دفعة عند الاعتماد.
+                    'entered_unit_cost' => isset($l['unit_cost']) && $l['unit_cost'] !== '' && $l['unit_cost'] !== null
+                        ? UnitConverter::fromBase((string) $l['unit_cost'], $this->factor($item, $unitId)) : null,
                 ])->save();
+                // توزيع العجز على الدفعات (بالوحدة الأساسية) — فارغ = الأقدم أولاً.
+                if (array_key_exists('allocations', $l)) {
+                    StockDraftAllocation::where('owner_type', StockDraftAllocation::COUNT_LINE)->where('owner_id', $line->id)->delete();
+                    foreach ($l['allocations'] ?? [] as $a) {
+                        StockDraftAllocation::create(['owner_type' => StockDraftAllocation::COUNT_LINE, 'owner_id' => $line->id,
+                            'layer_id' => (int) $a['layer_id'], 'quantity' => UnitConverter::round((string) $a['quantity'])]);
+                    }
+                }
             }
             $count->update(['notes' => $notes]);
 
@@ -300,7 +312,6 @@ class StockCountService
                 ->lockForUpdate()
                 ->get()
                 ->keyBy('stock_item_id');
-            $lastCosts = StockItem::whereIn('id', $lines->pluck('stock_item_id'))->pluck('last_cost', 'id');
             $today = $this->accountingDay->of(now());
 
             $movementLines = [];
@@ -319,20 +330,26 @@ class StockCountService
                 }
                 $line->save();
 
-                // الزيادة تدخل بمتوسط التكلفة الحالي (أو آخر تكلفة شراء إن كان المتوسط صفراً)؛ العجز يخرج بالمتوسط.
-                $inCost = bccomp((string) $b->avg_cost, '0', UnitConverter::SCALE) > 0 ? (string) $b->avg_cost : (string) ($lastCosts[$line->stock_item_id] ?? '0');
+                // الزيادة دفعة جديدة بالسعر الذي أدخله المستخدم، وإلا بسعر آخر دفعة للصنف؛ العجز يُصرف من الدفعات
+                // (توزيع المستخدم إن وُجد، وإلا الأقدم أولاً).
+                $surplus = bccomp($variance, '0', UnitConverter::SCALE) > 0;
+                $inCost = $line->entered_unit_cost !== null
+                    ? (string) $line->entered_unit_cost
+                    : $this->ledger->layers()->latestCost((int) $count->warehouse_id, (int) $line->stock_item_id);
                 $owner[] = $line;
                 $movementLines[] = new StockMovementLine(
                     warehouseId: $count->warehouse_id,
                     stockItemId: $line->stock_item_id,
                     type: 'adjustment',
                     quantity: $variance,
-                    unitCost: bccomp($variance, '0', UnitConverter::SCALE) > 0 ? $inCost : null,
+                    unitCost: $surplus ? $inCost : null,
                     occurredAt: now(),
                     sourceType: StockCount::SOURCE_TYPE,
                     sourceId: $count->id,
                     idempotencyKey: 'count:'.$count->id.':line:'.$line->id,
                     notes: $count->number,
+                    allocations: $surplus ? null : $this->countAllocations($line->id),
+                    sourceLineId: $line->id,
                 );
             }
 
@@ -406,6 +423,14 @@ class StockCountService
         }
 
         return (string) $alt->factor;
+    }
+
+    /** @return array<int, array{layer_id:int, quantity:string}>|null توزيع عجز سطر الجرد على الدفعات (null = الأقدم أولاً). */
+    private function countAllocations(int $lineId): ?array
+    {
+        $rows = StockDraftAllocation::where('owner_type', StockDraftAllocation::COUNT_LINE)->where('owner_id', $lineId)->orderBy('id')->get();
+
+        return $rows->isEmpty() ? null : $rows->map(fn ($r) => ['layer_id' => (int) $r->layer_id, 'quantity' => (string) $r->quantity])->all();
     }
 
     private function lockDraft(StockCount $count): StockCount

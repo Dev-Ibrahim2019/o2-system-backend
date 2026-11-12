@@ -216,16 +216,16 @@ class PurchaseInvoiceTest extends TestCase
         $this->assertSame('active', Voucher::where('purchase_bill_id', $id)->value('status'));
     }
 
-    public function test_reverse_goes_through_with_negative_balance_when_allowed(): void
+    public function test_reverse_is_rejected_after_consumption_even_when_negative_stock_is_allowed(): void
     {
+        // إلغاء ترحيل الفاتورة مسموح فقط إن لم يُصرف شيء من دفعاتها — مهما كان إعداد الرصيد السالب.
         \App\Models\InventorySetting::current()->update(['allow_negative_stock' => true]);
         $id = $this->create([$this->meatLine('10', '50')], ['payment_mode' => 'cash', 'cash_account_id' => $this->cash])->json('data.id');
         $this->postBill($id)->assertOk();
         app(StockLedger::class)->post(new StockMovementLine($this->store->id, $this->meat->id, 'sale', '-6500'));
 
-        $this->actingAs($this->buyer)->postJson("/api/inventory/purchases/{$id}/reverse", ['reason' => 'خطأ'])
-            ->assertOk()->assertJsonPath('data.status', 'reversed');
-        $this->assertSame('-6500.000000', $this->balance()->quantity);
+        $this->actingAs($this->buyer)->postJson("/api/inventory/purchases/{$id}/reverse", ['reason' => 'خطأ'])->assertStatus(422);
+        $this->assertSame('3500.000000', $this->balance()->quantity);
     }
 
     public function test_reverse_undoes_receipt_entry_and_payments_together(): void
